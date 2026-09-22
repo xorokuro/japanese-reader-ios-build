@@ -23,6 +23,8 @@ struct JapaneseSearchField: UIViewRepresentable {
     let focusRequest: Int
     let active: Bool
     let ink: UIColor
+    /// Caret and selection color; `nil` keeps the inherited tint.
+    var accent: UIColor? = nil
     var changed: ((String) -> Void)? = nil
     let submit: () -> Void
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -48,6 +50,14 @@ struct JapaneseSearchField: UIViewRepresentable {
         // Do not replace marked text while the Japanese IME is composing.
         if field.markedTextRange == nil, field.text != text { field.text = text }
         field.textColor = ink
+        if let accent, field.tintColor != accent { field.tintColor = accent }
+        // Keep the placeholder legible on every theme background.
+        if coordinator.placeholderInk != ink {
+            coordinator.placeholderInk = ink
+            field.attributedPlaceholder = NSAttributedString(
+                string: "Search Japanese…",
+                attributes: [.foregroundColor: ink.withAlphaComponent(0.42)])
+        }
         let shouldFocus = active && (!coordinator.wasActive || coordinator.lastRequest != focusRequest)
         coordinator.wasActive = active
         coordinator.lastRequest = focusRequest
@@ -64,6 +74,7 @@ struct JapaneseSearchField: UIViewRepresentable {
         var wasActive = false
         var autoFocused = false
         var lastRequest = -1
+        var placeholderInk: UIColor?
         init(_ parent: JapaneseSearchField) { self.parent = parent }
         @objc func changed(_ field: UITextField) {
             let query = field.text ?? ""
