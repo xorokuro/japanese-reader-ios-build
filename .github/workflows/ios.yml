@@ -1,8 +1,7 @@
 name: Build iPhone app
 on:
   workflow_dispatch:
-# Disabled in repository settings at the user's request. Do not enable or
-# dispatch this workflow without new explicit authorization for Actions usage.
+# User-authorized public build only. Disable Actions before making this repository private.
 permissions:
   contents: read
 jobs:
@@ -37,4 +36,5 @@ jobs:
             ios/build/screenshots/*.txt
             ios/build/screenshots/manifest.json
           retention-days: 7
+
 
