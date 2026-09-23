@@ -299,10 +299,6 @@ struct LookupSnapshot {
         guard !saved.contains(where: { $0.text == text }) else { status = "Already in your library."; return }
         if store([SavedText(text: text)] + saved) { status = "Saved to your library." }
     }
-    func readPassage() {
-        if autoSave { save() }
-        else { status = "Auto-save is off. Tap Save if you want to keep this passage." }
-    }
     func updateNote(id: UUID, note: String) {
         var next = saved
         guard let index = next.firstIndex(where: { $0.id == id }) else { return }
@@ -369,7 +365,13 @@ struct LookupSnapshot {
     @StateObject private var model: ReaderModel
     init() {
         #if DEBUG
+        if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "--ui-clipboard"),
+           ProcessInfo.processInfo.arguments.indices.contains(index + 1) {
+            UIPasteboard.general.string = ProcessInfo.processInfo.arguments[index + 1]
+        }
         if ProcessInfo.processInfo.arguments.contains("--ui-dictionary-fixture") {
+            UserDefaults.standard.set(false, forKey: "savePassagesOnRead")
+            UserDefaults.standard.set(true, forKey: "readerAutoSearch")
             _model = StateObject(wrappedValue: ReaderModel(documents: UITestFixture.documents()))
         } else { _model = StateObject(wrappedValue: ReaderModel()) }
         #else
@@ -386,13 +388,11 @@ struct ReaderHome: View {
     @State private var clearedPassage: String?
     @State private var translation = false
     @State private var selectedTab = 0
-    @State private var editing = true
     @State private var searchFocusRequest = 0
     @State private var wantsSearchFocus = false
     @State private var switchingDictionary = false
     @State private var librarySearch = ""
     @State private var deleteAll = false
-    @FocusState private var passageFocused: Bool
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("paletteAccent") private var accentRGB = 0x1F7A73
     @AppStorage("palettePaper") private var paperRGB = 0xFFFFFF
@@ -412,7 +412,6 @@ struct ReaderHome: View {
         Binding(get: { Palette.color(value.wrappedValue) }, set: { value.wrappedValue = Palette.rgb($0) })
     }
     private func dismissKeyboard() {
-        passageFocused = false
         wantsSearchFocus = false
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
@@ -421,13 +420,18 @@ struct ReaderHome: View {
         model.cancelPendingSearch()
         model.text = ""; model.readerOffset = .zero; model.readerSelection = ""
         model.status = "Passage cleared."
-        editing = true
         dismissKeyboard()
     }
-    private func read() {
-        passageFocused = false
-        model.readPassage(); editing = false
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    private func pastePassage(_ strings: [String]) {
+        guard !strings.isEmpty else { return }
+        model.closeLookup()
+        model.text = strings.joined(separator: "\n")
+        model.readerOffset = .zero
+        model.readerSelection = ""
+        model.status = ""
+        clearedPassage = nil
+        if model.autoSave { model.save() }
+        dismissKeyboard()
     }
     private var filteredPassages: [SavedText] {
         guard !librarySearch.isEmpty else { return model.saved }
@@ -471,11 +475,7 @@ struct ReaderHome: View {
     // Stays reachable above the keyboard on every screen.
     private var keyboardBar: some View {
         HStack {
-            if selectedTab == 0 && passageFocused {
-                Button("Read") { read() }.accessibilityIdentifier("openPassage")
-            } else {
-                Button("Read") { dismissKeyboard(); selectedTab = 0 }.accessibilityIdentifier("keyboardReadTab")
-            }
+            Button("Read") { dismissKeyboard(); selectedTab = 0 }.accessibilityIdentifier("keyboardReadTab")
             Spacer()
             Button("Search") { selectedTab = 1; requestSearchFocus() }.accessibilityIdentifier("keyboardSearchTab")
             Spacer()
@@ -497,7 +497,7 @@ struct ReaderHome: View {
     private var readerTab: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if editing { composeView } else { readingView }
+                readingView
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(paper)
@@ -511,12 +511,22 @@ struct ReaderHome: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    if !editing {
-                        Menu("Actions") {
-                            Button("Translate") { translation = true }.disabled(model.text.isEmpty)
-                            Button("Copy learning prompt") { UIPasteboard.general.string = model.prompt(); model.status = "Learning prompt copied." }
-                        }.translationPresentation(isPresented: $translation, text: model.text)
+                    Menu {
+                        Button("Save") { model.save() }.disabled(model.text.isEmpty)
+                        Button("Translate") { translation = true }.disabled(model.text.isEmpty)
+                        Button("Copy learning prompt") { UIPasteboard.general.string = model.prompt(); model.status = "Learning prompt copied." }
+                            .disabled(model.text.isEmpty)
+                        Divider()
+                        Toggle("Auto-search selected words", isOn: $model.readerAutoSearch)
+                            .accessibilityIdentifier("readerAutoSearch")
+                        Toggle("Auto-save pasted passages", isOn: $model.autoSave)
+                            .accessibilityIdentifier("autoSavePassages")
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
                     }
+                    .accessibilityLabel("Reader options")
+                    .accessibilityIdentifier("readerOptions")
+                    .translationPresentation(isPresented: $translation, text: model.text)
                 }
             }
         }
@@ -525,119 +535,8 @@ struct ReaderHome: View {
         .tabItem { Label("Read", systemImage: "book") }.tag(0)
     }
 
-    private var composeView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: ReaderMetrics.stack) {
-                HStack(spacing: 10) {
-                    PasteButton(payloadType: String.self) { strings in
-                        guard !strings.isEmpty else { return }
-                        model.text = strings.joined(separator: "\n"); model.readerOffset = .zero
-                        model.status = ""
-                        editing = true
-                        passageFocused = false
-                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(accent)
-                    .foregroundStyle(style.onAccent)
-                    .accessibilityIdentifier("pastePassage")
-                    Text("Paste Japanese from another app").font(.caption).foregroundStyle(style.secondary)
-                    Spacer(minLength: 0)
-                }
-                Text("Paste a passage. Select a word to look it up.").font(.subheadline).foregroundStyle(style.secondary)
-                optionsPanel
-                Picker("Reading mode", selection: $editing) {
-                    Text("Paste / edit").tag(true); Text("Read / select words").tag(false)
-                }
-                .pickerStyle(.segmented)
-                .background(KeyboardControlArea())
-                editorPanel
-                HStack(spacing: 10) {
-                    if !passageFocused {
-                        Button("Read") { read() }
-                            .buttonStyle(PrimaryActionStyle(style: style))
-                            .accessibilityIdentifier("openPassage")
-                    }
-                    Button("Save") { model.save() }
-                    Button("Translate") { translation = true }
-                        .disabled(model.text.isEmpty)
-                        .translationPresentation(isPresented: $translation, text: model.text)
-                    Spacer(minLength: 0)
-                }
-                .buttonStyle(SoftActionStyle(style: style))
-                Button {
-                    UIPasteboard.general.string = model.prompt()
-                    model.status = "Learning prompt copied. Paste it into your preferred AI app."
-                } label: {
-                    Label("Copy learning prompt", systemImage: "doc.on.doc")
-                }
-                .buttonStyle(SoftActionStyle(style: style, prominent: true))
-                if !model.status.isEmpty { StatusNote(text: model.status, style: style) }
-            }
-            .padding(.horizontal, ReaderMetrics.gutter)
-            .padding(.top, 12)
-            .padding(.bottom, 26)
-        }
-        .scrollDismissesKeyboard(.interactively)
-    }
-
-    private var optionsPanel: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Toggle("Auto-search selected words", isOn: $model.readerAutoSearch)
-                .background(KeyboardControlArea())
-                .accessibilityIdentifier("readerAutoSearch")
-            Rectangle().fill(style.separator).frame(height: 1)
-            Toggle("Auto-save passages", isOn: $model.autoSave)
-                .background(KeyboardControlArea())
-                .accessibilityIdentifier("autoSavePassages")
-            Text(model.autoSave ? "Saved when you tap Read. Your choice is remembered." : "Off: pasted text stays temporary unless you tap Save.")
-                .font(.caption).foregroundStyle(style.faint)
-        }
-        .font(.subheadline)
-        .readerInset(style, padding: 12)
-    }
-
-    private var editorPanel: some View {
-        ZStack(alignment: .topLeading) {
-            TextEditor(text: $model.text)
-                .scrollContentBackground(.hidden)
-                .foregroundStyle(ink)
-                .background(Color.clear)
-                .font(.system(size: 21))
-                .lineSpacing(5)
-                .focused($passageFocused)
-                .frame(height: 220)
-                .accessibilityIdentifier("passageEditor")
-            if model.text.isEmpty {
-                Text("日本語をここに貼り付け")
-                    .font(.system(size: 20))
-                    .foregroundStyle(style.faint)
-                    .padding(.top, 9).padding(.leading, 6)
-                    .allowsHitTesting(false)
-            }
-        }
-        .padding(8)
-        .background(style.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(passageFocused ? accent.opacity(0.8) : style.hairline,
-                              lineWidth: passageFocused ? 1.8 : 1)
-        )
-        .animation(.easeOut(duration: 0.18), value: passageFocused)
-    }
-
     private var readingView: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Toggle("Auto-search selected words", isOn: $model.readerAutoSearch)
-                    .background(KeyboardControlArea())
-                    .accessibilityIdentifier("readerAutoSearch")
-            }
-            .font(.subheadline)
-            .foregroundStyle(style.secondary)
-            .padding(.horizontal, ReaderMetrics.gutter)
-            .padding(.vertical, 9)
-            Rectangle().fill(style.separator).frame(height: 1)
             SelectableJapanese(text: model.text, ink: UIColor(ink), paper: UIColor(style.surface),
                                tint: UIColor(accent), initialOffset: model.readerOffset,
                                saveOffset: { model.readerOffset = $0 }) { word in
@@ -646,6 +545,19 @@ struct ReaderHome: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(style.surface)
+            .overlay {
+                if model.text.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "doc.on.clipboard").font(.largeTitle)
+                        Text("Paste a passage to start reading").font(.headline)
+                        Text("Copy Japanese from another app, then tap Paste. Select any word to look it up.")
+                            .font(.subheadline).multilineTextAlignment(.center)
+                    }
+                    .foregroundStyle(style.secondary)
+                    .padding(32)
+                    .allowsHitTesting(false)
+                }
+            }
             readingActions
         }
     }
@@ -653,12 +565,15 @@ struct ReaderHome: View {
     private var readingActions: some View {
         VStack(spacing: 8) {
             HStack(spacing: 9) {
-                Button("Paste / edit") { editing = true; model.readerSelection = "" }
-                Button("Save") { model.save() }
+                PasteButton(payloadType: String.self, onPaste: pastePassage)
+                    .buttonStyle(.borderedProminent)
+                    .tint(accent)
+                    .accessibilityIdentifier("pastePassage")
                 Spacer(minLength: 0)
-                Button("Search selected text") { model.searchSelected(inDictionary: false) }
-                    .buttonStyle(SoftActionStyle(style: style, prominent: true))
-                    .disabled(model.readerSelection.isEmpty)
+                if !model.readerSelection.isEmpty {
+                    Button("Search selected text") { model.searchSelected(inDictionary: false) }
+                        .buttonStyle(SoftActionStyle(style: style, prominent: true))
+                }
             }
             .buttonStyle(SoftActionStyle(style: style))
             if !model.status.isEmpty {
@@ -977,7 +892,7 @@ struct ReaderHome: View {
             }
             ForEach(filteredPassages) { item in
                 VStack(alignment: .leading, spacing: 7) {
-                    Button { model.text = item.text; model.readerOffset = .zero; selectedTab = 0; editing = false } label: {
+                    Button { model.text = item.text; model.readerOffset = .zero; selectedTab = 0 } label: {
                         Text(item.text)
                             .lineLimit(3)
                             .font(.system(size: 16))

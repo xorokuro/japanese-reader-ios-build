@@ -9,3 +9,7 @@ Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7).
 ## 1.6 — appearance themes
 
 Library → Appearance offers System, four light themes (Washi Paper, Sakura, Morning Mist, Sepia Study), four dark themes (Midnight Ink, Jade Lantern, Plum Night, True Black) and Custom, which keeps the earlier accent and background pickers. Each theme derives its own reading ink and adjusts its accent until it clears 4.8:1 contrast against both the page and the card surface. Reading, text selection, dictionary lookup, saved passages, notes, navigation and every stored preference are unchanged; existing colour choices are preserved on upgrade.
+
+## Single-screen reader
+
+Read opens directly to the full-height selectable passage. Tap Paste to replace the current passage and immediately look up words; there is no editor mode or Read confirmation. Reader options holds Save, Translate, Copy learning prompt, auto-search and auto-save. Auto-save now runs when pasting; it remains off by default. Clear can still be undone, and saved passages open on the same reading surface.
