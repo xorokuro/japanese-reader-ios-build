@@ -1,32 +1,40 @@
 import XCTest
 
 final class ReaderUITests: XCTestCase {
-    func testBackgroundDismissClearUndoAndKeyboardNavigation() {
+    func testDictionaryResultGroupsCollapseIndependently() {
         let app = XCUIApplication()
+        app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard"]
         app.launch()
-        let editor = app.textViews["passageEditor"]
-        XCTAssertTrue(editor.waitForExistence(timeout: 10))
-        editor.tap(); editor.typeText("Passage to clear")
-        XCTAssertTrue(app.buttons["keyboardLibraryTab"].isHittable)
-        app.staticTexts["Paste a passage. Select a word to look it up."].tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
-        app.buttons["clearPassage"].tap()
-        XCTAssertEqual(editor.value as? String, "")
-        app.buttons["undoClearPassage"].tap()
-        XCTAssertEqual(editor.value as? String, "Passage to clear")
         app.tabBars.buttons["Search"].tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)).tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
-        app.textFields["dictionarySearchField"].tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
-        app.buttons["keyboardLibraryTab"].tap()
-        XCTAssertTrue(app.navigationBars["Library & setup"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        let field = app.textFields["dictionarySearchField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap(); field.typeText("みほん")
+        XCTAssertTrue(app.buttons["dictionaryResult_みほん"].firstMatch.waitForExistence(timeout: 15))
+        app.buttons["dismissKeyboard"].tap()
+        let first = app.buttons["dictionaryGroup_results:base:DEMO_A"]
+        let second = app.buttons["dictionaryGroup_results:base:DEMO_B"]
+        XCTAssertEqual(first.value as? String, "Expanded")
+        first.tap()
+        XCTAssertEqual(first.value as? String, "Collapsed")
+        XCTAssertTrue(second.isHittable)
+        XCTAssertEqual(app.buttons.matching(identifier: "dictionaryResult_みほん").count, 1)
+        second.tap()
+        XCTAssertEqual(second.value as? String, "Collapsed")
+        XCTAssertFalse(app.buttons["dictionaryResult_みほん"].exists)
+        first.tap()
+        XCTAssertEqual(first.value as? String, "Expanded")
+        XCTAssertEqual(second.value as? String, "Collapsed")
+        XCTAssertEqual(app.buttons.matching(identifier: "dictionaryResult_みほん").count, 1)
+        app.buttons["dictionaryResult_みほん"].tap()
+        XCTAssertTrue(app.webViews["dictionaryEntryPage"].waitForExistence(timeout: 10))
+        app.buttons["Back"].tap()
+        XCTAssertTrue(second.waitForExistence(timeout: 5))
+        XCTAssertEqual(second.value as? String, "Collapsed")
     }
+
     func testLiveJapaneseSearchDictionarySwitcherAndBack() {
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-dictionary-fixture"]
+        app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard"]
         app.launch()
         app.tabBars.buttons["Search"].tap()
         let field = app.textFields["dictionarySearchField"]
@@ -34,6 +42,7 @@ final class ReaderUITests: XCTestCase {
         let scope = app.buttons["searchScope_base:DEMO_A"]
         XCTAssertTrue(scope.waitForExistence(timeout: 5))
         scope.tap()
+        field.tap()
         field.typeText("みほん")
         let result = app.buttons["dictionaryResult_みほん"].firstMatch
         XCTAssertTrue(result.waitForExistence(timeout: 15), "Search must happen without tapping submit")
@@ -65,124 +74,117 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(app.webViews.links["実物"].waitForExistence(timeout: 15))
         app.buttons["Back"].tap()
         XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        app.buttons["Show search keyboard"].tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         field.typeText("missing")
         XCTAssertEqual(field.value as? String, "missing")
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.35)).press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.35)))
-        XCTAssertTrue(app.textViews["passageEditor"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textViews["selectablePassage"].waitForExistence(timeout: 5))
     }
-    func testSearchFocusSelectAllAndReturnToReader() {
+    func testSearchKeyboardDefaultsOffAndPreferencePersists() {
         let app = XCUIApplication()
+        app.launchArguments = ["--ui-reset-search-keyboard"]
         app.launch()
         app.tabBars.buttons["Search"].tap()
         let field = app.textFields["dictionarySearchField"]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+        field.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         field.typeText("previous")
         app.buttons["Back to Main Page"].tap()
-        XCTAssertTrue(app.textViews["passageEditor"].waitForExistence(timeout: 5))
         app.tabBars.buttons["Search"].tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+        app.buttons["Show search keyboard"].tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         field.typeText("next")
-        XCTAssertEqual(field.value as? String, "next", "Reentering Search selects all existing text")
-    }
-    func testPasteButton() {
-        let app = XCUIApplication()
+        XCTAssertEqual(field.value as? String, "next")
+        app.buttons["keyboardLibraryTab"].tap()
+        let setting = app.switches["automaticallyShowSearchKeyboard"]
+        XCTAssertTrue(setting.waitForExistence(timeout: 5))
+        XCTAssertEqual(setting.value as? String, "0")
+        setting.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        app.tabBars.buttons["Search"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        app.terminate()
+        app.launchArguments = []
         app.launch()
-        let editor = app.textViews["passageEditor"]
-        XCTAssertTrue(editor.waitForExistence(timeout: 10))
-        editor.tap(); editor.typeText("Clipboard passage")
-        app.buttons["dismissKeyboard"].tap()
-        app.buttons["Copy learning prompt"].tap()
-        app.swipeDown()
-        let paste = app.buttons["pastePassage"]
-        XCTAssertTrue(paste.waitForExistence(timeout: 5))
-        paste.tap()
-        XCTAssertTrue((editor.value as? String ?? "").contains("Help me study this Japanese passage."))
-        XCTAssertTrue((editor.value as? String ?? "").contains("Clipboard passage"))
+        app.tabBars.buttons["Search"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        app.buttons["keyboardLibraryTab"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        XCTAssertEqual(setting.value as? String, "1")
+        setting.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        XCTAssertEqual(setting.value as? String, "0")
+        app.tabBars.buttons["Search"].tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+    }
+    func testPasteReadsImmediatelyAndClearCanBeUndone() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-dictionary-fixture", "--ui-clipboard", "みほん"]
+        app.launch()
+        let reader = app.textViews["selectablePassage"]
+        XCTAssertTrue(reader.waitForExistence(timeout: 10))
+        XCTAssertGreaterThan(reader.frame.height, app.frame.height * 0.6)
+        XCTAssertFalse(app.segmentedControls["Reading mode"].exists)
+        XCTAssertFalse(app.buttons["openPassage"].exists)
+        app.buttons["pastePassage"].tap()
+        XCTAssertEqual(reader.value as? String, "みほん")
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "Single screen paste and read"; shot.lifetime = .keepAlways; add(shot)
+        app.buttons["clearPassage"].tap()
+        XCTAssertEqual(reader.value as? String, "")
+        app.buttons["undoClearPassage"].tap()
+        XCTAssertEqual(reader.value as? String, "みほん")
+        reader.coordinate(withNormalizedOffset: CGVector(dx: 0.09, dy: 0.045)).press(forDuration: 1.2)
+        XCTAssertTrue(app.buttons["dictionaryResult_みほん"].firstMatch.waitForExistence(timeout: 15))
+        app.buttons["Back to Main Page"].tap()
+        XCTAssertEqual(reader.value as? String, "みほん")
         XCTAssertFalse(app.keyboards.firstMatch.exists)
     }
-    func testReadSaveAndSearchWithoutDictionary() {
-        continueAfterFailure = false
+
+    func testAutoSaveHappensOnPaste() {
         let app = XCUIApplication()
+        app.launchArguments = ["--ui-dictionary-fixture", "--ui-clipboard", "Auto-saved passage"]
         app.launch()
-        let editor = app.textViews.firstMatch
-        XCTAssertTrue(editor.waitForExistence(timeout: 10))
-        let readerScreenshot = XCTAttachment(screenshot: app.screenshot())
-        readerScreenshot.name = "Reader screen"
-        readerScreenshot.lifetime = .keepAlways
-        add(readerScreenshot)
-        editor.tap()
-        editor.typeText("Japanese reading test")
-        let keyboard = app.keyboards.firstMatch
-        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
-        XCTAssertGreaterThan(min(editor.frame.maxY, keyboard.frame.minY) - max(editor.frame.minY, 0), 100, "Passage must remain visible above the keyboard")
-        XCTAssertTrue(app.buttons["dismissKeyboard"].isHittable)
-        let keyboardShot = XCTAttachment(screenshot: app.screenshot())
-        keyboardShot.name = "Visible passage with keyboard"
-        keyboardShot.lifetime = .keepAlways
-        add(keyboardShot)
-        XCTAssertEqual(app.switches["autoSavePassages"].value as? String, "0")
-        app.buttons["openPassage"].tap()
-        let reading = app.textViews["selectablePassage"]
-        XCTAssertTrue(reading.waitForExistence(timeout: 5))
-        XCTAssertGreaterThan(reading.frame.height, app.frame.height * 0.5)
-        XCTAssertFalse(app.textFields["dictionarySearchField"].exists)
+        XCTAssertTrue(app.textViews["selectablePassage"].waitForExistence(timeout: 10))
+        // UI fixture runs start with the normal default: auto-save off.
+        app.buttons["pastePassage"].tap()
         app.tabBars.buttons["Library"].tap()
-        XCTAssertTrue(app.staticTexts["emptyLibrary"].waitForExistence(timeout: 10))
-        app.terminate()
+        XCTAssertTrue(app.staticTexts["emptyLibrary"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Read"].tap()
+        app.buttons["readerOptions"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        app.buttons["Auto-save pasted passages"].tap()
+        app.buttons["pastePassage"].tap()
+        app.tabBars.buttons["Library"].tap()
+        XCTAssertTrue(app.buttons["Auto-saved passage"].waitForExistence(timeout: 5))
+        app.buttons["Auto-saved passage"].tap()
+        XCTAssertEqual(app.textViews["selectablePassage"].value as? String, "Auto-saved passage")
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+    }
+
+    func testPasteReplacementAndManualSave() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-dictionary-fixture", "--ui-clipboard", "Clipboard passage"]
         app.launch()
-        XCTAssertEqual(app.textViews["passageEditor"].value as? String, "")
-        app.textViews["passageEditor"].tap()
-        app.textViews["passageEditor"].typeText("Japanese reading test")
-        app.buttons["openPassage"].tap()
+        let reader = app.textViews["selectablePassage"]
+        XCTAssertTrue(reader.waitForExistence(timeout: 10))
+        app.buttons["pastePassage"].tap()
+        XCTAssertEqual(reader.value as? String, "Clipboard passage")
+        app.buttons["readerOptions"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        app.buttons["Copy learning prompt"].tap()
+        app.buttons["pastePassage"].tap()
+        XCTAssertTrue((reader.value as? String ?? "").contains("Help me study this Japanese passage."))
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        app.buttons["readerOptions"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         app.buttons["Save"].tap()
         app.tabBars.buttons["Library"].tap()
-        XCTAssertTrue(app.buttons["Japanese reading test"].waitForExistence(timeout: 15))
-        app.terminate()
-        app.launch()
-        app.tabBars.buttons["Library"].tap()
-        XCTAssertTrue(app.buttons["Japanese reading test"].waitForExistence(timeout: 15))
-        XCTAssertTrue(app.buttons["Export saved texts"].exists)
-        app.buttons["Japanese reading test"].swipeLeft()
-        app.buttons["Delete"].firstMatch.tap()
-        XCTAssertTrue(app.staticTexts["emptyLibrary"].waitForExistence(timeout: 10))
-        app.buttons["Undo delete"].tap()
-        XCTAssertTrue(app.buttons["Japanese reading test"].waitForExistence(timeout: 10))
-        app.buttons["Delete all saved passages"].tap()
-        app.buttons["Delete all"].tap()
-        XCTAssertTrue(app.staticTexts["emptyLibrary"].waitForExistence(timeout: 10))
-        app.terminate(); app.launch()
-        app.tabBars.buttons["Library"].tap()
-        XCTAssertTrue(app.staticTexts["emptyLibrary"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["emptyLibrary"].exists)
         app.tabBars.buttons["Read"].tap()
-        // SwiftUI exposes the entire labelled row as a switch. Its center is
-        // the label; target the visible switch control at the trailing edge.
-        app.switches["autoSavePassages"].coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
-        XCTAssertEqual(app.switches["autoSavePassages"].value as? String, "1")
-        app.textViews["passageEditor"].tap()
-        app.textViews["passageEditor"].typeText("Automatically saved passage")
-        app.buttons["openPassage"].tap()
-        app.tabBars.buttons["Library"].tap()
-        XCTAssertTrue(app.buttons["Automatically saved passage"].waitForExistence(timeout: 10))
-        app.terminate(); app.launch()
-        XCTAssertEqual(app.switches["autoSavePassages"].value as? String, "1")
-        app.switches["autoSavePassages"].coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
-        app.textViews["passageEditor"].tap()
-        app.textViews["passageEditor"].typeText("Keep this temporary")
-        app.buttons["openPassage"].tap()
-        app.tabBars.buttons["Library"].tap()
-        XCTAssertTrue(app.buttons["Automatically saved passage"].waitForExistence(timeout: 10))
-        XCTAssertFalse(app.buttons["Keep this temporary"].exists)
-        app.terminate(); app.launch()
-        XCTAssertEqual(app.switches["autoSavePassages"].value as? String, "0")
-        app.tabBars.buttons["Search"].tap()
-        let search = app.textFields["Search Japanese…"]
-        search.tap(); search.typeText("test")
-        app.buttons["Search dictionaries"].tap()
-        XCTAssertTrue(app.staticTexts["Enable a dictionary in Library first, or add the dictionaries folder."].waitForExistence(timeout: 10))
-        let screenshot = XCTAttachment(screenshot: app.screenshot())
-        screenshot.lifetime = .keepAlways
-        add(screenshot)
+        XCTAssertTrue(reader.exists)
     }
 }

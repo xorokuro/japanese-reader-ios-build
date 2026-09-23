@@ -124,12 +124,44 @@ struct LookupSnapshot {
     @Published var dictionaryAutoSearch = true {
         didSet { preferences.set(dictionaryAutoSearch, forKey: "dictionaryAutoSearch"); cancelPendingSearch() }
     }
-    func cancelPendingSearch() { liveSearch?.cancel(); liveSearch = nil; searchGeneration += 1; lookupBusy = false }
+    private var selectionTouchDown = false
+    private var selectionTouchCancelled = false
+    private var heldSelection: (text: String, inDictionary: Bool)?
+    private var releasedSelection: DispatchWorkItem?
+    func cancelPendingSearch() {
+        liveSearch?.cancel(); liveSearch = nil
+        releasedSelection?.cancel(); releasedSelection = nil; heldSelection = nil
+        searchGeneration += 1; lookupBusy = false
+    }
+    func selectionTouchChanged(down: Bool, cancelled: Bool) {
+        selectionTouchDown = down
+        selectionTouchCancelled = cancelled
+        if down || cancelled {
+            // Invalidate even a lookup already running on the dictionary queue.
+            cancelPendingSearch()
+            return
+        }
+        guard let selection = heldSelection else { return }
+        let generation = searchGeneration
+        let action = DispatchWorkItem { [weak self] in
+            guard let self, !self.selectionTouchDown, !self.selectionTouchCancelled,
+                  self.searchGeneration == generation else { return }
+            self.select(selection.text, inDictionary: selection.inDictionary)
+        }
+        releasedSelection = action
+        // Let UIKit/WebKit deliver the final selection update after touch-up.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: action)
+    }
     func select(_ text: String, inDictionary: Bool) {
         if !text.isEmpty { selectionFromDictionary = inDictionary }
         if inDictionary { dictionarySelection = text } else { readerSelection = text }
         cancelPendingSearch()
-        guard !text.isEmpty, (inDictionary ? dictionaryAutoSearch : readerAutoSearch) else { return }
+        guard !text.isEmpty, !selectionTouchCancelled,
+              (inDictionary ? dictionaryAutoSearch : readerAutoSearch) else { return }
+        if selectionTouchDown {
+            heldSelection = (text, inDictionary)
+            return
+        }
         word = text
         search(dismissKeyboard: false, navigate: true, onlyIfMatched: true)
     }
@@ -299,10 +331,6 @@ struct LookupSnapshot {
         guard !saved.contains(where: { $0.text == text }) else { status = "Already in your library."; return }
         if store([SavedText(text: text)] + saved) { status = "Saved to your library." }
     }
-    func readPassage() {
-        if autoSave { save() }
-        else { status = "Auto-save is off. Tap Save if you want to keep this passage." }
-    }
     func updateNote(id: UUID, note: String) {
         var next = saved
         guard let index = next.firstIndex(where: { $0.id == id }) else { return }
@@ -369,7 +397,16 @@ struct LookupSnapshot {
     @StateObject private var model: ReaderModel
     init() {
         #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-reset-search-keyboard") {
+            UserDefaults.standard.removeObject(forKey: "automaticallyShowSearchKeyboard")
+        }
+        if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "--ui-clipboard"),
+           ProcessInfo.processInfo.arguments.indices.contains(index + 1) {
+            UIPasteboard.general.string = ProcessInfo.processInfo.arguments[index + 1]
+        }
         if ProcessInfo.processInfo.arguments.contains("--ui-dictionary-fixture") {
+            UserDefaults.standard.set(false, forKey: "savePassagesOnRead")
+            UserDefaults.standard.set(true, forKey: "readerAutoSearch")
             _model = StateObject(wrappedValue: ReaderModel(documents: UITestFixture.documents()))
         } else { _model = StateObject(wrappedValue: ReaderModel()) }
         #else
@@ -386,13 +423,13 @@ struct ReaderHome: View {
     @State private var clearedPassage: String?
     @State private var translation = false
     @State private var selectedTab = 0
-    @State private var editing = true
     @State private var searchFocusRequest = 0
+    @AppStorage("automaticallyShowSearchKeyboard") private var automaticallyShowSearchKeyboard = false
     @State private var wantsSearchFocus = false
     @State private var switchingDictionary = false
+    @State private var collapsedResultGroups = Set<String>()
     @State private var librarySearch = ""
     @State private var deleteAll = false
-    @FocusState private var passageFocused: Bool
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("paletteAccent") private var accentRGB = 0x1F7A73
     @AppStorage("palettePaper") private var paperRGB = 0xFFFFFF
@@ -412,7 +449,6 @@ struct ReaderHome: View {
         Binding(get: { Palette.color(value.wrappedValue) }, set: { value.wrappedValue = Palette.rgb($0) })
     }
     private func dismissKeyboard() {
-        passageFocused = false
         wantsSearchFocus = false
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
@@ -421,13 +457,18 @@ struct ReaderHome: View {
         model.cancelPendingSearch()
         model.text = ""; model.readerOffset = .zero; model.readerSelection = ""
         model.status = "Passage cleared."
-        editing = true
         dismissKeyboard()
     }
-    private func read() {
-        passageFocused = false
-        model.readPassage(); editing = false
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    private func pastePassage(_ strings: [String]) {
+        guard !strings.isEmpty else { return }
+        model.closeLookup()
+        model.text = strings.joined(separator: "\n")
+        model.readerOffset = .zero
+        model.readerSelection = ""
+        model.status = ""
+        clearedPassage = nil
+        if model.autoSave { model.save() }
+        dismissKeyboard()
     }
     private var filteredPassages: [SavedText] {
         guard !librarySearch.isEmpty else { return model.saved }
@@ -439,6 +480,9 @@ struct ReaderHome: View {
             searchTab
             libraryTab
         }
+        .background(SelectionTouchObserver(enabled: selectedTab == 0 || (selectedTab == 1 && model.showingEntry)) { down, cancelled in
+            model.selectionTouchChanged(down: down, cancelled: cancelled)
+        })
         .background(KeyboardDismissArea(enabled: keyboardVisible && selectedTab != 2, dismiss: dismissKeyboard))
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardVisible = true }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardVisible = false }
@@ -452,8 +496,9 @@ struct ReaderHome: View {
         .environment(\.readerStyle, style)
         .onChange(of: selectedTab) { _, tab in
             if tab == 1 {
-                wantsSearchFocus = !model.showingLookup
+                wantsSearchFocus = automaticallyShowSearchKeyboard && !model.showingLookup
                 if wantsSearchFocus { model.showResults(); searchFocusRequest += 1 }
+                else { dismissKeyboard() }
             } else {
                 wantsSearchFocus = false; model.closeLookup()
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
@@ -471,13 +516,9 @@ struct ReaderHome: View {
     // Stays reachable above the keyboard on every screen.
     private var keyboardBar: some View {
         HStack {
-            if selectedTab == 0 && passageFocused {
-                Button("Read") { read() }.accessibilityIdentifier("openPassage")
-            } else {
-                Button("Read") { dismissKeyboard(); selectedTab = 0 }.accessibilityIdentifier("keyboardReadTab")
-            }
+            Button("Read") { dismissKeyboard(); selectedTab = 0 }.accessibilityIdentifier("keyboardReadTab")
             Spacer()
-            Button("Search") { selectedTab = 1; requestSearchFocus() }.accessibilityIdentifier("keyboardSearchTab")
+            Button("Search") { selectedTab = 1; applySearchKeyboardPreference() }.accessibilityIdentifier("keyboardSearchTab")
             Spacer()
             Button("Library") { dismissKeyboard(); selectedTab = 2 }.accessibilityIdentifier("keyboardLibraryTab")
             Spacer()
@@ -497,10 +538,11 @@ struct ReaderHome: View {
     private var readerTab: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if editing { composeView } else { readingView }
+                readingView
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(paper)
+            .translationPresentation(isPresented: $translation, text: model.text)
             .navigationTitle("Japanese Reader").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -511,12 +553,21 @@ struct ReaderHome: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    if !editing {
-                        Menu("Actions") {
-                            Button("Translate") { translation = true }.disabled(model.text.isEmpty)
-                            Button("Copy learning prompt") { UIPasteboard.general.string = model.prompt(); model.status = "Learning prompt copied." }
-                        }.translationPresentation(isPresented: $translation, text: model.text)
+                    Menu {
+                        Button("Save") { model.save() }.disabled(model.text.isEmpty)
+                        Button("Translate") { translation = true }.disabled(model.text.isEmpty)
+                        Button("Copy learning prompt") { UIPasteboard.general.string = model.prompt(); model.status = "Learning prompt copied." }
+                            .disabled(model.text.isEmpty)
+                        Divider()
+                        Toggle("Auto-search selected words", isOn: $model.readerAutoSearch)
+                            .accessibilityIdentifier("readerAutoSearch")
+                        Toggle("Auto-save pasted passages", isOn: $model.autoSave)
+                            .accessibilityIdentifier("autoSavePassages")
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
                     }
+                    .accessibilityLabel("Reader options")
+                    .accessibilityIdentifier("readerOptions")
                 }
             }
         }
@@ -525,119 +576,8 @@ struct ReaderHome: View {
         .tabItem { Label("Read", systemImage: "book") }.tag(0)
     }
 
-    private var composeView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: ReaderMetrics.stack) {
-                HStack(spacing: 10) {
-                    PasteButton(payloadType: String.self) { strings in
-                        guard !strings.isEmpty else { return }
-                        model.text = strings.joined(separator: "\n"); model.readerOffset = .zero
-                        model.status = ""
-                        editing = true
-                        passageFocused = false
-                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(accent)
-                    .foregroundStyle(style.onAccent)
-                    .accessibilityIdentifier("pastePassage")
-                    Text("Paste Japanese from another app").font(.caption).foregroundStyle(style.secondary)
-                    Spacer(minLength: 0)
-                }
-                Text("Paste a passage. Select a word to look it up.").font(.subheadline).foregroundStyle(style.secondary)
-                optionsPanel
-                Picker("Reading mode", selection: $editing) {
-                    Text("Paste / edit").tag(true); Text("Read / select words").tag(false)
-                }
-                .pickerStyle(.segmented)
-                .background(KeyboardControlArea())
-                editorPanel
-                HStack(spacing: 10) {
-                    if !passageFocused {
-                        Button("Read") { read() }
-                            .buttonStyle(PrimaryActionStyle(style: style))
-                            .accessibilityIdentifier("openPassage")
-                    }
-                    Button("Save") { model.save() }
-                    Button("Translate") { translation = true }
-                        .disabled(model.text.isEmpty)
-                        .translationPresentation(isPresented: $translation, text: model.text)
-                    Spacer(minLength: 0)
-                }
-                .buttonStyle(SoftActionStyle(style: style))
-                Button {
-                    UIPasteboard.general.string = model.prompt()
-                    model.status = "Learning prompt copied. Paste it into your preferred AI app."
-                } label: {
-                    Label("Copy learning prompt", systemImage: "doc.on.doc")
-                }
-                .buttonStyle(SoftActionStyle(style: style, prominent: true))
-                if !model.status.isEmpty { StatusNote(text: model.status, style: style) }
-            }
-            .padding(.horizontal, ReaderMetrics.gutter)
-            .padding(.top, 12)
-            .padding(.bottom, 26)
-        }
-        .scrollDismissesKeyboard(.interactively)
-    }
-
-    private var optionsPanel: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Toggle("Auto-search selected words", isOn: $model.readerAutoSearch)
-                .background(KeyboardControlArea())
-                .accessibilityIdentifier("readerAutoSearch")
-            Rectangle().fill(style.separator).frame(height: 1)
-            Toggle("Auto-save passages", isOn: $model.autoSave)
-                .background(KeyboardControlArea())
-                .accessibilityIdentifier("autoSavePassages")
-            Text(model.autoSave ? "Saved when you tap Read. Your choice is remembered." : "Off: pasted text stays temporary unless you tap Save.")
-                .font(.caption).foregroundStyle(style.faint)
-        }
-        .font(.subheadline)
-        .readerInset(style, padding: 12)
-    }
-
-    private var editorPanel: some View {
-        ZStack(alignment: .topLeading) {
-            TextEditor(text: $model.text)
-                .scrollContentBackground(.hidden)
-                .foregroundStyle(ink)
-                .background(Color.clear)
-                .font(.system(size: 21))
-                .lineSpacing(5)
-                .focused($passageFocused)
-                .frame(height: 220)
-                .accessibilityIdentifier("passageEditor")
-            if model.text.isEmpty {
-                Text("日本語をここに貼り付け")
-                    .font(.system(size: 20))
-                    .foregroundStyle(style.faint)
-                    .padding(.top, 9).padding(.leading, 6)
-                    .allowsHitTesting(false)
-            }
-        }
-        .padding(8)
-        .background(style.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(passageFocused ? accent.opacity(0.8) : style.hairline,
-                              lineWidth: passageFocused ? 1.8 : 1)
-        )
-        .animation(.easeOut(duration: 0.18), value: passageFocused)
-    }
-
     private var readingView: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Toggle("Auto-search selected words", isOn: $model.readerAutoSearch)
-                    .background(KeyboardControlArea())
-                    .accessibilityIdentifier("readerAutoSearch")
-            }
-            .font(.subheadline)
-            .foregroundStyle(style.secondary)
-            .padding(.horizontal, ReaderMetrics.gutter)
-            .padding(.vertical, 9)
-            Rectangle().fill(style.separator).frame(height: 1)
             SelectableJapanese(text: model.text, ink: UIColor(ink), paper: UIColor(style.surface),
                                tint: UIColor(accent), initialOffset: model.readerOffset,
                                saveOffset: { model.readerOffset = $0 }) { word in
@@ -646,6 +586,19 @@ struct ReaderHome: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(style.surface)
+            .overlay {
+                if model.text.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "doc.on.clipboard").font(.largeTitle)
+                        Text("Paste a passage to start reading").font(.headline)
+                        Text("Copy Japanese from another app, then tap Paste. Select any word to look it up.")
+                            .font(.subheadline).multilineTextAlignment(.center)
+                    }
+                    .foregroundStyle(style.secondary)
+                    .padding(32)
+                    .allowsHitTesting(false)
+                }
+            }
             readingActions
         }
     }
@@ -653,12 +606,15 @@ struct ReaderHome: View {
     private var readingActions: some View {
         VStack(spacing: 8) {
             HStack(spacing: 9) {
-                Button("Paste / edit") { editing = true; model.readerSelection = "" }
-                Button("Save") { model.save() }
+                PasteButton(payloadType: String.self, onPaste: pastePassage)
+                    .buttonStyle(.borderedProminent)
+                    .tint(accent)
+                    .accessibilityIdentifier("pastePassage")
                 Spacer(minLength: 0)
-                Button("Search selected text") { model.searchSelected(inDictionary: false) }
-                    .buttonStyle(SoftActionStyle(style: style, prominent: true))
-                    .disabled(model.readerSelection.isEmpty)
+                if !model.readerSelection.isEmpty {
+                    Button("Search selected text") { model.searchSelected(inDictionary: false) }
+                        .buttonStyle(SoftActionStyle(style: style, prominent: true))
+                }
             }
             .buttonStyle(SoftActionStyle(style: style))
             if !model.status.isEmpty {
@@ -700,7 +656,7 @@ struct ReaderHome: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     if model.showingEntry {
                         Menu {
-                            Button("Search results") { model.showResults(); requestSearchFocus() }
+                            Button("Search results") { model.showResults(); applySearchKeyboardPreference() }
                             Button("Copy learning prompt") { UIPasteboard.general.string = model.prompt(inDictionary: true); model.status = "Learning prompt copied." }
                             Button("Back to Main Page") { selectedTab = 0 }
                         } label: { Image(systemName: "line.3.horizontal") }.accessibilityLabel("Dictionary navigation")
@@ -853,35 +809,54 @@ struct ReaderHome: View {
         List {
             ForEach(model.dictionaries) { dictionary in
                 let matches = hits.filter { $0.root == dictionary.root && $0.code == dictionary.code }
+                let groupID = (switching ? "switcher:" : "results:") + dictionary.id
+                let collapsed = collapsedResultGroups.contains(groupID)
                 if !matches.isEmpty {
                     Section {
-                        ForEach(matches, id: \.identity) { hit in
-                            Button {
-                                switchingDictionary = false
-                                wantsSearchFocus = false
-                                model.open(hit, replacingCurrent: switching)
-                            } label: {
-                                resultRow(hit, switching: switching)
+                        if !collapsed {
+                            ForEach(matches, id: \.identity) { hit in
+                                Button {
+                                    switchingDictionary = false
+                                    wantsSearchFocus = false
+                                    model.open(hit, replacingCurrent: switching)
+                                } label: {
+                                    resultRow(hit, switching: switching)
+                                }
+                                .buttonStyle(.plain)
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets(top: 3, leading: 12, bottom: 3, trailing: 12))
+                                .accessibilityIdentifier("dictionaryResult_" + hit.word)
                             }
-                            .buttonStyle(.plain)
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 3, leading: 12, bottom: 3, trailing: 12))
-                            .accessibilityIdentifier("dictionaryResult_" + hit.word)
                         }
                     } header: {
-                        HStack(spacing: 7) {
-                            Image(systemName: "book.closed").font(.system(size: 11, weight: .semibold))
-                            Text(dictionary.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                            Spacer()
-                            Text("\(matches.count)")
-                                .font(.system(size: 11, weight: .semibold))
-                                .padding(.horizontal, 7).padding(.vertical, 2)
-                                .background(style.accentSoft, in: Capsule())
+                        Button {
+                            if collapsed { collapsedResultGroups.remove(groupID) }
+                            else { collapsedResultGroups.insert(groupID) }
+                        } label: {
+                            HStack(spacing: 7) {
+                                Image(systemName: collapsed ? "chevron.right" : "chevron.down")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .frame(width: 14)
+                                Text(dictionary.name).font(.system(size: 12, weight: .semibold)).lineLimit(2)
+                                Spacer(minLength: 4)
+                                Text("\(matches.count)")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .padding(.horizontal, 7).padding(.vertical, 2)
+                                    .background(style.accentSoft, in: Capsule())
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        .background(KeyboardControlArea())
+                        .accessibilityIdentifier("dictionaryGroup_" + groupID)
+                        .accessibilityLabel(dictionary.name + ", \(matches.count) results")
+                        .accessibilityValue(collapsed ? "Collapsed" : "Expanded")
+                        .accessibilityHint(collapsed ? "Expand dictionary results" : "Collapse dictionary results")
                         .textCase(nil)
                         .foregroundStyle(accent)
-                        .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 5, trailing: 16))
+                        .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 2, trailing: 16))
                     }
                 }
             }
@@ -913,7 +888,7 @@ struct ReaderHome: View {
     private func goBackInSearch() {
         if model.canGoBack {
             model.backToPreviousEntry()
-            if !model.showingEntry { requestSearchFocus() }
+            if !model.showingEntry { applySearchKeyboardPreference() }
         } else { selectedTab = 0 }
     }
     private func backSwipeEdge(fromLeft: Bool) -> some View {
@@ -926,6 +901,10 @@ struct ReaderHome: View {
                 }
             })
     }
+    private func applySearchKeyboardPreference() {
+        if automaticallyShowSearchKeyboard { requestSearchFocus() }
+        else { dismissKeyboard() }
+    }
     private func requestSearchFocus() { wantsSearchFocus = true; searchFocusRequest += 1 }
 
     // MARK: - Library
@@ -934,6 +913,12 @@ struct ReaderHome: View {
         NavigationStack {
             List {
                 Group {
+                    Section("Search keyboard") {
+                        Toggle("Open keyboard automatically", isOn: $automaticallyShowSearchKeyboard)
+                            .accessibilityIdentifier("automaticallyShowSearchKeyboard")
+                        Text("When off, Search opens with the keyboard hidden. Tap the search field or keyboard button when you want to type.")
+                            .font(.caption).foregroundStyle(style.secondary)
+                    }
                     savedSection
                     dictionariesSection
                     Section("Dictionary search") {
@@ -977,7 +962,7 @@ struct ReaderHome: View {
             }
             ForEach(filteredPassages) { item in
                 VStack(alignment: .leading, spacing: 7) {
-                    Button { model.text = item.text; model.readerOffset = .zero; selectedTab = 0; editing = false } label: {
+                    Button { model.text = item.text; model.readerOffset = .zero; selectedTab = 0 } label: {
                         Text(item.text)
                             .lineLimit(3)
                             .font(.system(size: 16))
