@@ -501,6 +501,7 @@ struct ReaderHome: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(paper)
+            .translationPresentation(isPresented: $translation, text: model.text)
             .navigationTitle("Japanese Reader").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -526,7 +527,6 @@ struct ReaderHome: View {
                     }
                     .accessibilityLabel("Reader options")
                     .accessibilityIdentifier("readerOptions")
-                    .translationPresentation(isPresented: $translation, text: model.text)
                 }
             }
         }
