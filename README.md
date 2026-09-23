@@ -17,3 +17,5 @@ Read opens directly to the full-height selectable passage. Tap Paste to replace 
 Search keeps the keyboard hidden by default. Library → Search keyboard → Open keyboard automatically restores automatic focus, and remembers the choice. The search field and keyboard button always allow manual typing.
 
 Auto-search waits until all fingers are lifted before using the final selection, in both the passage and dictionary pages. Starting another touch or cancelling the gesture cancels the pending selection lookup.
+
+Tap a dictionary result heading to collapse or expand its entries. Its name and result count stay visible. Each group keeps its own state while using the app; the dictionary switcher has separate collapse state.

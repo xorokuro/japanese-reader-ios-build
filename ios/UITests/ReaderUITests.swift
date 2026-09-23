@@ -1,6 +1,37 @@
 import XCTest
 
 final class ReaderUITests: XCTestCase {
+    func testDictionaryResultGroupsCollapseIndependently() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard"]
+        app.launch()
+        app.tabBars.buttons["Search"].tap()
+        let field = app.textFields["dictionarySearchField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap(); field.typeText("みほん")
+        XCTAssertTrue(app.buttons["dictionaryResult_みほん"].firstMatch.waitForExistence(timeout: 15))
+        app.buttons["dismissKeyboard"].tap()
+        let first = app.buttons["dictionaryGroup_results:base:DEMO_A"]
+        let second = app.buttons["dictionaryGroup_results:base:DEMO_B"]
+        XCTAssertEqual(first.value as? String, "Expanded")
+        first.tap()
+        XCTAssertEqual(first.value as? String, "Collapsed")
+        XCTAssertTrue(second.isHittable)
+        XCTAssertEqual(app.buttons.matching(identifier: "dictionaryResult_みほん").count, 1)
+        second.tap()
+        XCTAssertEqual(second.value as? String, "Collapsed")
+        XCTAssertFalse(app.buttons["dictionaryResult_みほん"].exists)
+        first.tap()
+        XCTAssertEqual(first.value as? String, "Expanded")
+        XCTAssertEqual(second.value as? String, "Collapsed")
+        XCTAssertEqual(app.buttons.matching(identifier: "dictionaryResult_みほん").count, 1)
+        app.buttons["dictionaryResult_みほん"].tap()
+        XCTAssertTrue(app.webViews["dictionaryEntryPage"].waitForExistence(timeout: 10))
+        app.buttons["Back"].tap()
+        XCTAssertTrue(second.waitForExistence(timeout: 5))
+        XCTAssertEqual(second.value as? String, "Collapsed")
+    }
+
     func testLiveJapaneseSearchDictionarySwitcherAndBack() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard"]

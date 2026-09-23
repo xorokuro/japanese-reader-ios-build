@@ -427,6 +427,7 @@ struct ReaderHome: View {
     @AppStorage("automaticallyShowSearchKeyboard") private var automaticallyShowSearchKeyboard = false
     @State private var wantsSearchFocus = false
     @State private var switchingDictionary = false
+    @State private var collapsedResultGroups = Set<String>()
     @State private var librarySearch = ""
     @State private var deleteAll = false
     @Environment(\.colorScheme) private var colorScheme
@@ -808,35 +809,54 @@ struct ReaderHome: View {
         List {
             ForEach(model.dictionaries) { dictionary in
                 let matches = hits.filter { $0.root == dictionary.root && $0.code == dictionary.code }
+                let groupID = (switching ? "switcher:" : "results:") + dictionary.id
+                let collapsed = collapsedResultGroups.contains(groupID)
                 if !matches.isEmpty {
                     Section {
-                        ForEach(matches, id: \.identity) { hit in
-                            Button {
-                                switchingDictionary = false
-                                wantsSearchFocus = false
-                                model.open(hit, replacingCurrent: switching)
-                            } label: {
-                                resultRow(hit, switching: switching)
+                        if !collapsed {
+                            ForEach(matches, id: \.identity) { hit in
+                                Button {
+                                    switchingDictionary = false
+                                    wantsSearchFocus = false
+                                    model.open(hit, replacingCurrent: switching)
+                                } label: {
+                                    resultRow(hit, switching: switching)
+                                }
+                                .buttonStyle(.plain)
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets(top: 3, leading: 12, bottom: 3, trailing: 12))
+                                .accessibilityIdentifier("dictionaryResult_" + hit.word)
                             }
-                            .buttonStyle(.plain)
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 3, leading: 12, bottom: 3, trailing: 12))
-                            .accessibilityIdentifier("dictionaryResult_" + hit.word)
                         }
                     } header: {
-                        HStack(spacing: 7) {
-                            Image(systemName: "book.closed").font(.system(size: 11, weight: .semibold))
-                            Text(dictionary.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                            Spacer()
-                            Text("\(matches.count)")
-                                .font(.system(size: 11, weight: .semibold))
-                                .padding(.horizontal, 7).padding(.vertical, 2)
-                                .background(style.accentSoft, in: Capsule())
+                        Button {
+                            if collapsed { collapsedResultGroups.remove(groupID) }
+                            else { collapsedResultGroups.insert(groupID) }
+                        } label: {
+                            HStack(spacing: 7) {
+                                Image(systemName: collapsed ? "chevron.right" : "chevron.down")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .frame(width: 14)
+                                Text(dictionary.name).font(.system(size: 12, weight: .semibold)).lineLimit(2)
+                                Spacer(minLength: 4)
+                                Text("\(matches.count)")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .padding(.horizontal, 7).padding(.vertical, 2)
+                                    .background(style.accentSoft, in: Capsule())
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        .background(KeyboardControlArea())
+                        .accessibilityIdentifier("dictionaryGroup_" + groupID)
+                        .accessibilityLabel(dictionary.name + ", \(matches.count) results")
+                        .accessibilityValue(collapsed ? "Collapsed" : "Expanded")
+                        .accessibilityHint(collapsed ? "Expand dictionary results" : "Collapse dictionary results")
                         .textCase(nil)
                         .foregroundStyle(accent)
-                        .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 5, trailing: 16))
+                        .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 2, trailing: 16))
                     }
                 }
             }
