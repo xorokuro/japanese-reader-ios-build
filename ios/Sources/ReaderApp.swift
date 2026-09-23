@@ -124,12 +124,44 @@ struct LookupSnapshot {
     @Published var dictionaryAutoSearch = true {
         didSet { preferences.set(dictionaryAutoSearch, forKey: "dictionaryAutoSearch"); cancelPendingSearch() }
     }
-    func cancelPendingSearch() { liveSearch?.cancel(); liveSearch = nil; searchGeneration += 1; lookupBusy = false }
+    private var selectionTouchDown = false
+    private var selectionTouchCancelled = false
+    private var heldSelection: (text: String, inDictionary: Bool)?
+    private var releasedSelection: DispatchWorkItem?
+    func cancelPendingSearch() {
+        liveSearch?.cancel(); liveSearch = nil
+        releasedSelection?.cancel(); releasedSelection = nil; heldSelection = nil
+        searchGeneration += 1; lookupBusy = false
+    }
+    func selectionTouchChanged(down: Bool, cancelled: Bool) {
+        selectionTouchDown = down
+        selectionTouchCancelled = cancelled
+        if down || cancelled {
+            // Invalidate even a lookup already running on the dictionary queue.
+            cancelPendingSearch()
+            return
+        }
+        guard let selection = heldSelection else { return }
+        let generation = searchGeneration
+        let action = DispatchWorkItem { [weak self] in
+            guard let self, !self.selectionTouchDown, !self.selectionTouchCancelled,
+                  self.searchGeneration == generation else { return }
+            self.select(selection.text, inDictionary: selection.inDictionary)
+        }
+        releasedSelection = action
+        // Let UIKit/WebKit deliver the final selection update after touch-up.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: action)
+    }
     func select(_ text: String, inDictionary: Bool) {
         if !text.isEmpty { selectionFromDictionary = inDictionary }
         if inDictionary { dictionarySelection = text } else { readerSelection = text }
         cancelPendingSearch()
-        guard !text.isEmpty, (inDictionary ? dictionaryAutoSearch : readerAutoSearch) else { return }
+        guard !text.isEmpty, !selectionTouchCancelled,
+              (inDictionary ? dictionaryAutoSearch : readerAutoSearch) else { return }
+        if selectionTouchDown {
+            heldSelection = (text, inDictionary)
+            return
+        }
         word = text
         search(dismissKeyboard: false, navigate: true, onlyIfMatched: true)
     }
@@ -447,6 +479,9 @@ struct ReaderHome: View {
             searchTab
             libraryTab
         }
+        .background(SelectionTouchObserver { down, cancelled in
+            model.selectionTouchChanged(down: down, cancelled: cancelled)
+        })
         .background(KeyboardDismissArea(enabled: keyboardVisible && selectedTab != 2, dismiss: dismissKeyboard))
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardVisible = true }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardVisible = false }

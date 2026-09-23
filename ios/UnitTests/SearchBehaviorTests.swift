@@ -69,6 +69,53 @@ import SQLite3
         XCTAssertEqual(model.word, "原因")
         XCTAssertFalse(model.canGoBack)
     }
+    func testSelectionWaitsForFingerReleaseInReaderAndDictionary() async throws {
+        let (model, root, suite) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
+        try await settle(model)
+        for inDictionary in [false, true] {
+            model.closeLookup()
+            model.word = ""
+            model.selectionTouchChanged(down: true, cancelled: false)
+            model.select("原因", inDictionary: inDictionary)
+            try await Task.sleep(nanoseconds: 700_000_000)
+            try await settle(model)
+            XCTAssertFalse(model.showingLookup, "A stationary held finger must not trigger lookup")
+            XCTAssertEqual(model.word, "")
+            model.select("原因論", inDictionary: inDictionary)
+            model.selectionTouchChanged(down: false, cancelled: false)
+            try await Task.sleep(nanoseconds: 600_000_000)
+            try await settle(model)
+            XCTAssertTrue(model.showingLookup)
+            XCTAssertEqual(model.word, "原因論", "Only the final range should be searched")
+        }
+    }
+    func testNewTouchAndCancellationSuppressPendingSelectionSearch() async throws {
+        let (model, root, suite) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
+        try await settle(model)
+        model.selectionTouchChanged(down: true, cancelled: false)
+        model.select("原因", inDictionary: false)
+        model.selectionTouchChanged(down: false, cancelled: false)
+        model.selectionTouchChanged(down: true, cancelled: false)
+        try await Task.sleep(nanoseconds: 600_000_000)
+        try await settle(model)
+        XCTAssertFalse(model.showingLookup)
+        model.select("原因論", inDictionary: false)
+        model.selectionTouchChanged(down: false, cancelled: true)
+        // A delayed selection notification after cancellation must not navigate.
+        model.select("原因論", inDictionary: false)
+        try await Task.sleep(nanoseconds: 600_000_000)
+        try await settle(model)
+        XCTAssertFalse(model.showingLookup)
+        model.selectionTouchChanged(down: true, cancelled: false)
+        model.select("原因", inDictionary: false)
+        model.selectionTouchChanged(down: false, cancelled: false)
+        model.readerAutoSearch = false
+        try await Task.sleep(nanoseconds: 600_000_000)
+        try await settle(model)
+        XCTAssertFalse(model.showingLookup)
+    }
     private func fixture() throws -> (ReaderModel, URL, String) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let dictionaries = root.appendingPathComponent("dictionaries")
