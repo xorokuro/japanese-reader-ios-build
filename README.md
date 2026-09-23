@@ -13,3 +13,5 @@ Library → Appearance offers System, four light themes (Washi Paper, Sakura, Mo
 ## Single-screen reader
 
 Read opens directly to the full-height selectable passage. Tap Paste to replace the current passage and immediately look up words; there is no editor mode or Read confirmation. Reader options holds Save, Translate, Copy learning prompt, auto-search and auto-save. Auto-save now runs when pasting; it remains off by default. Clear can still be undone, and saved passages open on the same reading surface.
+
+Search keeps the keyboard hidden by default. Library → Search keyboard → Open keyboard automatically restores automatic focus, and remembers the choice. The search field and keyboard button always allow manual typing.

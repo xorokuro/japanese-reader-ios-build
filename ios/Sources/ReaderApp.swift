@@ -365,6 +365,9 @@ struct LookupSnapshot {
     @StateObject private var model: ReaderModel
     init() {
         #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-reset-search-keyboard") {
+            UserDefaults.standard.removeObject(forKey: "automaticallyShowSearchKeyboard")
+        }
         if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "--ui-clipboard"),
            ProcessInfo.processInfo.arguments.indices.contains(index + 1) {
             UIPasteboard.general.string = ProcessInfo.processInfo.arguments[index + 1]
@@ -389,6 +392,7 @@ struct ReaderHome: View {
     @State private var translation = false
     @State private var selectedTab = 0
     @State private var searchFocusRequest = 0
+    @AppStorage("automaticallyShowSearchKeyboard") private var automaticallyShowSearchKeyboard = false
     @State private var wantsSearchFocus = false
     @State private var switchingDictionary = false
     @State private var librarySearch = ""
@@ -456,8 +460,9 @@ struct ReaderHome: View {
         .environment(\.readerStyle, style)
         .onChange(of: selectedTab) { _, tab in
             if tab == 1 {
-                wantsSearchFocus = !model.showingLookup
+                wantsSearchFocus = automaticallyShowSearchKeyboard && !model.showingLookup
                 if wantsSearchFocus { model.showResults(); searchFocusRequest += 1 }
+                else { dismissKeyboard() }
             } else {
                 wantsSearchFocus = false; model.closeLookup()
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
@@ -477,7 +482,7 @@ struct ReaderHome: View {
         HStack {
             Button("Read") { dismissKeyboard(); selectedTab = 0 }.accessibilityIdentifier("keyboardReadTab")
             Spacer()
-            Button("Search") { selectedTab = 1; requestSearchFocus() }.accessibilityIdentifier("keyboardSearchTab")
+            Button("Search") { selectedTab = 1; applySearchKeyboardPreference() }.accessibilityIdentifier("keyboardSearchTab")
             Spacer()
             Button("Library") { dismissKeyboard(); selectedTab = 2 }.accessibilityIdentifier("keyboardLibraryTab")
             Spacer()
@@ -615,7 +620,7 @@ struct ReaderHome: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     if model.showingEntry {
                         Menu {
-                            Button("Search results") { model.showResults(); requestSearchFocus() }
+                            Button("Search results") { model.showResults(); applySearchKeyboardPreference() }
                             Button("Copy learning prompt") { UIPasteboard.general.string = model.prompt(inDictionary: true); model.status = "Learning prompt copied." }
                             Button("Back to Main Page") { selectedTab = 0 }
                         } label: { Image(systemName: "line.3.horizontal") }.accessibilityLabel("Dictionary navigation")
@@ -828,7 +833,7 @@ struct ReaderHome: View {
     private func goBackInSearch() {
         if model.canGoBack {
             model.backToPreviousEntry()
-            if !model.showingEntry { requestSearchFocus() }
+            if !model.showingEntry { applySearchKeyboardPreference() }
         } else { selectedTab = 0 }
     }
     private func backSwipeEdge(fromLeft: Bool) -> some View {
@@ -841,6 +846,10 @@ struct ReaderHome: View {
                 }
             })
     }
+    private func applySearchKeyboardPreference() {
+        if automaticallyShowSearchKeyboard { requestSearchFocus() }
+        else { dismissKeyboard() }
+    }
     private func requestSearchFocus() { wantsSearchFocus = true; searchFocusRequest += 1 }
 
     // MARK: - Library
@@ -849,6 +858,12 @@ struct ReaderHome: View {
         NavigationStack {
             List {
                 Group {
+                    Section("Search keyboard") {
+                        Toggle("Open keyboard automatically", isOn: $automaticallyShowSearchKeyboard)
+                            .accessibilityIdentifier("automaticallyShowSearchKeyboard")
+                        Text("When off, Search opens with the keyboard hidden. Tap the search field or keyboard button when you want to type.")
+                            .font(.caption).foregroundStyle(style.secondary)
+                    }
                     savedSection
                     dictionariesSection
                     Section("Dictionary search") {

@@ -3,7 +3,7 @@ import XCTest
 final class ReaderUITests: XCTestCase {
     func testLiveJapaneseSearchDictionarySwitcherAndBack() {
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-dictionary-fixture"]
+        app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard"]
         app.launch()
         app.tabBars.buttons["Search"].tap()
         let field = app.textFields["dictionarySearchField"]
@@ -11,6 +11,7 @@ final class ReaderUITests: XCTestCase {
         let scope = app.buttons["searchScope_base:DEMO_A"]
         XCTAssertTrue(scope.waitForExistence(timeout: 5))
         scope.tap()
+        field.tap()
         field.typeText("みほん")
         let result = app.buttons["dictionaryResult_みほん"].firstMatch
         XCTAssertTrue(result.waitForExistence(timeout: 15), "Search must happen without tapping submit")
@@ -42,26 +43,51 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(app.webViews.links["実物"].waitForExistence(timeout: 15))
         app.buttons["Back"].tap()
         XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        app.buttons["Show search keyboard"].tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         field.typeText("missing")
         XCTAssertEqual(field.value as? String, "missing")
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.35)).press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.35)))
         XCTAssertTrue(app.textViews["selectablePassage"].waitForExistence(timeout: 5))
     }
-    func testSearchFocusSelectAllAndReturnToReader() {
+    func testSearchKeyboardDefaultsOffAndPreferencePersists() {
         let app = XCUIApplication()
+        app.launchArguments = ["--ui-reset-search-keyboard"]
         app.launch()
         app.tabBars.buttons["Search"].tap()
         let field = app.textFields["dictionarySearchField"]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+        field.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         field.typeText("previous")
         app.buttons["Back to Main Page"].tap()
-        XCTAssertTrue(app.textViews["selectablePassage"].waitForExistence(timeout: 5))
         app.tabBars.buttons["Search"].tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+        app.buttons["Show search keyboard"].tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         field.typeText("next")
-        XCTAssertEqual(field.value as? String, "next", "Reentering Search selects all existing text")
+        XCTAssertEqual(field.value as? String, "next")
+        app.buttons["keyboardLibraryTab"].tap()
+        let setting = app.switches["automaticallyShowSearchKeyboard"]
+        XCTAssertTrue(setting.waitForExistence(timeout: 5))
+        XCTAssertEqual(setting.value as? String, "0")
+        setting.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        app.tabBars.buttons["Search"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        app.terminate()
+        app.launchArguments = []
+        app.launch()
+        app.tabBars.buttons["Search"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        app.buttons["keyboardLibraryTab"].tap()
+        XCTAssertEqual(setting.value as? String, "1")
+        setting.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        app.tabBars.buttons["Search"].tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
     }
     func testPasteReadsImmediatelyAndClearCanBeUndone() {
         let app = XCUIApplication()
