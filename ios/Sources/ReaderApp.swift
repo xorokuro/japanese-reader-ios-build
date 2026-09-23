@@ -479,7 +479,7 @@ struct ReaderHome: View {
             searchTab
             libraryTab
         }
-        .background(SelectionTouchObserver { down, cancelled in
+        .background(SelectionTouchObserver(enabled: selectedTab == 0 || (selectedTab == 1 && model.showingEntry)) { down, cancelled in
             model.selectionTouchChanged(down: down, cancelled: cancelled)
         })
         .background(KeyboardDismissArea(enabled: keyboardVisible && selectedTab != 2, dismiss: dismissKeyboard))

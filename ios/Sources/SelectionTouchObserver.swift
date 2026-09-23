@@ -4,13 +4,18 @@ import UIKit.UIGestureRecognizerSubclass
 // Observe the window so native selection handles are covered too. This recognizer
 // never recognizes or prevents another gesture: text selection retains control.
 struct SelectionTouchObserver: UIViewRepresentable {
+    let enabled: Bool
     let changed: (Bool, Bool) -> Void
     func makeUIView(context: Context) -> SelectionTouchObserverView { SelectionTouchObserverView() }
-    func updateUIView(_ view: SelectionTouchObserverView, context: Context) { view.changed = changed }
+    func updateUIView(_ view: SelectionTouchObserverView, context: Context) {
+        view.enabled = enabled
+        view.changed = changed
+    }
     static func dismantleUIView(_ view: SelectionTouchObserverView, coordinator: ()) { view.detach() }
 }
 
-final class SelectionTouchObserverView: UIView {
+final class SelectionTouchObserverView: UIView, UIGestureRecognizerDelegate {
+    var enabled = false
     var changed: ((Bool, Bool) -> Void)?
     private let observer = SelectionTouchRecognizer(target: nil, action: nil)
     override func didMoveToWindow() {
@@ -18,11 +23,13 @@ final class SelectionTouchObserverView: UIView {
         detach()
         guard let window else { return }
         observer.changed = { [weak self] down, cancelled in self?.changed?(down, cancelled) }
+        observer.delegate = self
         observer.cancelsTouchesInView = false
         observer.delaysTouchesBegan = false
         observer.delaysTouchesEnded = false
         window.addGestureRecognizer(observer)
     }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool { enabled }
     func detach() {
         observer.view?.removeGestureRecognizer(observer)
         observer.cancelTracking()
