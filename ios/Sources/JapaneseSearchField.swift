@@ -3,18 +3,25 @@ import SwiftUI
 // Public input-mode APIs expose language, not the Japanese Kana/Romaji layout.
 final class JapaneseTextField: UITextField {
     var requestFocus = false
+    var preferredLanguage = "ja"
     override var textInputMode: UITextInputMode? {
-        UITextInputMode.activeInputModes.first { $0.primaryLanguage?.hasPrefix("ja") == true } ?? super.textInputMode
+        guard preferredLanguage != "system" else { return super.textInputMode }
+        return UITextInputMode.activeInputModes.first { $0.primaryLanguage?.hasPrefix(preferredLanguage) == true } ?? super.textInputMode
     }
-    override var textInputContextIdentifier: String? { "JapaneseReader.Search.Japanese" }
+    override var textInputContextIdentifier: String? { "JapaneseReader.Search." + preferredLanguage }
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window != nil, requestFocus { focusAndSelect() }
     }
     func focusAndSelect() {
         guard window != nil, requestFocus else { return }
+        unmarkText()
         becomeFirstResponder()
-        selectAll(nil)
+        selectedTextRange = textRange(from: beginningOfDocument, to: endOfDocument)
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.requestFocus, self.isFirstResponder else { return }
+            self.selectedTextRange = self.textRange(from: self.beginningOfDocument, to: self.endOfDocument)
+        }
     }
 }
 
@@ -25,6 +32,7 @@ struct JapaneseSearchField: UIViewRepresentable {
     let ink: UIColor
     /// Caret and selection color; `nil` keeps the inherited tint.
     var accent: UIColor? = nil
+    var preferredLanguage: String = "ja"
     var changed: ((String) -> Void)? = nil
     let submit: () -> Void
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -47,6 +55,10 @@ struct JapaneseSearchField: UIViewRepresentable {
     func updateUIView(_ field: JapaneseTextField, context: Context) {
         let coordinator = context.coordinator
         coordinator.parent = self
+        if field.preferredLanguage != preferredLanguage {
+            field.preferredLanguage = preferredLanguage
+            if field.isFirstResponder { field.reloadInputViews() }
+        }
         // Do not replace marked text while the Japanese IME is composing.
         if field.markedTextRange == nil, field.text != text { field.text = text }
         field.textColor = ink

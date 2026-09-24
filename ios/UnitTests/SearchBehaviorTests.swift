@@ -3,6 +3,41 @@ import SQLite3
 @testable import JapaneseReader
 
 @MainActor final class SearchBehaviorTests: XCTestCase {
+    func testFocusRequestSelectsTheWholePreviousQuery() {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let controller = UIViewController()
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        let field = JapaneseTextField(frame: CGRect(x: 20, y: 100, width: 300, height: 44))
+        controller.view.addSubview(field)
+        field.text = "日本語"
+        field.requestFocus = true
+        field.focusAndSelect()
+        XCTAssertTrue(field.isFirstResponder)
+        XCTAssertEqual(field.selectedTextRange.flatMap { field.text(in: $0) }, "日本語")
+        field.resignFirstResponder()
+        field.focusAndSelect()
+        XCTAssertTrue(field.isFirstResponder)
+        XCTAssertEqual(field.selectedTextRange.flatMap { field.text(in: $0) }, "日本語")
+    }
+    func testSearchHistoryPersistsDeduplicatesAndDeletes() throws {
+        let (model, root, suite) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
+        model.recordSearch(" 日本語 ")
+        model.recordSearch("英語")
+        model.recordSearch("日本語")
+        model.recordSearch("  ")
+        XCTAssertEqual(model.searchHistory, ["日本語", "英語"])
+        let restored = ReaderModel(documents: root, preferences: UserDefaults(suiteName: suite)!)
+        XCTAssertEqual(restored.searchHistory, model.searchHistory)
+        restored.deleteSearchHistory(at: IndexSet(integer: 0))
+        XCTAssertEqual(restored.searchHistory, ["英語"])
+        for index in 0..<205 { restored.recordSearch("word \(index)") }
+        XCTAssertEqual(restored.searchHistory.count, 200)
+        restored.clearSearchHistory()
+        XCTAssertEqual(UserDefaults(suiteName: suite)!.stringArray(forKey: "searchHistory"), [])
+    }
     func testUncompressedDictionaryPreviewAndGlobalSwitcher() async throws {
         let root = UITestFixture.documents()
         defer { try? FileManager.default.removeItem(at: root) }

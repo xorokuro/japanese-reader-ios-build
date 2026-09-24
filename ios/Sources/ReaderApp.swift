@@ -35,6 +35,23 @@ struct LookupSnapshot {
 
 @MainActor final class ReaderModel: ObservableObject {
     @Published var text = "" { didSet { if text != oldValue { readerSelection = "" } } }
+    @Published private(set) var searchHistory: [String] = []
+    func recordSearch(_ query: String) {
+        let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return }
+        searchHistory.removeAll { $0 == value }
+        searchHistory.insert(value, at: 0)
+        searchHistory = Array(searchHistory.prefix(200))
+        preferences.set(searchHistory, forKey: "searchHistory")
+    }
+    func deleteSearchHistory(at offsets: IndexSet) {
+        searchHistory.remove(atOffsets: offsets)
+        preferences.set(searchHistory, forKey: "searchHistory")
+    }
+    func clearSearchHistory() {
+        searchHistory = []
+        preferences.set(searchHistory, forKey: "searchHistory")
+    }
     @Published var word = ""
     @Published var hits: [DictionaryHit] = []
     @Published var status = ""
@@ -186,6 +203,7 @@ struct LookupSnapshot {
     init(documents: URL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0], preferences: UserDefaults = .standard) {
         self.documents = documents
         self.preferences = preferences
+        searchHistory = preferences.stringArray(forKey: "searchHistory") ?? []
         readerAutoSearch = (preferences.object(forKey: "readerAutoSearch") as? Bool) ?? true
         dictionaryAutoSearch = (preferences.object(forKey: "dictionaryAutoSearch") as? Bool) ?? true
         do {
@@ -245,6 +263,7 @@ struct LookupSnapshot {
         let mode: DictionarySearchMode = openBestMatch ? .exact : (navigate ? .prefix : searchMode)
         let selected = dictionaries.filter { !disabledDictionaries.contains($0.id) && (navigate || searchScope.isEmpty || $0.id == searchScope) }
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { hits = []; lookupBusy = false; status = ""; return }
+        if dismissKeyboard || navigate { recordSearch(query) }
         lookupBusy = true
         queue.async {
             let result = Result { () -> [DictionaryHit] in
@@ -303,6 +322,7 @@ struct LookupSnapshot {
                 self.lookupBusy = false
                 switch result {
                 case .success(let (html, alternatives)):
+                    self.recordSearch(query)
                     if !replacingCurrent { self.remember(previousPage) }
                     if replacingCurrent, !self.visits.isEmpty {
                         let removed = self.visits.removeLast(); self.entryOffsets.removeValue(forKey: removed.id)
@@ -425,6 +445,9 @@ struct ReaderHome: View {
     @State private var selectedTab = 0
     @State private var searchFocusRequest = 0
     @AppStorage("automaticallyShowSearchKeyboard") private var automaticallyShowSearchKeyboard = false
+    @AppStorage("searchKeyboardLanguage") private var searchKeyboardLanguage = "ja"
+    @State private var showingHistory = false
+    @State private var clearHistoryConfirmation = false
     @State private var wantsSearchFocus = false
     @State private var switchingDictionary = false
     @State private var collapsedResultGroups = Set<String>()
@@ -475,11 +498,14 @@ struct ReaderHome: View {
         return model.saved.filter { $0.text.localizedCaseInsensitiveContains(librarySearch) || $0.note.localizedCaseInsensitiveContains(librarySearch) }
     }
     var body: some View {
-        TabView(selection: $selectedTab) {
+        TabView(selection: Binding(get: { selectedTab }, set: { tab in
+            if tab == 1 { activateSearchTab() } else { selectedTab = tab }
+        })) {
             readerTab
             searchTab
             libraryTab
         }
+        .sheet(isPresented: $showingHistory) { historySheet }
         .background(SelectionTouchObserver(enabled: selectedTab == 0 || (selectedTab == 1 && model.showingEntry)) { down, cancelled in
             model.selectionTouchChanged(down: down, cancelled: cancelled)
         })
@@ -495,11 +521,9 @@ struct ReaderHome: View {
         .background(paper.ignoresSafeArea())
         .environment(\.readerStyle, style)
         .onChange(of: selectedTab) { _, tab in
-            if tab == 1 {
-                wantsSearchFocus = automaticallyShowSearchKeyboard && !model.showingLookup
-                if wantsSearchFocus { model.showResults(); searchFocusRequest += 1 }
-                else { dismissKeyboard() }
-            } else {
+            // Programmatic lookup navigation must keep the keyboard hidden.
+            // User tab taps are handled separately, including reselection.
+            if tab != 1 {
                 wantsSearchFocus = false; model.closeLookup()
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             }
@@ -518,7 +542,7 @@ struct ReaderHome: View {
         HStack {
             Button("Read") { dismissKeyboard(); selectedTab = 0 }.accessibilityIdentifier("keyboardReadTab")
             Spacer()
-            Button("Search") { selectedTab = 1; applySearchKeyboardPreference() }.accessibilityIdentifier("keyboardSearchTab")
+            Button("Search") { activateSearchTab() }.accessibilityIdentifier("keyboardSearchTab")
             Spacer()
             Button("Library") { dismissKeyboard(); selectedTab = 2 }.accessibilityIdentifier("keyboardLibraryTab")
             Spacer()
@@ -681,6 +705,7 @@ struct ReaderHome: View {
         }
         .toolbarBackground(paper, for: .tabBar, .navigationBar)
         .toolbarBackground(.visible, for: .tabBar, .navigationBar)
+        .background(SearchTabObserver { activateSearchTab() })
         .tabItem { Label("Search", systemImage: "magnifyingglass") }.tag(1)
     }
 
@@ -736,8 +761,12 @@ struct ReaderHome: View {
                 JapaneseSearchField(text: $model.word, focusRequest: searchFocusRequest,
                                     active: focusSearch && selectedTab == 1 && !model.showingEntry,
                                     ink: UIColor(ink), accent: UIColor(accent),
+                                    preferredLanguage: searchKeyboardLanguage,
                                     changed: { model.typedSearch($0, clearSelection: true) }) { model.search() }
                     .frame(height: 36)
+                Button { dismissKeyboard(); showingHistory = true } label: { Image(systemName: "clock.arrow.circlepath") }
+                    .accessibilityLabel("Search history")
+                    .background(KeyboardControlArea())
                 if model.lookupBusy { ProgressView().controlSize(.small) }
                 Button { model.search() } label: { Image(systemName: "arrow.forward") }
                     .buttonStyle(GlyphActionStyle(style: style))
@@ -905,6 +934,42 @@ struct ReaderHome: View {
         if automaticallyShowSearchKeyboard { requestSearchFocus() }
         else { dismissKeyboard() }
     }
+    private func activateSearchTab() {
+        model.showResults()
+        selectedTab = 1
+        requestSearchFocus()
+    }
+    private var historySheet: some View {
+        NavigationStack {
+            List {
+                if model.searchHistory.isEmpty {
+                    Text("No searches yet. Submitted searches and opened results appear here.")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(model.searchHistory, id: \.self) { query in
+                    Button(query) {
+                        showingHistory = false
+                        wantsSearchFocus = false
+                        model.showResults()
+                        model.word = query
+                        model.searchScope = ""
+                        model.search(dismissKeyboard: true)
+                    }
+                }.onDelete { model.deleteSearchHistory(at: $0) }
+            }
+            .navigationTitle("Search history")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Done") { showingHistory = false } }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Clear", role: .destructive) { clearHistoryConfirmation = true }
+                        .disabled(model.searchHistory.isEmpty)
+                }
+            }
+            .confirmationDialog("Clear search history?", isPresented: $clearHistoryConfirmation, titleVisibility: .visible) {
+                Button("Clear history", role: .destructive) { model.clearSearchHistory() }
+            }
+        }
+    }
     private func requestSearchFocus() { wantsSearchFocus = true; searchFocusRequest += 1 }
 
     // MARK: - Library
@@ -914,10 +979,18 @@ struct ReaderHome: View {
             List {
                 Group {
                     Section("Search keyboard") {
-                        Toggle("Open keyboard automatically", isOn: $automaticallyShowSearchKeyboard)
+                        Toggle("Show keyboard when returning from definitions", isOn: $automaticallyShowSearchKeyboard)
                             .accessibilityIdentifier("automaticallyShowSearchKeyboard")
-                        Text("When off, Search opens with the keyboard hidden. Tap the search field or keyboard button when you want to type.")
+                        Text("Tapping the Search tab always opens the keyboard and selects the previous search. Tap blank space to hide the keyboard.")
                             .font(.caption).foregroundStyle(style.secondary)
+                    }
+                    Section("Keyboard language") {
+                        Picker("Search keyboard", selection: $searchKeyboardLanguage) {
+                            Text("Japanese").tag("ja")
+                            Text("English").tag("en")
+                            Text("System keyboard").tag("system")
+                        }
+                        Text("Enable your preferred language in iPhone Settings → General → Keyboard → Keyboards. System keyboard lets you choose any installed language.").font(.caption)
                     }
                     savedSection
                     dictionariesSection
