@@ -8,6 +8,8 @@ struct DictionaryPage: UIViewRepresentable {
     let code: String
     var paperRGB: Int? = nil
     var accentRGB: Int? = nil
+    var textSize: Double = 19
+    var sansFont = false
     var initialOffset: CGPoint = .zero
     var saveOffset: ((CGPoint) -> Void)? = nil
     var followLink: ((String) -> Void)? = nil
@@ -34,7 +36,7 @@ struct DictionaryPage: UIViewRepresentable {
         <!doctype html><html lang="ja"><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width,initial-scale=1">
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src jpread: data:; media-src jpread:; font-src jpread:; style-src 'unsafe-inline' jpread:; script-src 'none'; frame-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'">
-        <style>\(safeCSS)</style><style>:root{color-scheme:light dark}body{font:19px/1.78 -apple-system,"Hiragino Sans","Hiragino Kaku Gothic ProN",sans-serif;padding:18px 18px 44px;overflow-wrap:anywhere}img{max-width:100%;height:auto;border-radius:6px}table{max-width:100%}ddudm,ddudc,ddudt{display:block}a{color:#3987dc;text-underline-offset:2px}audio{max-width:100%;margin:5px 0}body,body *{-webkit-user-select:text;user-select:text}::selection{background:#93c5fd;color:#111}</style></head><body>\(rendered)</body></html>
+        <style>\(safeCSS)</style><style>\(DictionaryBookStyle.css)</style><style>ddudm,ddudc,ddudt{display:block}img{max-width:100%;height:auto;border-radius:6px}audio{max-width:100%;margin:5px 0}</style></head><body>\(rendered)</body></html>
         """
     }
     static let selectionWorld = WKContentWorld.world(name: "JapaneseReaderSelection")
@@ -61,6 +63,8 @@ struct DictionaryPage: UIViewRepresentable {
         let coordinator = Coordinator(root: root, code: code, followLink: followLink, lookup: lookup)
         coordinator.paperRGB = paperRGB
         coordinator.accentRGB = accentRGB
+        coordinator.textSize = textSize
+        coordinator.sansFont = sansFont
         coordinator.initialOffset = initialOffset
         coordinator.saveOffset = saveOffset
         return coordinator
@@ -72,27 +76,10 @@ struct DictionaryPage: UIViewRepresentable {
         configuration.setURLSchemeHandler(coordinator, forURLScheme: "jpread")
         configuration.userContentController.add(coordinator, contentWorld: selectionWorld, name: "readerSelection")
         configuration.userContentController.addUserScript(WKUserScript(source: selectionScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: selectionWorld))
-        // Entry pages follow the chosen iOS theme: its background, its readable ink
-        // and an accent link color that keeps contrast on that surface.
-        var themeCSS = ""
-        if let rgb = coordinator.paperRGB {
-            let hex = Palette.hexString(rgb)
-            let ink = Palette.isDark(rgb) ? "#FFFFFF" : "#000000"
-            themeCSS += "html,body{background:\(hex)!important;color:\(ink)!important}body *{background-color:transparent!important;color:inherit!important}"
-        }
-        if let accent = coordinator.accentRGB {
-            if let rgb = coordinator.paperRGB {
-                let link = Palette.hexString(Palette.rgb(Palette.accessibleAccent(accent, dark: Palette.isDark(rgb), backgroundRGB: rgb)))
-                themeCSS += "a,a *{color:\(link)!important;text-decoration:underline!important}::selection{background:\(link)40}"
-            } else {
-                let light = Palette.hexString(Palette.rgb(Palette.accessibleAccent(accent, dark: false)))
-                let dark = Palette.hexString(Palette.rgb(Palette.accessibleAccent(accent, dark: true)))
-                themeCSS += "a,a *{color:\(light)!important;text-decoration:underline!important}"
-                themeCSS += "@media (prefers-color-scheme:dark){a,a *{color:\(dark)!important}}"
-            }
-        } else if coordinator.paperRGB != nil {
-            themeCSS += "a{text-decoration:underline!important}"
-        }
+        // Entry pages follow the chosen iOS theme through the book stylesheet's
+        // --e-* variables: background, readable ink, accent, example colour, type.
+        let themeCSS = DictionaryBookStyle.variables(backgroundRGB: coordinator.paperRGB, accentRGB: coordinator.accentRGB,
+                                                     size: coordinator.textSize, sans: coordinator.sansFont)
         if !themeCSS.isEmpty {
             let script = "const s=document.createElement('style');s.textContent='\(themeCSS)';document.head.appendChild(s);"
             configuration.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: selectionWorld))
@@ -127,6 +114,8 @@ struct DictionaryPage: UIViewRepresentable {
         var followLink: ((String) -> Void)?
         var paperRGB: Int?
         var accentRGB: Int?
+        var textSize: Double = 19
+        var sansFont = false
         var initialOffset: CGPoint = .zero
         var saveOffset: ((CGPoint) -> Void)?
         private var loaded = false

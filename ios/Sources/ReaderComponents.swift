@@ -198,7 +198,7 @@ struct GlyphActionStyle: ButtonStyle {
 
 // MARK: - Theme picker
 
-/// Miniature of a theme: background, card and accent, in the theme's own colors.
+/// Miniature of a theme: page, card, ink and accent, in the theme's own colors.
 struct ThemeSwatch: View {
     let theme: ReaderTheme
     let style: ReaderStyle
@@ -206,50 +206,108 @@ struct ThemeSwatch: View {
     /// The Custom entry shows the colors this person actually picked.
     var accentOverride: Int?
     var backgroundOverride: Int?
+    /// Small, label-free version for list rows.
+    var compact = false
     /// Colors of the theme being previewed, not of the active one.
-    private var preview: (background: Color, surface: Color, accent: Color) {
+    private var preview: (background: Color, surface: Color, accent: Color, ink: Color) {
         let accent = Palette.color(accentOverride ?? theme.accentRGB)
         guard let background = backgroundOverride ?? theme.backgroundRGB else {
-            return (style.background, style.surface, accent)
+            return (style.background, style.surface, accent, style.ink)
         }
         return (Palette.color(background),
                 Palette.color(theme.surfaceRGB ?? Palette.raised(background)),
-                accent)
+                accent, Palette.ink(background))
     }
     var body: some View {
-        VStack(spacing: 7) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 13, style: .continuous).fill(preview.background)
-                VStack(alignment: .leading, spacing: 5) {
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(preview.accent).frame(width: 26, height: 4)
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(preview.surface).frame(height: 22)
+        let colors = preview
+        let width: CGFloat = compact ? 54 : 92
+        let height: CGFloat = compact ? 40 : 66
+        return VStack(spacing: 7) {
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: compact ? 10 : 14, style: .continuous).fill(colors.background)
+                VStack(alignment: .leading, spacing: compact ? 3 : 5) {
+                    HStack(spacing: 4) {
+                        Text("あ").font(.system(size: compact ? 12 : 17, weight: .semibold, design: .serif))
+                            .foregroundStyle(colors.ink)
+                        Circle().fill(colors.accent).frame(width: compact ? 5 : 7, height: compact ? 5 : 7)
+                    }
+                    RoundedRectangle(cornerRadius: compact ? 4 : 6, style: .continuous)
+                        .fill(colors.surface)
+                        .frame(height: compact ? 11 : 20)
+                        .overlay(alignment: .leading) {
+                            Capsule().fill(colors.accent.opacity(0.85))
+                                .frame(width: compact ? 14 : 24, height: compact ? 2.5 : 3.5)
+                                .padding(.leading, compact ? 4 : 6)
+                        }
                         .overlay(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .strokeBorder(preview.accent.opacity(0.22), lineWidth: 1)
+                            RoundedRectangle(cornerRadius: compact ? 4 : 6, style: .continuous)
+                                .strokeBorder(colors.ink.opacity(0.10), lineWidth: 1)
                         )
                 }
-                .padding(9)
-                if theme.id == ReaderTheme.systemID {
+                .padding(compact ? 6 : 9)
+                if theme.id == ReaderTheme.systemID && !compact {
                     Image(systemName: "circle.lefthalf.filled")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(preview.accent)
-                        .padding(5)
+                        .foregroundStyle(colors.accent)
+                        .padding(6)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 }
+                if selected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(style.onAccent, style.accent)
+                        .padding(5)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                }
             }
-            .frame(width: 86, height: 62)
+            .frame(width: width, height: height)
             .overlay(
-                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                RoundedRectangle(cornerRadius: compact ? 10 : 14, style: .continuous)
                     .strokeBorder(selected ? style.accent : style.hairline, lineWidth: selected ? 2.5 : 1)
             )
-            Text(theme.name)
-                .font(.system(size: 11, weight: selected ? .semibold : .regular))
-                .foregroundStyle(selected ? style.accent : style.secondary)
-                .lineLimit(1)
+            .shadow(color: selected ? style.accent.opacity(0.25) : .clear, radius: 8, x: 0, y: 3)
+            if !compact {
+                Text(theme.name)
+                    .font(.system(size: 11, weight: selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? style.accent : style.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
         }
-        .frame(width: 90)
+        .frame(width: compact ? width : 96)
         .contentShape(Rectangle())
+    }
+}
+
+// MARK: - Search helpers
+
+/// Holds the scroll anchor outside SwiftUI state so scrolling does not re-render.
+final class ScrollTracker {
+    var anchor: CGFloat = 0
+}
+
+struct SearchHeaderHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+struct ResultsScrollOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+enum ReaderText {
+    /// Compact dictionary name for filter chips: drops publisher, edition and the
+    /// trailing 辞典 so more dictionaries fit on one row. Full names stay elsewhere.
+    static func shortDictionaryName(_ full: String) -> String {
+        let base = full
+            .replacingOccurrences(of: #"\s*[（(]?第\s*\d+\s*版[）)]?"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+        let short = base
+            .replacingOccurrences(of: #"^[（(][^）)]*[）)]\s*"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"^(大修館|旺文社|小学館|三省堂|研究社|講談社|朝日出版社|くろしお出版|岩波書店)\s*"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"(新|大)?(辞典|辞書)(?=\s|·|［|$)"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+        return short.count >= 2 ? short : base
     }
 }

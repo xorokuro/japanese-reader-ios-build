@@ -106,21 +106,63 @@ struct ReaderTheme: Identifiable, Equatable, Hashable {
     static let light: [ReaderTheme] = [
         ReaderTheme(id: "washi", name: "Washi Paper", detail: "Warm white, jade accent",
                     family: .light, backgroundRGB: 0xFAF7F1, surfaceRGB: 0xFFFFFF, accentRGB: 0x1F7A73),
+        ReaderTheme(id: "kinari", name: "Kinari Silk", detail: "Unbleached silk, vermilion seal",
+                    family: .light, backgroundRGB: 0xF6F1E7, surfaceRGB: 0xFFFDF8, accentRGB: 0xB4432F),
+        ReaderTheme(id: "sepia", name: "Sepia Study", detail: "Aged paper, easy on the eyes",
+                    family: .light, backgroundRGB: 0xF3E8D5, surfaceRGB: 0xFCF5E8, accentRGB: 0x8A5524),
+        ReaderTheme(id: "sumie", name: "Sumi-e", detail: "Ink-wash paper, crimson stamp",
+                    family: .light, backgroundRGB: 0xF2F1ED, surfaceRGB: 0xFBFBF9, accentRGB: 0x9E2B25),
         ReaderTheme(id: "sakura", name: "Sakura", detail: "Soft blossom light",
                     family: .light, backgroundRGB: 0xFDF3F5, surfaceRGB: 0xFFFFFF, accentRGB: 0xB03A62),
+        ReaderTheme(id: "momo", name: "Peach Tea", detail: "Blush paper, persimmon accent",
+                    family: .light, backgroundRGB: 0xFFF1EA, surfaceRGB: 0xFFFBF8, accentRGB: 0xB84A2B),
+        ReaderTheme(id: "yuzu", name: "Yuzu", detail: "Citrus morning",
+                    family: .light, backgroundRGB: 0xFBF6E4, surfaceRGB: 0xFFFDF3, accentRGB: 0x946000),
+        ReaderTheme(id: "matcha", name: "Matcha Latte", detail: "Pale tea green",
+                    family: .light, backgroundRGB: 0xEEF2E4, surfaceRGB: 0xFAFCF5, accentRGB: 0x4F7A2E),
+        ReaderTheme(id: "koke", name: "Moss Garden", detail: "Temple moss and stone",
+                    family: .light, backgroundRGB: 0xEEF1EA, surfaceRGB: 0xF9FBF6, accentRGB: 0x3F6B4E),
         ReaderTheme(id: "mist", name: "Morning Mist", detail: "Cool blue daylight",
                     family: .light, backgroundRGB: 0xEEF3F8, surfaceRGB: 0xFFFFFF, accentRGB: 0x2C6DAF),
-        ReaderTheme(id: "sepia", name: "Sepia Study", detail: "Aged paper, easy on the eyes",
-                    family: .light, backgroundRGB: 0xF3E8D5, surfaceRGB: 0xFCF5E8, accentRGB: 0x8A5524)
+        ReaderTheme(id: "glacier", name: "Glacier", detail: "Clear ice, teal ink",
+                    family: .light, backgroundRGB: 0xEAF4F4, surfaceRGB: 0xF8FDFD, accentRGB: 0x1E7C8A),
+        ReaderTheme(id: "ajisai", name: "Hydrangea", detail: "Rainy-season indigo",
+                    family: .light, backgroundRGB: 0xEDF1FA, surfaceRGB: 0xFBFCFF, accentRGB: 0x3E5BA9),
+        ReaderTheme(id: "fuji", name: "Wisteria", detail: "Lavender afternoon",
+                    family: .light, backgroundRGB: 0xF3F0FA, surfaceRGB: 0xFFFFFF, accentRGB: 0x6B4FA8),
+        ReaderTheme(id: "shiro", name: "Pure White", detail: "Crisp and neutral",
+                    family: .light, backgroundRGB: 0xFFFFFF, surfaceRGB: 0xF6F6F4, accentRGB: 0x2A5DB0)
     ]
 
     static let dark: [ReaderTheme] = [
         ReaderTheme(id: "midnight", name: "Midnight Ink", detail: "Deep navy, cyan accent",
                     family: .dark, backgroundRGB: 0x0E1320, surfaceRGB: 0x181F30, accentRGB: 0x6FC8E8),
+        ReaderTheme(id: "suminight", name: "Sumi Night", detail: "Charcoal and vermilion",
+                    family: .dark, backgroundRGB: 0x1C1B19, surfaceRGB: 0x262422, accentRGB: 0xE07A5F),
+        ReaderTheme(id: "kissaten", name: "Kissaten", detail: "Coffee-house wood and cream",
+                    family: .dark, backgroundRGB: 0x1E1813, surfaceRGB: 0x2A221B, accentRGB: 0xE0B07A),
+        ReaderTheme(id: "lantern", name: "Lantern Night", detail: "Warm paper lantern glow",
+                    family: .dark, backgroundRGB: 0x211C29, surfaceRGB: 0x2C2535, accentRGB: 0xF1B15A),
+        ReaderTheme(id: "yozakura", name: "Night Sakura", detail: "Blossoms after dark",
+                    family: .dark, backgroundRGB: 0x1D1519, surfaceRGB: 0x2A1F25, accentRGB: 0xF2A1B9),
+        ReaderTheme(id: "koyo", name: "Autumn Maple", detail: "Ember reds and browns",
+                    family: .dark, backgroundRGB: 0x211815, surfaceRGB: 0x2E211C, accentRGB: 0xF08B4C),
+        ReaderTheme(id: "hotaru", name: "Firefly", detail: "Summer night, soft glow",
+                    family: .dark, backgroundRGB: 0x10150F, surfaceRGB: 0x19211A, accentRGB: 0xD8E36B),
         ReaderTheme(id: "jade", name: "Jade Lantern", detail: "Dark green reading room",
                     family: .dark, backgroundRGB: 0x0C1614, surfaceRGB: 0x15201D, accentRGB: 0x75DDBA),
+        ReaderTheme(id: "matchanight", name: "Matcha Night", detail: "Deep tea green",
+                    family: .dark, backgroundRGB: 0x1B2520, surfaceRGB: 0x243029, accentRGB: 0xA6D08A),
+        ReaderTheme(id: "shinkai", name: "Deep Sea", detail: "Abyssal blue, bioluminescent",
+                    family: .dark, backgroundRGB: 0x071821, surfaceRGB: 0x0F2530, accentRGB: 0x5FD1E6),
+        ReaderTheme(id: "ginga", name: "Galaxy", detail: "Starlit indigo, gold",
+                    family: .dark, backgroundRGB: 0x0F1226, surfaceRGB: 0x1A1E3A, accentRGB: 0xFFD27A),
         ReaderTheme(id: "plum", name: "Plum Night", detail: "Violet dusk",
                     family: .dark, backgroundRGB: 0x140E1B, surfaceRGB: 0x1F1729, accentRGB: 0xC49BF0),
+        ReaderTheme(id: "tsukiyo", name: "Moonlight", detail: "Silver on slate",
+                    family: .dark, backgroundRGB: 0x15181D, surfaceRGB: 0x1F242B, accentRGB: 0xC9D6E8),
+        ReaderTheme(id: "frost", name: "Frost", detail: "Nordic slate, ice blue",
+                    family: .dark, backgroundRGB: 0x222831, surfaceRGB: 0x2D3440, accentRGB: 0x88C0D0),
         ReaderTheme(id: "black", name: "True Black", detail: "OLED friendly",
                     family: .dark, backgroundRGB: 0x000000, surfaceRGB: 0x101012, accentRGB: 0x64D8B4)
     ]
@@ -199,4 +241,32 @@ struct ReaderStyle: Equatable {
             raised: Palette.color(Palette.raised(surfaceRGB, 0.05)),
             ink: Palette.ink(backgroundRGB), accent: accent, onAccent: Palette.ink(Palette.rgb(accent)))
     }
+}
+
+// MARK: - Typography
+
+/// Reading and dictionary typefaces available on every iPhone.
+enum ReaderTypeface: String, CaseIterable, Identifiable {
+    case gothic, mincho, rounded
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .gothic: return "Gothic · ゴシック"
+        case .mincho: return "Mincho · 明朝"
+        case .rounded: return "Rounded · 丸ゴシック"
+        }
+    }
+    /// PostScript names of the Hiragino faces bundled with iOS.
+    private var postScriptName: String {
+        switch self {
+        case .gothic: return "HiraginoSans-W3"
+        case .mincho: return "HiraMinProN-W3"
+        case .rounded: return "HiraMaruProN-W4"
+        }
+    }
+    func uiFont(size: CGFloat) -> UIFont {
+        UIFont(name: postScriptName, size: size) ?? .systemFont(ofSize: size)
+    }
+    func font(size: CGFloat) -> Font { .custom(postScriptName, size: size) }
+    static func resolve(_ raw: String) -> ReaderTypeface { ReaderTypeface(rawValue: raw) ?? .gothic }
 }

@@ -35,6 +35,23 @@ struct LookupSnapshot {
 
 @MainActor final class ReaderModel: ObservableObject {
     @Published var text = "" { didSet { if text != oldValue { readerSelection = "" } } }
+    @Published private(set) var searchHistory: [String] = []
+    func recordSearch(_ query: String) {
+        let value = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return }
+        searchHistory.removeAll { $0 == value }
+        searchHistory.insert(value, at: 0)
+        searchHistory = Array(searchHistory.prefix(200))
+        preferences.set(searchHistory, forKey: "searchHistory")
+    }
+    func deleteSearchHistory(at offsets: IndexSet) {
+        searchHistory.remove(atOffsets: offsets)
+        preferences.set(searchHistory, forKey: "searchHistory")
+    }
+    func clearSearchHistory() {
+        searchHistory = []
+        preferences.set(searchHistory, forKey: "searchHistory")
+    }
     @Published var word = ""
     @Published var hits: [DictionaryHit] = []
     @Published var status = ""
@@ -124,12 +141,44 @@ struct LookupSnapshot {
     @Published var dictionaryAutoSearch = true {
         didSet { preferences.set(dictionaryAutoSearch, forKey: "dictionaryAutoSearch"); cancelPendingSearch() }
     }
-    func cancelPendingSearch() { liveSearch?.cancel(); liveSearch = nil; searchGeneration += 1; lookupBusy = false }
+    private var selectionTouchDown = false
+    private var selectionTouchCancelled = false
+    private var heldSelection: (text: String, inDictionary: Bool)?
+    private var releasedSelection: DispatchWorkItem?
+    func cancelPendingSearch() {
+        liveSearch?.cancel(); liveSearch = nil
+        releasedSelection?.cancel(); releasedSelection = nil; heldSelection = nil
+        searchGeneration += 1; lookupBusy = false
+    }
+    func selectionTouchChanged(down: Bool, cancelled: Bool) {
+        selectionTouchDown = down
+        selectionTouchCancelled = cancelled
+        if down || cancelled {
+            // Invalidate even a lookup already running on the dictionary queue.
+            cancelPendingSearch()
+            return
+        }
+        guard let selection = heldSelection else { return }
+        let generation = searchGeneration
+        let action = DispatchWorkItem { [weak self] in
+            guard let self, !self.selectionTouchDown, !self.selectionTouchCancelled,
+                  self.searchGeneration == generation else { return }
+            self.select(selection.text, inDictionary: selection.inDictionary)
+        }
+        releasedSelection = action
+        // Let UIKit/WebKit deliver the final selection update after touch-up.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: action)
+    }
     func select(_ text: String, inDictionary: Bool) {
         if !text.isEmpty { selectionFromDictionary = inDictionary }
         if inDictionary { dictionarySelection = text } else { readerSelection = text }
         cancelPendingSearch()
-        guard !text.isEmpty, (inDictionary ? dictionaryAutoSearch : readerAutoSearch) else { return }
+        guard !text.isEmpty, !selectionTouchCancelled,
+              (inDictionary ? dictionaryAutoSearch : readerAutoSearch) else { return }
+        if selectionTouchDown {
+            heldSelection = (text, inDictionary)
+            return
+        }
         word = text
         search(dismissKeyboard: false, navigate: true, onlyIfMatched: true)
     }
@@ -154,6 +203,7 @@ struct LookupSnapshot {
     init(documents: URL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0], preferences: UserDefaults = .standard) {
         self.documents = documents
         self.preferences = preferences
+        searchHistory = preferences.stringArray(forKey: "searchHistory") ?? []
         readerAutoSearch = (preferences.object(forKey: "readerAutoSearch") as? Bool) ?? true
         dictionaryAutoSearch = (preferences.object(forKey: "dictionaryAutoSearch") as? Bool) ?? true
         do {
@@ -213,6 +263,7 @@ struct LookupSnapshot {
         let mode: DictionarySearchMode = openBestMatch ? .exact : (navigate ? .prefix : searchMode)
         let selected = dictionaries.filter { !disabledDictionaries.contains($0.id) && (navigate || searchScope.isEmpty || $0.id == searchScope) }
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { hits = []; lookupBusy = false; status = ""; return }
+        if dismissKeyboard || navigate { recordSearch(query) }
         lookupBusy = true
         queue.async {
             let result = Result { () -> [DictionaryHit] in
@@ -271,6 +322,7 @@ struct LookupSnapshot {
                 self.lookupBusy = false
                 switch result {
                 case .success(let (html, alternatives)):
+                    self.recordSearch(query)
                     if !replacingCurrent { self.remember(previousPage) }
                     if replacingCurrent, !self.visits.isEmpty {
                         let removed = self.visits.removeLast(); self.entryOffsets.removeValue(forKey: removed.id)
@@ -298,10 +350,6 @@ struct LookupSnapshot {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         guard !saved.contains(where: { $0.text == text }) else { status = "Already in your library."; return }
         if store([SavedText(text: text)] + saved) { status = "Saved to your library." }
-    }
-    func readPassage() {
-        if autoSave { save() }
-        else { status = "Auto-save is off. Tap Save if you want to keep this passage." }
     }
     func updateNote(id: UUID, note: String) {
         var next = saved
@@ -369,7 +417,16 @@ struct LookupSnapshot {
     @StateObject private var model: ReaderModel
     init() {
         #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-reset-search-keyboard") {
+            UserDefaults.standard.removeObject(forKey: "automaticallyShowSearchKeyboard")
+        }
+        if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "--ui-clipboard"),
+           ProcessInfo.processInfo.arguments.indices.contains(index + 1) {
+            UIPasteboard.general.string = ProcessInfo.processInfo.arguments[index + 1]
+        }
         if ProcessInfo.processInfo.arguments.contains("--ui-dictionary-fixture") {
+            UserDefaults.standard.set(false, forKey: "savePassagesOnRead")
+            UserDefaults.standard.set(true, forKey: "readerAutoSearch")
             _model = StateObject(wrappedValue: ReaderModel(documents: UITestFixture.documents()))
         } else { _model = StateObject(wrappedValue: ReaderModel()) }
         #else
@@ -386,19 +443,32 @@ struct ReaderHome: View {
     @State private var clearedPassage: String?
     @State private var translation = false
     @State private var selectedTab = 0
-    @State private var editing = true
     @State private var searchFocusRequest = 0
+    @AppStorage("automaticallyShowSearchKeyboard") private var automaticallyShowSearchKeyboard = false
+    @AppStorage("searchKeyboardLanguage") private var searchKeyboardLanguage = "ja"
+    @State private var showingHistory = false
+    @State private var clearHistoryConfirmation = false
     @State private var wantsSearchFocus = false
     @State private var switchingDictionary = false
+    @State private var collapsedResultGroups = Set<String>()
     @State private var librarySearch = ""
     @State private var deleteAll = false
-    @FocusState private var passageFocused: Bool
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("paletteAccent") private var accentRGB = 0x1F7A73
     @AppStorage("palettePaper") private var paperRGB = 0xFFFFFF
     @AppStorage("customReadingPaper") private var customPaper = false
     // Empty on upgrade: existing installs keep the colors they already chose.
     @AppStorage("readerThemePreset") private var themeID = ""
+    @AppStorage("readerTypeface") private var readerTypefaceRaw = ReaderTypeface.gothic.rawValue
+    @AppStorage("readerTextSize") private var readerTextSize = 23.0
+    @AppStorage("readerLineSpacing") private var readerLineSpacing = 1.35
+    @AppStorage("dictionaryTextSize") private var dictionaryTextSize = 19.0
+    @AppStorage("dictionarySans") private var dictionarySans = false
+    // Search header: hides while scrolling down through results, returns on scroll up.
+    @State private var headerCollapsed = false
+    @State private var headerHeight: CGFloat = 104
+    @State private var scrollTracker = ScrollTracker()
+    private var readerTypeface: ReaderTypeface { ReaderTypeface.resolve(readerTypefaceRaw) }
 
     private var style: ReaderStyle {
         ReaderStyle.resolve(themeID: themeID, customPaper: customPaper, paperRGB: paperRGB,
@@ -412,7 +482,6 @@ struct ReaderHome: View {
         Binding(get: { Palette.color(value.wrappedValue) }, set: { value.wrappedValue = Palette.rgb($0) })
     }
     private func dismissKeyboard() {
-        passageFocused = false
         wantsSearchFocus = false
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
@@ -421,24 +490,35 @@ struct ReaderHome: View {
         model.cancelPendingSearch()
         model.text = ""; model.readerOffset = .zero; model.readerSelection = ""
         model.status = "Passage cleared."
-        editing = true
         dismissKeyboard()
     }
-    private func read() {
-        passageFocused = false
-        model.readPassage(); editing = false
-        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    private func pastePassage(_ strings: [String]) {
+        guard !strings.isEmpty else { return }
+        model.closeLookup()
+        model.text = strings.joined(separator: "\n")
+        model.readerOffset = .zero
+        model.readerSelection = ""
+        model.status = ""
+        clearedPassage = nil
+        if model.autoSave { model.save() }
+        dismissKeyboard()
     }
     private var filteredPassages: [SavedText] {
         guard !librarySearch.isEmpty else { return model.saved }
         return model.saved.filter { $0.text.localizedCaseInsensitiveContains(librarySearch) || $0.note.localizedCaseInsensitiveContains(librarySearch) }
     }
     var body: some View {
-        TabView(selection: $selectedTab) {
+        TabView(selection: Binding(get: { selectedTab }, set: { tab in
+            if tab == 1 { activateSearchTab() } else { selectedTab = tab }
+        })) {
             readerTab
             searchTab
             libraryTab
         }
+        .sheet(isPresented: $showingHistory) { historySheet }
+        .background(SelectionTouchObserver(enabled: selectedTab == 0 || (selectedTab == 1 && model.showingEntry)) { down, cancelled in
+            model.selectionTouchChanged(down: down, cancelled: cancelled)
+        })
         .background(KeyboardDismissArea(enabled: keyboardVisible && selectedTab != 2, dismiss: dismissKeyboard))
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardVisible = true }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardVisible = false }
@@ -451,10 +531,9 @@ struct ReaderHome: View {
         .background(paper.ignoresSafeArea())
         .environment(\.readerStyle, style)
         .onChange(of: selectedTab) { _, tab in
-            if tab == 1 {
-                wantsSearchFocus = !model.showingLookup
-                if wantsSearchFocus { model.showResults(); searchFocusRequest += 1 }
-            } else {
+            // Programmatic lookup navigation must keep the keyboard hidden.
+            // User tab taps are handled separately, including reselection.
+            if tab != 1 {
                 wantsSearchFocus = false; model.closeLookup()
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             }
@@ -471,13 +550,9 @@ struct ReaderHome: View {
     // Stays reachable above the keyboard on every screen.
     private var keyboardBar: some View {
         HStack {
-            if selectedTab == 0 && passageFocused {
-                Button("Read") { read() }.accessibilityIdentifier("openPassage")
-            } else {
-                Button("Read") { dismissKeyboard(); selectedTab = 0 }.accessibilityIdentifier("keyboardReadTab")
-            }
+            Button("Read") { dismissKeyboard(); selectedTab = 0 }.accessibilityIdentifier("keyboardReadTab")
             Spacer()
-            Button("Search") { selectedTab = 1; requestSearchFocus() }.accessibilityIdentifier("keyboardSearchTab")
+            Button("Search") { activateSearchTab() }.accessibilityIdentifier("keyboardSearchTab")
             Spacer()
             Button("Library") { dismissKeyboard(); selectedTab = 2 }.accessibilityIdentifier("keyboardLibraryTab")
             Spacer()
@@ -497,10 +572,11 @@ struct ReaderHome: View {
     private var readerTab: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if editing { composeView } else { readingView }
+                readingView
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(paper)
+            .translationPresentation(isPresented: $translation, text: model.text)
             .navigationTitle("Japanese Reader").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -511,12 +587,21 @@ struct ReaderHome: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    if !editing {
-                        Menu("Actions") {
-                            Button("Translate") { translation = true }.disabled(model.text.isEmpty)
-                            Button("Copy learning prompt") { UIPasteboard.general.string = model.prompt(); model.status = "Learning prompt copied." }
-                        }.translationPresentation(isPresented: $translation, text: model.text)
+                    Menu {
+                        Button("Save") { model.save() }.disabled(model.text.isEmpty)
+                        Button("Translate") { translation = true }.disabled(model.text.isEmpty)
+                        Button("Copy learning prompt") { UIPasteboard.general.string = model.prompt(); model.status = "Learning prompt copied." }
+                            .disabled(model.text.isEmpty)
+                        Divider()
+                        Toggle("Auto-search selected words", isOn: $model.readerAutoSearch)
+                            .accessibilityIdentifier("readerAutoSearch")
+                        Toggle("Auto-save pasted passages", isOn: $model.autoSave)
+                            .accessibilityIdentifier("autoSavePassages")
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
                     }
+                    .accessibilityLabel("Reader options")
+                    .accessibilityIdentifier("readerOptions")
                 }
             }
         }
@@ -525,127 +610,36 @@ struct ReaderHome: View {
         .tabItem { Label("Read", systemImage: "book") }.tag(0)
     }
 
-    private var composeView: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: ReaderMetrics.stack) {
-                HStack(spacing: 10) {
-                    PasteButton(payloadType: String.self) { strings in
-                        guard !strings.isEmpty else { return }
-                        model.text = strings.joined(separator: "\n"); model.readerOffset = .zero
-                        model.status = ""
-                        editing = true
-                        passageFocused = false
-                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(accent)
-                    .foregroundStyle(style.onAccent)
-                    .accessibilityIdentifier("pastePassage")
-                    Text("Paste Japanese from another app").font(.caption).foregroundStyle(style.secondary)
-                    Spacer(minLength: 0)
-                }
-                Text("Paste a passage. Select a word to look it up.").font(.subheadline).foregroundStyle(style.secondary)
-                optionsPanel
-                Picker("Reading mode", selection: $editing) {
-                    Text("Paste / edit").tag(true); Text("Read / select words").tag(false)
-                }
-                .pickerStyle(.segmented)
-                .background(KeyboardControlArea())
-                editorPanel
-                HStack(spacing: 10) {
-                    if !passageFocused {
-                        Button("Read") { read() }
-                            .buttonStyle(PrimaryActionStyle(style: style))
-                            .accessibilityIdentifier("openPassage")
-                    }
-                    Button("Save") { model.save() }
-                    Button("Translate") { translation = true }
-                        .disabled(model.text.isEmpty)
-                        .translationPresentation(isPresented: $translation, text: model.text)
-                    Spacer(minLength: 0)
-                }
-                .buttonStyle(SoftActionStyle(style: style))
-                Button {
-                    UIPasteboard.general.string = model.prompt()
-                    model.status = "Learning prompt copied. Paste it into your preferred AI app."
-                } label: {
-                    Label("Copy learning prompt", systemImage: "doc.on.doc")
-                }
-                .buttonStyle(SoftActionStyle(style: style, prominent: true))
-                if !model.status.isEmpty { StatusNote(text: model.status, style: style) }
-            }
-            .padding(.horizontal, ReaderMetrics.gutter)
-            .padding(.top, 12)
-            .padding(.bottom, 26)
-        }
-        .scrollDismissesKeyboard(.interactively)
-    }
-
-    private var optionsPanel: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Toggle("Auto-search selected words", isOn: $model.readerAutoSearch)
-                .background(KeyboardControlArea())
-                .accessibilityIdentifier("readerAutoSearch")
-            Rectangle().fill(style.separator).frame(height: 1)
-            Toggle("Auto-save passages", isOn: $model.autoSave)
-                .background(KeyboardControlArea())
-                .accessibilityIdentifier("autoSavePassages")
-            Text(model.autoSave ? "Saved when you tap Read. Your choice is remembered." : "Off: pasted text stays temporary unless you tap Save.")
-                .font(.caption).foregroundStyle(style.faint)
-        }
-        .font(.subheadline)
-        .readerInset(style, padding: 12)
-    }
-
-    private var editorPanel: some View {
-        ZStack(alignment: .topLeading) {
-            TextEditor(text: $model.text)
-                .scrollContentBackground(.hidden)
-                .foregroundStyle(ink)
-                .background(Color.clear)
-                .font(.system(size: 21))
-                .lineSpacing(5)
-                .focused($passageFocused)
-                .frame(height: 220)
-                .accessibilityIdentifier("passageEditor")
-            if model.text.isEmpty {
-                Text("日本語をここに貼り付け")
-                    .font(.system(size: 20))
-                    .foregroundStyle(style.faint)
-                    .padding(.top, 9).padding(.leading, 6)
-                    .allowsHitTesting(false)
-            }
-        }
-        .padding(8)
-        .background(style.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(passageFocused ? accent.opacity(0.8) : style.hairline,
-                              lineWidth: passageFocused ? 1.8 : 1)
-        )
-        .animation(.easeOut(duration: 0.18), value: passageFocused)
-    }
-
     private var readingView: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Toggle("Auto-search selected words", isOn: $model.readerAutoSearch)
-                    .background(KeyboardControlArea())
-                    .accessibilityIdentifier("readerAutoSearch")
-            }
-            .font(.subheadline)
-            .foregroundStyle(style.secondary)
-            .padding(.horizontal, ReaderMetrics.gutter)
-            .padding(.vertical, 9)
-            Rectangle().fill(style.separator).frame(height: 1)
             SelectableJapanese(text: model.text, ink: UIColor(ink), paper: UIColor(style.surface),
-                               tint: UIColor(accent), initialOffset: model.readerOffset,
+                               tint: UIColor(accent),
+                               font: readerTypeface.uiFont(size: CGFloat(readerTextSize)),
+                               lineSpacing: CGFloat(readerLineSpacing),
+                               initialOffset: model.readerOffset,
                                saveOffset: { model.readerOffset = $0 }) { word in
                 guard !model.showingLookup, selectedTab == 0 else { return }
                 model.select(word, inDictionary: false)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(style.surface)
+            .overlay {
+                if model.text.isEmpty {
+                    VStack(spacing: 14) {
+                        ZStack {
+                            Circle().fill(style.accentSoft).frame(width: 84, height: 84)
+                            Circle().strokeBorder(accent.opacity(0.35), lineWidth: 1.5).frame(width: 84, height: 84)
+                            Text("読").font(ReaderTypeface.mincho.font(size: 40)).foregroundStyle(accent)
+                        }
+                        Text("Paste a passage to start reading").font(.headline).foregroundStyle(ink)
+                        Text("Copy Japanese from another app, then tap Paste. Select any word to look it up.")
+                            .font(.subheadline).multilineTextAlignment(.center)
+                    }
+                    .foregroundStyle(style.secondary)
+                    .padding(32)
+                    .allowsHitTesting(false)
+                }
+            }
             readingActions
         }
     }
@@ -653,12 +647,15 @@ struct ReaderHome: View {
     private var readingActions: some View {
         VStack(spacing: 8) {
             HStack(spacing: 9) {
-                Button("Paste / edit") { editing = true; model.readerSelection = "" }
-                Button("Save") { model.save() }
+                PasteButton(payloadType: String.self, onPaste: pastePassage)
+                    .buttonStyle(.borderedProminent)
+                    .tint(accent)
+                    .accessibilityIdentifier("pastePassage")
                 Spacer(minLength: 0)
-                Button("Search selected text") { model.searchSelected(inDictionary: false) }
-                    .buttonStyle(SoftActionStyle(style: style, prominent: true))
-                    .disabled(model.readerSelection.isEmpty)
+                if !model.readerSelection.isEmpty {
+                    Button("Search selected text") { model.searchSelected(inDictionary: false) }
+                        .buttonStyle(SoftActionStyle(style: style, prominent: true))
+                }
             }
             .buttonStyle(SoftActionStyle(style: style))
             if !model.status.isEmpty {
@@ -688,11 +685,14 @@ struct ReaderHome: View {
             .overlay(alignment: .leading) { backSwipeEdge(fromLeft: true) }
             .overlay(alignment: .trailing) { backSwipeEdge(fromLeft: false) }
             .navigationBarTitleDisplayMode(.inline)
+            // Results draw their own compact header; definitions keep the title bar.
+            .toolbar(model.showingEntry ? .visible : .hidden, for: .navigationBar)
+            .toolbar(searchChromeHidden ? .hidden : .visible, for: .tabBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     if model.showingEntry {
                         Button { goBackInSearch() } label: { Image(systemName: "chevron.left") }.accessibilityLabel("Back")
-                    } else { Button(model.canGoBack ? "Back" : "Back to Main Page") { goBackInSearch() } }
+                    }
                 }
                 ToolbarItem(placement: .principal) {
                     if model.showingEntry { entryTitleButton }
@@ -700,15 +700,10 @@ struct ReaderHome: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     if model.showingEntry {
                         Menu {
-                            Button("Search results") { model.showResults(); requestSearchFocus() }
+                            Button("Search results") { model.showResults(); applySearchKeyboardPreference() }
                             Button("Copy learning prompt") { UIPasteboard.general.string = model.prompt(inDictionary: true); model.status = "Learning prompt copied." }
                             Button("Back to Main Page") { selectedTab = 0 }
                         } label: { Image(systemName: "line.3.horizontal") }.accessibilityLabel("Dictionary navigation")
-                    } else {
-                        Button {
-                            UIPasteboard.general.string = model.prompt(inDictionary: model.selectionFromDictionary)
-                            model.status = "Learning prompt copied."
-                        } label: { Image(systemName: "doc.on.doc") }.accessibilityLabel("Copy learning prompt")
                     }
                 }
             }
@@ -725,6 +720,7 @@ struct ReaderHome: View {
         }
         .toolbarBackground(paper, for: .tabBar, .navigationBar)
         .toolbarBackground(.visible, for: .tabBar, .navigationBar)
+        .background(SearchTabObserver { activateSearchTab() })
         .tabItem { Label("Search", systemImage: "magnifyingglass") }.tag(1)
     }
 
@@ -750,13 +746,14 @@ struct ReaderHome: View {
         return ZStack(alignment: .bottom) {
             DictionaryPage(html: model.entryHTML, root: model.entryRoot ?? model.dictionaryRoot, code: model.entryCode,
                            paperRGB: style.backgroundRGB, accentRGB: style.accentRGB,
+                           textSize: dictionaryTextSize, sansFont: dictionarySans,
                            initialOffset: model.entryOffsets[visitID] ?? .zero,
                            saveOffset: { model.entryOffsets[visitID] = $0 },
                            followLink: { model.followEntryLink($0) }) { word in
                 guard selectedTab == 1, model.showingEntry else { return }
                 model.select(word, inDictionary: true)
             }
-            .id(visitID.uuidString + style.identity)
+            .id(visitID.uuidString + style.identity + "-\(Int(dictionaryTextSize))-\(dictionarySans)")
             if !model.dictionarySelection.isEmpty {
                 Button("Search selected text") { model.searchSelected(inDictionary: true) }
                     .buttonStyle(SoftActionStyle(style: style, prominent: true))
@@ -772,62 +769,201 @@ struct ReaderHome: View {
         }
     }
 
+    /// Header and tab bar step aside while reading down a result list.
+    private var searchChromeHidden: Bool {
+        headerCollapsed && !model.showingEntry && !keyboardVisible && !model.hits.isEmpty
+    }
+
     private func lookup(focusSearch: Bool) -> some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 15, weight: .semibold)).foregroundStyle(accent)
-                JapaneseSearchField(text: $model.word, focusRequest: searchFocusRequest,
-                                    active: focusSearch && selectedTab == 1 && !model.showingEntry,
-                                    ink: UIColor(ink), accent: UIColor(accent),
-                                    changed: { model.typedSearch($0, clearSelection: true) }) { model.search() }
-                    .frame(height: 36)
-                if model.lookupBusy { ProgressView().controlSize(.small) }
-                Button { model.search() } label: { Image(systemName: "arrow.forward") }
-                    .buttonStyle(GlyphActionStyle(style: style))
-                    .accessibilityLabel("Search dictionaries")
-                    .background(KeyboardControlArea())
-            }
-            .padding(.leading, 14).padding(.trailing, 8).padding(.vertical, 7)
-            .readerCard(style, padding: 0, radius: 16)
-            .padding(.horizontal, 12)
-            .padding(.top, 8)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    scopeChip("All", id: "")
-                    ForEach(model.dictionaries.filter { !model.disabledDictionaries.contains($0.id) }) { scopeChip($0.name, id: $0.id) }
+        ZStack(alignment: .top) {
+            Group {
+                if model.hits.isEmpty {
+                    VStack(spacing: 0) {
+                        Color.clear.frame(height: headerHeight)
+                        EmptyHint(symbol: model.word.isEmpty ? "character.book.closed" : "magnifyingglass",
+                                  title: model.word.isEmpty ? "Look up any Japanese word" : "Nothing found yet",
+                                  detail: model.word.isEmpty
+                                    ? "Type above, or highlight a word while reading. Enabled dictionaries are searched in your chosen order."
+                                    : "Exact matches appear first, then words that start with your text. Try the dictionary form.",
+                                  style: style)
+                            .padding(.top, 36)
+                        Spacer(minLength: 0)
+                    }
+                } else {
+                    resultGroups(model.hits, topInset: headerHeight)
                 }
-                .padding(.horizontal, 12)
             }
-            HStack(spacing: 10) {
-                Picker("Match", selection: $model.searchMode) {
-                    Text("Starts with").tag(DictionarySearchMode.prefix)
-                    Text("Exact word").tag(DictionarySearchMode.exact)
-                }
-                .pickerStyle(.menu)
-                .tint(accent)
-                .background(KeyboardControlArea())
-                Spacer()
-                Button { requestSearchFocus() } label: { Image(systemName: "keyboard") }
-                    .buttonStyle(GlyphActionStyle(style: style))
-                    .accessibilityLabel("Show search keyboard")
-                    .background(KeyboardControlArea())
-            }
-            .padding(.horizontal, 14)
-            if model.hits.isEmpty {
-                EmptyHint(symbol: model.word.isEmpty ? "character.book.closed" : "magnifyingglass",
-                          title: model.word.isEmpty ? "Look up any Japanese word" : "Nothing found yet",
-                          detail: model.word.isEmpty
-                            ? "Type above, or highlight a word while reading. Enabled dictionaries are searched in your chosen order."
-                            : "Exact matches appear first, then words that start with your text. Try the dictionary form.",
-                          style: style)
-                Spacer(minLength: 0)
-            } else {
-                resultGroups(model.hits)
+            searchHeader(focusSearch: focusSearch)
+                .background(GeometryReader { proxy in
+                    Color.clear.preference(key: SearchHeaderHeightKey.self, value: proxy.size.height)
+                })
+                .offset(y: searchChromeHidden ? -(headerHeight + 8) : 0)
+                .opacity(searchChromeHidden ? 0 : 1)
+            if searchChromeHidden {
+                compactSearchPill
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
+        .clipped()
         .background(paper)
+        .onPreferenceChange(SearchHeaderHeightKey.self) { height in
+            if height > 0 && abs(height - headerHeight) > 0.5 { headerHeight = height }
+        }
         .onChange(of: model.searchMode) { _, _ in model.typedSearch(model.word) }
+        .onChange(of: model.word) { _, _ in revealSearchHeader() }
+        .onChange(of: keyboardVisible) { _, visible in if visible { revealSearchHeader() } }
+    }
+
+    private func revealSearchHeader() {
+        scrollTracker.anchor = 0
+        guard headerCollapsed else { return }
+        withAnimation(.snappy(duration: 0.28)) { headerCollapsed = false }
+    }
+
+    /// Scrolling down by a short distance hides the header; any upward scroll of the
+    /// same distance (or reaching the top) brings it back.
+    private func resultsScrolled(to minY: CGFloat) {
+        let offset = -minY
+        let tracker = scrollTracker
+        if offset < 24 {
+            tracker.anchor = max(offset, 0)
+            if headerCollapsed { withAnimation(.snappy(duration: 0.28)) { headerCollapsed = false } }
+            return
+        }
+        let delta = offset - tracker.anchor
+        if !headerCollapsed {
+            if delta > 28 {
+                tracker.anchor = offset
+                withAnimation(.snappy(duration: 0.28)) { headerCollapsed = true }
+            } else if delta < 0 { tracker.anchor = offset }
+        } else {
+            if delta < -28 {
+                tracker.anchor = offset
+                withAnimation(.snappy(duration: 0.28)) { headerCollapsed = false }
+            } else if delta > 0 { tracker.anchor = offset }
+        }
+    }
+
+    private func searchHeader(focusSearch: Bool) -> some View {
+        VStack(spacing: 10) {
+            HStack(spacing: 6) {
+                Button { goBackInSearch() } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 17, weight: .semibold))
+                        .frame(width: 34, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(accent)
+                .background(KeyboardControlArea())
+                .accessibilityLabel(model.canGoBack ? "Back" : "Back to Main Page")
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 15, weight: .semibold)).foregroundStyle(accent)
+                    JapaneseSearchField(text: $model.word, focusRequest: searchFocusRequest,
+                                        active: focusSearch && selectedTab == 1 && !model.showingEntry,
+                                        ink: UIColor(ink), accent: UIColor(accent),
+                                        preferredLanguage: searchKeyboardLanguage,
+                                        changed: { model.typedSearch($0, clearSelection: true) }) { model.search() }
+                        .frame(height: 38)
+                    if model.lookupBusy { ProgressView().controlSize(.small) }
+                    if !model.word.isEmpty {
+                        Button { model.search() } label: {
+                            Image(systemName: "arrow.forward")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(style.onAccent)
+                                .frame(width: 30, height: 30)
+                                .background(accent, in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Search dictionaries")
+                        .background(KeyboardControlArea())
+                    }
+                }
+                .padding(.leading, 14).padding(.trailing, 6).padding(.vertical, 3)
+                .background(style.surface, in: Capsule(style: .continuous))
+                .overlay(Capsule(style: .continuous).strokeBorder(style.hairline, lineWidth: 1))
+                .shadow(color: style.shadow.opacity(0.6), radius: 8, x: 0, y: 3)
+                Menu {
+                    Button { dismissKeyboard(); showingHistory = true } label: {
+                        Label("Search history", systemImage: "clock.arrow.circlepath")
+                    }
+                    Button {
+                        UIPasteboard.general.string = model.prompt(inDictionary: model.selectionFromDictionary)
+                        model.status = "Learning prompt copied."
+                    } label: { Label("Copy learning prompt", systemImage: "doc.on.doc") }
+                    Button { requestSearchFocus() } label: { Label("Show search keyboard", systemImage: "keyboard") }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(accent)
+                        .frame(width: 36, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Search options")
+                .accessibilityIdentifier("searchOptions")
+                .background(KeyboardControlArea())
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 7) {
+                    matchModeChip
+                    Rectangle().fill(style.hairline).frame(width: 1, height: 18)
+                    scopeChip("All", id: "")
+                    ForEach(model.dictionaries.filter { !model.disabledDictionaries.contains($0.id) }) {
+                        scopeChip(ReaderText.shortDictionaryName($0.name), id: $0.id)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 1)
+            }
+            .padding(.horizontal, -12)
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 6)
+        .padding(.bottom, 10)
+        .background(paper)
+        .overlay(alignment: .bottom) { Rectangle().fill(style.separator).frame(height: 1) }
+    }
+
+    /// While the header is away, a small pill keeps the query in view; tap to return.
+    private var compactSearchPill: some View {
+        Button { revealSearchHeader() } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").font(.system(size: 11, weight: .bold)).foregroundStyle(accent)
+                Text(model.word).font(.system(size: 13, weight: .semibold)).foregroundStyle(ink).lineLimit(1)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 6)
+            .background(.ultraThinMaterial, in: Capsule(style: .continuous))
+            .background(style.surface.opacity(0.7), in: Capsule(style: .continuous))
+            .overlay(Capsule(style: .continuous).strokeBorder(style.hairline, lineWidth: 1))
+            .shadow(color: style.shadow, radius: 8, x: 0, y: 3)
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 4)
+        .accessibilityLabel("Show search bar")
+        .accessibilityIdentifier("showSearchHeader")
+    }
+
+    private var matchModeChip: some View {
+        Menu {
+            Picker("Match", selection: $model.searchMode) {
+                Text("Starts with").tag(DictionarySearchMode.prefix)
+                Text("Exact word").tag(DictionarySearchMode.exact)
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: model.searchMode == .prefix ? "text.line.first.and.arrowtriangle.forward" : "equal")
+                    .font(.system(size: 11, weight: .bold))
+                Text(model.searchMode == .prefix ? "Starts with" : "Exact word")
+                    .font(.system(size: 13, weight: .semibold))
+                Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .bold))
+            }
+            .foregroundStyle(accent)
+            .padding(.horizontal, 12).padding(.vertical, 7)
+            .background(style.accentSoft, in: Capsule(style: .continuous))
+        }
+        .background(KeyboardControlArea())
+        .accessibilityLabel("Match")
     }
 
     private func scopeChip(_ name: String, id: String) -> some View {
@@ -837,7 +973,7 @@ struct ReaderHome: View {
                 .font(.system(size: 13, weight: selected ? .semibold : .regular))
                 .lineLimit(1)
                 .foregroundStyle(selected ? style.onAccent : style.ink)
-                .padding(.horizontal, 14).padding(.vertical, 8)
+                .padding(.horizontal, 13).padding(.vertical, 7)
                 .background(selected ? accent : style.raised, in: Capsule(style: .continuous))
                 .overlay(
                     Capsule(style: .continuous)
@@ -849,46 +985,84 @@ struct ReaderHome: View {
         .accessibilityIdentifier("searchScope_" + id)
     }
 
-    private func resultGroups(_ hits: [DictionaryHit], switching: Bool = false) -> some View {
-        List {
-            ForEach(model.dictionaries) { dictionary in
-                let matches = hits.filter { $0.root == dictionary.root && $0.code == dictionary.code }
-                if !matches.isEmpty {
-                    Section {
-                        ForEach(matches, id: \.identity) { hit in
-                            Button {
-                                switchingDictionary = false
-                                wantsSearchFocus = false
-                                model.open(hit, replacingCurrent: switching)
-                            } label: {
-                                resultRow(hit, switching: switching)
+    private func resultGroups(_ hits: [DictionaryHit], switching: Bool = false, topInset: CGFloat = 0) -> some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 6) {
+                ForEach(model.dictionaries) { dictionary in
+                    let matches = hits.filter { $0.root == dictionary.root && $0.code == dictionary.code }
+                    let groupID = (switching ? "switcher:" : "results:") + dictionary.id
+                    let collapsed = collapsedResultGroups.contains(groupID)
+                    if !matches.isEmpty {
+                        resultGroupHeader(dictionary, count: matches.count, groupID: groupID, collapsed: collapsed)
+                        if !collapsed {
+                            ForEach(matches, id: \.identity) { hit in
+                                Button {
+                                    switchingDictionary = false
+                                    wantsSearchFocus = false
+                                    model.open(hit, replacingCurrent: switching)
+                                } label: {
+                                    resultRow(hit, switching: switching)
+                                }
+                                .buttonStyle(.plain)
+                                .padding(.horizontal, 12)
+                                .accessibilityIdentifier("dictionaryResult_" + hit.word)
                             }
-                            .buttonStyle(.plain)
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 3, leading: 12, bottom: 3, trailing: 12))
-                            .accessibilityIdentifier("dictionaryResult_" + hit.word)
                         }
-                    } header: {
-                        HStack(spacing: 7) {
-                            Image(systemName: "book.closed").font(.system(size: 11, weight: .semibold))
-                            Text(dictionary.name).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                            Spacer()
-                            Text("\(matches.count)")
-                                .font(.system(size: 11, weight: .semibold))
-                                .padding(.horizontal, 7).padding(.vertical, 2)
-                                .background(style.accentSoft, in: Capsule())
-                        }
-                        .textCase(nil)
-                        .foregroundStyle(accent)
-                        .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 5, trailing: 16))
                     }
                 }
             }
+            .padding(.top, topInset + 4)
+            .padding(.bottom, 28)
+            .background(GeometryReader { proxy in
+                Color.clear.preference(key: ResultsScrollOffsetKey.self,
+                                       value: proxy.frame(in: .named(switching ? "switcherResults" : "searchResults")).minY - topInset - 4)
+            })
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
+        .coordinateSpace(name: switching ? "switcherResults" : "searchResults")
+        .onPreferenceChange(ResultsScrollOffsetKey.self) { minY in
+            if !switching { resultsScrolled(to: minY) }
+        }
+        .scrollDismissesKeyboard(.immediately)
         .background(paper)
+    }
+
+    private func resultGroupHeader(_ dictionary: InstalledDictionary, count: Int, groupID: String, collapsed: Bool) -> some View {
+        Button {
+            withAnimation(.snappy(duration: 0.22)) {
+                if collapsed { collapsedResultGroups.remove(groupID) }
+                else { collapsedResultGroups.insert(groupID) }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(accent)
+                    .frame(width: 3, height: 16)
+                Text(dictionary.name)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(ink.opacity(0.82))
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Text("\(count)")
+                    .font(.system(size: 11, weight: .bold).monospacedDigit())
+                    .foregroundStyle(accent)
+                    .padding(.horizontal, 8).padding(.vertical, 2)
+                    .background(style.accentSoft, in: Capsule())
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(style.faint)
+                    .rotationEffect(.degrees(collapsed ? -90 : 0))
+            }
+            .padding(.horizontal, 16)
+            .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 6)
+        .background(KeyboardControlArea())
+        .accessibilityIdentifier("dictionaryGroup_" + groupID)
+        .accessibilityLabel(dictionary.name + ", \(count) results")
+        .accessibilityValue(collapsed ? "Collapsed" : "Expanded")
+        .accessibilityHint(collapsed ? "Expand dictionary results" : "Collapse dictionary results")
     }
 
     private func resultRow(_ hit: DictionaryHit, switching: Bool) -> some View {
@@ -901,19 +1075,19 @@ struct ReaderHome: View {
             }
             Spacer(minLength: 0)
             if switching && hit.identity == model.entryHitIdentity {
-                Image(systemName: "checkmark").font(.system(size: 14, weight: .bold)).foregroundStyle(accent)
+                Image(systemName: "checkmark.circle.fill").font(.system(size: 17, weight: .semibold)).foregroundStyle(accent)
             } else {
                 Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(style.faint)
             }
         }
-        .padding(.vertical, 11).padding(.horizontal, 14)
+        .padding(.vertical, 10).padding(.horizontal, 14)
         .readerCard(style, padding: 0, radius: 14, elevated: false)
     }
 
     private func goBackInSearch() {
         if model.canGoBack {
             model.backToPreviousEntry()
-            if !model.showingEntry { requestSearchFocus() }
+            if !model.showingEntry { applySearchKeyboardPreference() }
         } else { selectedTab = 0 }
     }
     private func backSwipeEdge(fromLeft: Bool) -> some View {
@@ -926,6 +1100,46 @@ struct ReaderHome: View {
                 }
             })
     }
+    private func applySearchKeyboardPreference() {
+        if automaticallyShowSearchKeyboard { requestSearchFocus() }
+        else { dismissKeyboard() }
+    }
+    private func activateSearchTab() {
+        model.showResults()
+        selectedTab = 1
+        requestSearchFocus()
+    }
+    private var historySheet: some View {
+        NavigationStack {
+            List {
+                if model.searchHistory.isEmpty {
+                    Text("No searches yet. Submitted searches and opened results appear here.")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(model.searchHistory, id: \.self) { query in
+                    Button(query) {
+                        showingHistory = false
+                        wantsSearchFocus = false
+                        model.showResults()
+                        model.word = query
+                        model.searchScope = ""
+                        model.search(dismissKeyboard: true)
+                    }
+                }.onDelete { model.deleteSearchHistory(at: $0) }
+            }
+            .navigationTitle("Search history")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Done") { showingHistory = false } }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Clear", role: .destructive) { clearHistoryConfirmation = true }
+                        .disabled(model.searchHistory.isEmpty)
+                }
+            }
+            .confirmationDialog("Clear search history?", isPresented: $clearHistoryConfirmation, titleVisibility: .visible) {
+                Button("Clear history", role: .destructive) { model.clearSearchHistory() }
+            }
+        }
+    }
     private func requestSearchFocus() { wantsSearchFocus = true; searchFocusRequest += 1 }
 
     // MARK: - Library
@@ -934,6 +1148,21 @@ struct ReaderHome: View {
         NavigationStack {
             List {
                 Group {
+                    appearanceLink
+                    Section("Search keyboard") {
+                        Toggle("Show keyboard when returning from definitions", isOn: $automaticallyShowSearchKeyboard)
+                            .accessibilityIdentifier("automaticallyShowSearchKeyboard")
+                        Text("Tapping the Search tab always opens the keyboard and selects the previous search. Tap blank space to hide the keyboard.")
+                            .font(.caption).foregroundStyle(style.secondary)
+                    }
+                    Section("Keyboard language") {
+                        Picker("Search keyboard", selection: $searchKeyboardLanguage) {
+                            Text("Japanese").tag("ja")
+                            Text("English").tag("en")
+                            Text("System keyboard").tag("system")
+                        }
+                        Text("Enable your preferred language in iPhone Settings → General → Keyboard → Keyboards. System keyboard lets you choose any installed language.").font(.caption)
+                    }
                     savedSection
                     dictionariesSection
                     Section("Dictionary search") {
@@ -941,7 +1170,6 @@ struct ReaderHome: View {
                         Text("Independent of Reader auto-search. A matching selection opens results across enabled dictionaries. When off, use Search selected text.").font(.caption).foregroundStyle(style.secondary)
                         Text("Search prefers an enabled Japanese keyboard. Enable Japanese – Romaji in iPhone Settings → General → Keyboard → Keyboards. iOS controls the exact Japanese layout.").font(.caption).foregroundStyle(style.secondary)
                     }
-                    appearanceSection
                     Section("Keep a backup") {
                         Text("Your passages and notes are in reading-library.json in Files → On My iPhone → Japanese Reader. Copy this file before uninstalling. Dictionary files can also be copied from here.").font(.footnote).foregroundStyle(style.secondary)
                     }
@@ -977,7 +1205,7 @@ struct ReaderHome: View {
             }
             ForEach(filteredPassages) { item in
                 VStack(alignment: .leading, spacing: 7) {
-                    Button { model.text = item.text; model.readerOffset = .zero; selectedTab = 0; editing = false } label: {
+                    Button { model.text = item.text; model.readerOffset = .zero; selectedTab = 0 } label: {
                         Text(item.text)
                             .lineLimit(3)
                             .font(.system(size: 16))
@@ -1024,61 +1252,165 @@ struct ReaderHome: View {
         }
     }
 
-    private var appearanceSection: some View {
-        Section("Appearance") {
-            VStack(alignment: .leading, spacing: 9) {
-                SectionLabel("THEME", symbol: "paintpalette", style: style).padding(.trailing, 16)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(ReaderTheme.all) { theme in
-                            Button { themeID = theme.id } label: {
-                                ThemeSwatch(theme: theme, style: style,
-                                            selected: activeTheme.id == theme.id,
-                                            accentOverride: theme.family == .custom ? accentRGB : nil,
-                                            backgroundOverride: theme.family == .custom && customPaper ? paperRGB : nil)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("theme_" + theme.id)
-                            .accessibilityLabel(theme.name)
-                            .accessibilityAddTraits(activeTheme.id == theme.id ? [.isSelected] : [])
-                        }
+    // MARK: - Appearance
+
+    private var appearanceLink: some View {
+        Section {
+            NavigationLink {
+                appearancePage
+            } label: {
+                HStack(spacing: 14) {
+                    ThemeSwatch(theme: activeTheme, style: style, selected: false,
+                                accentOverride: activeTheme.family == .custom ? accentRGB : nil,
+                                backgroundOverride: activeTheme.family == .custom && customPaper ? paperRGB : nil,
+                                compact: true)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Appearance").font(.headline).foregroundStyle(ink)
+                        Text("\(activeTheme.name) · \(readerTypeface.title)")
+                            .font(.caption).foregroundStyle(style.secondary).lineLimit(1)
                     }
-                    .padding(.vertical, 3)
-                    .padding(.trailing, 16)
                 }
-                Text("\(activeTheme.name) · \(activeTheme.detail)").font(.caption).foregroundStyle(style.secondary)
-                    .padding(.trailing, 16)
+                .padding(.vertical, 4)
             }
-            .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 0))
-            if activeTheme.family == .custom {
-                ColorPicker("Accent color", selection: colorBinding($accentRGB), supportsOpacity: false).accessibilityIdentifier("accentColor")
-                Toggle("Custom app background", isOn: $customPaper).accessibilityIdentifier("customPaper")
-                if customPaper {
-                    ColorPicker("App background", selection: colorBinding($paperRGB), supportsOpacity: false)
-                }
-            }
-            appearancePreview
-            Text("Reading text automatically switches between black and white for contrast, and dictionary pages follow the same theme. Your choice is remembered.").font(.caption).foregroundStyle(style.faint)
-            Button("Reset colors") {
-                themeID = ReaderTheme.systemID; accentRGB = 0x1F7A73; paperRGB = 0xFFFFFF; customPaper = false
-            }
+            .accessibilityIdentifier("openAppearance")
         }
     }
 
-    private var appearancePreview: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text("日本語 · Reading preview").font(.title3).foregroundStyle(ink)
-                Spacer(minLength: 0)
-                Circle().fill(accent).frame(width: 15, height: 15)
+    private let themeColumns = [GridItem(.adaptive(minimum: 92, maximum: 120), spacing: 12)]
+
+    private func themeGrid(_ themes: [ReaderTheme]) -> some View {
+        LazyVGrid(columns: themeColumns, alignment: .leading, spacing: 14) {
+            ForEach(themes) { theme in
+                Button { withAnimation(.easeInOut(duration: 0.25)) { themeID = theme.id } } label: {
+                    ThemeSwatch(theme: theme, style: style,
+                                selected: activeTheme.id == theme.id,
+                                accentOverride: theme.family == .custom ? accentRGB : nil,
+                                backgroundOverride: theme.family == .custom && customPaper ? paperRGB : nil)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("theme_" + theme.id)
+                .accessibilityLabel(theme.name)
+                .accessibilityAddTraits(activeTheme.id == theme.id ? [.isSelected] : [])
             }
-            Text("選んだ単語はここで調べられます。").font(.subheadline).foregroundStyle(style.secondary)
         }
-        .padding(14)
+        .padding(.vertical, 6)
+    }
+
+    private var appearancePage: some View {
+        List {
+            Group {
+                Section {
+                    appearancePreview
+                        .listRowInsets(EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12))
+                }
+                Section {
+                    themeGrid([ReaderTheme.system, ReaderTheme.custom])
+                    if activeTheme.family == .custom {
+                        ColorPicker("Accent color", selection: colorBinding($accentRGB), supportsOpacity: false).accessibilityIdentifier("accentColor")
+                        Toggle("Custom app background", isOn: $customPaper).accessibilityIdentifier("customPaper")
+                        if customPaper {
+                            ColorPicker("App background", selection: colorBinding($paperRGB), supportsOpacity: false)
+                        }
+                    }
+                } header: { Text("Automatic & custom") }
+                Section { themeGrid(ReaderTheme.light) } header: { Text("Light · 昼") }
+                Section { themeGrid(ReaderTheme.dark) } header: { Text("Dark · 夜") }
+                Section {
+                    Picker("Typeface", selection: $readerTypefaceRaw) {
+                        ForEach(ReaderTypeface.allCases) { face in
+                            Text(face.title).tag(face.rawValue)
+                        }
+                    }
+                    .accessibilityIdentifier("readerTypeface")
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Text size")
+                            Spacer()
+                            Text("\(Int(readerTextSize)) pt").foregroundStyle(style.secondary).monospacedDigit()
+                        }
+                        Slider(value: $readerTextSize, in: 16...38, step: 1)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Line spacing")
+                            Spacer()
+                            Text(String(format: "%.2f×", readerLineSpacing)).foregroundStyle(style.secondary).monospacedDigit()
+                        }
+                        Slider(value: $readerLineSpacing, in: 1.05...2.0, step: 0.05)
+                    }
+                } header: { Text("Reading text · 本文") }
+                Section {
+                    Picker("Dictionary typeface", selection: $dictionarySans) {
+                        Text("Book serif · 明朝").tag(false)
+                        Text("Sans · ゴシック").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text("Definition size")
+                            Spacer()
+                            Text("\(Int(dictionaryTextSize)) pt").foregroundStyle(style.secondary).monospacedDigit()
+                        }
+                        Slider(value: $dictionaryTextSize, in: 14...28, step: 1)
+                    }
+                    Text("Dictionary pages keep each publisher's layout and use your theme: large headwords, muted labels, and examples as an indented phrase with the translation underneath.")
+                        .font(.caption).foregroundStyle(style.secondary)
+                } header: { Text("Dictionary pages · 辞書") }
+                Section {
+                    Button("Reset appearance", role: .destructive) {
+                        themeID = ReaderTheme.systemID; accentRGB = 0x1F7A73; paperRGB = 0xFFFFFF; customPaper = false
+                        readerTypefaceRaw = ReaderTypeface.gothic.rawValue; readerTextSize = 23; readerLineSpacing = 1.35
+                        dictionaryTextSize = 19; dictionarySans = false
+                    }
+                }
+            }
+            .listRowBackground(style.surface)
+        }
+        .scrollContentBackground(.hidden)
+        .background(paper)
+        .navigationTitle("Appearance")
+        .navigationBarTitleDisplayMode(.inline)
+        .tint(accent)
+        .foregroundStyle(ink)
+        .preferredColorScheme(style.colorScheme)
+    }
+
+    private var appearancePreview: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Text(activeTheme.name).font(.system(size: 12, weight: .bold)).tracking(0.8)
+                    .foregroundStyle(accent)
+                Spacer(minLength: 0)
+                Circle().fill(accent).frame(width: 10, height: 10)
+            }
+            Text("吾輩は猫である。名前はまだ無い。")
+                .font(readerTypeface.font(size: CGFloat(min(readerTextSize, 30))))
+                .lineSpacing(CGFloat(min(readerTextSize, 30)) * CGFloat(readerLineSpacing - 1))
+                .foregroundStyle(ink)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("ぼける").font(.system(size: 20, weight: .bold, design: dictionarySans ? .default : .serif))
+                    Text("【惚ける】").font(.system(size: 16, design: dictionarySans ? .default : .serif))
+                }
+                .foregroundStyle(ink)
+                Text("ぼけた頭で考える")
+                    .font(.system(size: 15, design: dictionarySans ? .default : .serif))
+                    .foregroundStyle(Palette.color(style.isDark ? 0xA9C8F5 : 0x23408E))
+                    .padding(.leading, 14)
+                Text("think while befuddled")
+                    .font(.system(size: 15, design: dictionarySans ? .default : .serif))
+                    .foregroundStyle(style.secondary)
+                    .padding(.leading, 14)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(style.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(paper, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        .background(paper, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 13, style: .continuous).strokeBorder(style.hairline, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(style.hairline, lineWidth: 1)
         )
     }
 }
@@ -1088,17 +1420,19 @@ struct SelectableJapanese: UIViewRepresentable {
     var ink: UIColor = .label
     var paper: UIColor = .systemBackground
     var tint: UIColor? = nil
+    var font: UIFont = .systemFont(ofSize: 23)
+    var lineSpacing: CGFloat = 1.3
     var initialOffset: CGPoint = .zero
     var saveOffset: ((CGPoint) -> Void)? = nil
     let selected: (String) -> Void
     func makeCoordinator() -> Coordinator { Coordinator(selected) }
     // Reading typography: comfortable line height and page margins for Japanese.
-    static func styled(_ text: String, ink: UIColor) -> NSAttributedString {
+    static func styled(_ text: String, ink: UIColor, font: UIFont = .systemFont(ofSize: 23), lineSpacing: CGFloat = 1.3) -> NSAttributedString {
         let paragraph = NSMutableParagraphStyle()
-        paragraph.lineHeightMultiple = 1.30
-        paragraph.paragraphSpacing = 11
+        paragraph.lineHeightMultiple = lineSpacing
+        paragraph.paragraphSpacing = font.pointSize * 0.5
         return NSAttributedString(string: text, attributes: [
-            .font: UIFont.systemFont(ofSize: 23),
+            .font: font,
             .foregroundColor: ink,
             .paragraphStyle: paragraph
         ])
@@ -1107,7 +1441,7 @@ struct SelectableJapanese: UIViewRepresentable {
         let view = UITextView(); view.isEditable = false; view.isSelectable = true
         view.accessibilityIdentifier = "selectablePassage"
         view.font = .systemFont(ofSize: 23); view.backgroundColor = .clear; view.delegate = context.coordinator
-        view.textContainerInset = UIEdgeInsets(top: 18, left: 14, bottom: 34, right: 14)
+        view.textContainerInset = UIEdgeInsets(top: 22, left: 18, bottom: 40, right: 18)
         view.alwaysBounceVertical = true
         return view
     }
@@ -1117,9 +1451,11 @@ struct SelectableJapanese: UIViewRepresentable {
         // Rebuilding the attributed text clears the selection, so only do it when
         // the passage itself or the theme's ink actually changed.
         let textChanged = view.text != text
-        if textChanged || context.coordinator.appliedInk != ink {
-            view.attributedText = Self.styled(text, ink: ink)
+        let typography = "\(font.fontName)-\(font.pointSize)-\(lineSpacing)"
+        if textChanged || context.coordinator.appliedInk != ink || context.coordinator.appliedTypography != typography {
+            view.attributedText = Self.styled(text, ink: ink, font: font, lineSpacing: lineSpacing)
             context.coordinator.appliedInk = ink
+            context.coordinator.appliedTypography = typography
         }
         if textChanged { DispatchQueue.main.async { view.setContentOffset(initialOffset, animated: false) } }
         // The attributed text above already carries the ink color; assigning
@@ -1131,6 +1467,7 @@ struct SelectableJapanese: UIViewRepresentable {
         var selected: (String) -> Void
         var saveOffset: ((CGPoint) -> Void)?
         var appliedInk: UIColor?
+        var appliedTypography = ""
         func scrollViewDidScroll(_ scrollView: UIScrollView) { saveOffset?(scrollView.contentOffset) }
         var pending: DispatchWorkItem?
         init(_ selected: @escaping (String) -> Void) { self.selected = selected }
