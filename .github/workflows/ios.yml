@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
 # User-authorized public build only. Disable Actions before making this repository private.
 permissions:
-  contents: write
+  contents: read
 jobs:
   build:
     if: github.event.repository.private == false
@@ -20,11 +20,6 @@ jobs:
           name: JapaneseReader-iPhone
           path: ios/build/JapaneseReader.ipa
           retention-days: 14
-      - name: Attach app to a temporary pre-release (non-main branches)
-        if: github.ref_name != 'main'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release create "build-${{ github.run_id }}" ios/build/JapaneseReader.ipa --prerelease --target "${{ github.sha }}" --title "Temporary build ${{ github.run_id }}" --notes "Temporary download; deleted after use."
       - name: Test iPhone interface
         run: |
           DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for devices in d["devices"].values() for x in devices if "iPhone" in x["name"]))')
