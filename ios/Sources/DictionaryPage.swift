@@ -11,6 +11,8 @@ struct DictionaryPage: UIViewRepresentable {
     var textSize: Double = 19
     var sansFont = false
     var initialOffset: CGPoint = .zero
+    /// Room kept free at the bottom while the dictionary card covers the page.
+    var bottomInset: CGFloat = 0
     var saveOffset: ((CGPoint) -> Void)? = nil
     var followLink: ((String) -> Void)? = nil
     let lookup: (String) -> Void
@@ -43,20 +45,103 @@ struct DictionaryPage: UIViewRepresentable {
     static func evaluateSelectionScript(_ script: String, in view: WKWebView, completion: @escaping (Any?, Error?) -> Void) {
         JPReaderEvaluate(view, script, completion)
     }
+    /// Posts the selection (with a few neighbouring characters) after it settles, and
+    /// exposes `__jpRefine` so the peek card can move the selection by characters.
     static let selectionScript = """
     (() => {
         let pending, previous = "";
+        const LIMIT = 12;
+        const post = (value) => window.webkit.messageHandlers.readerSelection.postMessage(value);
+        const blockOf = (node) => {
+            let element = node && node.nodeType === 1 ? node : (node ? node.parentElement : null);
+            while (element && element !== document.body) {
+                const display = getComputedStyle(element).display || "";
+                if (display !== "contents" && !display.startsWith("inline") && display !== "ruby" && display !== "ruby-text") return element;
+                element = element.parentElement;
+            }
+            return document.body;
+        };
+        const clip = (text, tail) => {
+            const lines = text.split(/\\s/);
+            let part = tail ? lines[lines.length - 1] : lines[0];
+            if (tail) {
+                part = part.slice(-LIMIT);
+                if (/^[\\uDC00-\\uDFFF]/.test(part)) part = part.slice(1);
+            } else {
+                part = part.slice(0, LIMIT);
+                if (/[\\uD800-\\uDBFF]$/.test(part)) part = part.slice(0, -1);
+            }
+            return part;
+        };
+        const context = (range) => {
+            try {
+                const head = document.createRange();
+                head.setStart(blockOf(range.startContainer), 0);
+                head.setEnd(range.startContainer, range.startOffset);
+                const endBlock = blockOf(range.endContainer);
+                const tail = document.createRange();
+                tail.setStart(range.endContainer, range.endOffset);
+                tail.setEnd(endBlock, endBlock.childNodes.length);
+                return { before: clip(head.toString(), true), after: clip(tail.toString(), false) };
+            } catch (error) { return { before: "", after: "" }; }
+        };
         document.addEventListener("selectionchange", () => {
             clearTimeout(pending);
             const text = window.getSelection()?.toString().trim() || "";
-            if (!text || Array.from(text).length > 40) { previous = ""; window.webkit.messageHandlers.readerSelection.postMessage(""); return; }
+            if (!text || Array.from(text).length > 40) { previous = ""; post(""); return; }
             pending = setTimeout(() => {
-                const current = window.getSelection()?.toString().trim() || "";
+                const selection = window.getSelection();
+                const raw = selection ? selection.toString() : "";
+                const current = raw.trim();
                 if (current !== text || current === previous) return;
                 previous = current;
-                window.webkit.messageHandlers.readerSelection.postMessage(current);
-            }, 400);
+                const range = selection.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
+                window.__jpLast = range;
+                const around = range ? context(range) : { before: "", after: "" };
+                const lead = raw.length - raw.trimStart().length, trail = raw.length - raw.trimEnd().length;
+                post({ text: current, before: around.before + raw.slice(0, lead), after: raw.slice(raw.length - trail) + around.after });
+            }, 250);
         });
+        const textNodes = () => {
+            const nodes = [], walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+            let node;
+            while ((node = walker.nextNode())) nodes.push(node);
+            return nodes;
+        };
+        const indexOf = (container, offset) => {
+            const range = document.createRange();
+            range.setStart(document.body, 0);
+            range.setEnd(container, offset);
+            return range.toString().length;
+        };
+        const pointAt = (nodes, target, preferNext) => {
+            let total = 0;
+            for (const node of nodes) {
+                const length = node.data.length;
+                if (preferNext ? target < total + length : target <= total + length) return [node, Math.max(0, target - total)];
+                total += length;
+            }
+            const last = nodes[nodes.length - 1];
+            return last ? [last, last.data.length] : null;
+        };
+        window.__jpRefine = (startDelta, endDelta) => {
+            const base = window.__jpLast;
+            if (!base) return false;
+            const nodes = textNodes();
+            if (!nodes.length) return false;
+            const start = indexOf(base.startContainer, base.startOffset) + startDelta;
+            const end = indexOf(base.endContainer, base.endOffset) + endDelta;
+            if (start < 0 || end <= start) return false;
+            const from = pointAt(nodes, start, true), to = pointAt(nodes, end, false);
+            if (!from || !to) return false;
+            const range = document.createRange();
+            range.setStart(from[0], from[1]);
+            range.setEnd(to[0], to[1]);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            return true;
+        };
     })();
     """
     func makeCoordinator() -> Coordinator {
@@ -69,10 +154,25 @@ struct DictionaryPage: UIViewRepresentable {
         coordinator.saveOffset = saveOffset
         return coordinator
     }
+    /// One private, in-memory data store for every entry page, so WebKit can reuse
+    /// its web-content process instead of starting a fresh one for each definition.
+    static let dataStore = WKWebsiteDataStore.nonPersistent()
+    private static var warmView: WKWebView?
+    /// Starts WebKit before the first lookup so the first definition opens quickly.
+    static func prewarm() {
+        guard warmView == nil else { return }
+        let configuration = WKWebViewConfiguration()
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
+        configuration.websiteDataStore = dataStore
+        let view = WKWebView(frame: CGRect(x: 0, y: 0, width: 10, height: 10), configuration: configuration)
+        view.loadHTMLString("<!doctype html><html><body></body></html>", baseURL: nil)
+        warmView = view
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { DictionaryPage.warmView = nil }
+    }
     static func makeWebView(html: String, coordinator: Coordinator) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
-        configuration.websiteDataStore = .nonPersistent()
+        configuration.websiteDataStore = dataStore
         configuration.setURLSchemeHandler(coordinator, forURLScheme: "jpread")
         configuration.userContentController.add(coordinator, contentWorld: selectionWorld, name: "readerSelection")
         configuration.userContentController.addUserScript(WKUserScript(source: selectionScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: selectionWorld))
@@ -88,7 +188,9 @@ struct DictionaryPage: UIViewRepresentable {
         view.scrollView.delegate = coordinator
         view.accessibilityIdentifier = "dictionaryEntryPage"
         view.navigationDelegate = coordinator
+        view.isOpaque = false
         view.loadHTMLString(html, baseURL: URL(string: "jpread://dictionary/"))
+        SelectionBridge.shared.dictionaryView = view
         return view
     }
     func makeUIView(context: Context) -> WKWebView { Self.makeWebView(html: html, coordinator: context.coordinator) }
@@ -102,6 +204,15 @@ struct DictionaryPage: UIViewRepresentable {
         context.coordinator.paperRGB = paperRGB
         context.coordinator.accentRGB = accentRGB
         context.coordinator.saveOffset = saveOffset
+        if view.scrollView.contentInset.bottom != bottomInset {
+            view.scrollView.contentInset.bottom = bottomInset
+            view.scrollView.verticalScrollIndicatorInsets.bottom = bottomInset
+            if bottomInset > 0 {
+                // Scroll the selected words above the card.
+                let script = "(() => { const s = getSelection(); if (!s || !s.rangeCount) return false; const r = s.getRangeAt(0).getBoundingClientRect(); const limit = window.innerHeight - \(Int(bottomInset)); if (r.bottom > limit - 8) window.scrollBy({ top: r.bottom - limit + 28, behavior: 'smooth' }); return true; })()"
+                Self.evaluateSelectionScript(script, in: view) { _, _ in }
+            }
+        }
     }
     static func dismantleUIView(_ view: WKWebView, coordinator: Coordinator) {
         view.configuration.userContentController.removeScriptMessageHandler(forName: "readerSelection", contentWorld: selectionWorld)
@@ -128,10 +239,19 @@ struct DictionaryPage: UIViewRepresentable {
         var cancelled = Set<ObjectIdentifier>()
         init(root: URL, code: String, followLink: ((String) -> Void)? = nil, lookup: @escaping (String) -> Void) { self.root = root; self.code = code; self.lookup = lookup; self.followLink = followLink }
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            guard message.name == "readerSelection", message.frameInfo.isMainFrame,
-                  let text = message.body as? String else { return }
-            let word = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard message.name == "readerSelection", message.frameInfo.isMainFrame else { return }
+            var context = SelectionContext()
+            if let text = message.body as? String {
+                context.text = text
+            } else if let body = message.body as? [String: Any], let text = body["text"] as? String {
+                context.text = text
+                context.before = body["before"] as? String ?? ""
+                context.after = body["after"] as? String ?? ""
+            } else { return }
+            let word = context.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard word.count <= 40 else { return }
+            context.text = word
+            SelectionBridge.shared.dictionaryContext = context
             lookup(word)
         }
         func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
@@ -139,7 +259,7 @@ struct DictionaryPage: UIViewRepresentable {
             cancelled.remove(id)
             let url = urlSchemeTask.request.url!
             queue.async {
-                let result = Result { try DictionaryStore(root: self.root).media(code: self.code, name: url.path) }
+                let result = Result { try DictionaryStore.shared(root: self.root).media(code: self.code, name: url.path) }
                 DispatchQueue.main.async {
                     guard !self.cancelled.contains(id) else { self.cancelled.remove(id); return }
                     switch result {

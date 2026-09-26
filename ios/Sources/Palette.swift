@@ -40,6 +40,11 @@ enum Palette {
     /// A surface is treated as dark below the midpoint used by the reading views.
     static func isDark(_ rgb: Int) -> Bool { luminance(channels(rgb)) < 0.179 }
 
+    static func contrast(_ first: Int, _ second: Int) -> Double {
+        let a = luminance(channels(first)), b = luminance(channels(second))
+        return (max(a, b) + 0.05) / (min(a, b) + 0.05)
+    }
+
     static func hexString(_ rgb: Int) -> String { String(format: "#%06X", rgb & 0xFFFFFF) }
 
     /// Linear blend between two packed colors. `amount` 0 keeps `base`.
@@ -91,6 +96,11 @@ struct ReaderTheme: Identifiable, Equatable, Hashable {
     let backgroundRGB: Int?
     let surfaceRGB: Int?
     let accentRGB: Int
+    /// Washi-tape and highlighter colours (the desktop's accent-2 / accent-3).
+    var tapeRGB: Int? = nil
+    var markerRGB: Int? = nil
+    /// A warm reading ink; `nil` uses plain black or white.
+    var inkRGB: Int? = nil
 
     static let systemID = "system"
     static let customID = "custom"
@@ -167,7 +177,36 @@ struct ReaderTheme: Identifiable, Equatable, Hashable {
                     family: .dark, backgroundRGB: 0x000000, surfaceRGB: 0x101012, accentRGB: 0x64D8B4)
     ]
 
-    static let all: [ReaderTheme] = [system] + light + dark + [custom]
+    /// The eight palettes of the desktop reader, with the same paper, card, ink,
+    /// accent, tape and highlighter colours.
+    static let desk: [ReaderTheme] = [
+        ReaderTheme(id: "hand-washi", name: "和紙 Washi", detail: "Desktop default · paper and persimmon",
+                    family: .light, backgroundRGB: 0xF3EADB, surfaceRGB: 0xFFFAF1, accentRGB: 0xC9573A,
+                    tapeRGB: 0x6E9A5B, markerRGB: 0xD6A03E, inkRGB: 0x3B2F28),
+        ReaderTheme(id: "hand-sakura", name: "桜 Sakura", detail: "Desktop · blossom pink",
+                    family: .light, backgroundRGB: 0xF8E8EC, surfaceRGB: 0xFFFAFB, accentRGB: 0xD2557A,
+                    tapeRGB: 0x6F9DC9, markerRGB: 0xE39B45, inkRGB: 0x4A2F3A),
+        ReaderTheme(id: "hand-umi", name: "海辺 Seaside", detail: "Desktop · sea glass",
+                    family: .light, backgroundRGB: 0xE4EEF1, surfaceRGB: 0xFBFDFD, accentRGB: 0x237EA1,
+                    tapeRGB: 0xE0704F, markerRGB: 0xD9A93D, inkRGB: 0x203B48),
+        ReaderTheme(id: "hand-sumi", name: "墨 Sumi ink", detail: "Desktop · ink and seal red",
+                    family: .light, backgroundRGB: 0xEFECE5, surfaceRGB: 0xFCFBF7, accentRGB: 0xB0392E,
+                    tapeRGB: 0x4F5B57, markerRGB: 0x9A8B73, inkRGB: 0x262422),
+        ReaderTheme(id: "hand-matcha", name: "抹茶 Matcha night", detail: "Desktop · deep tea green",
+                    family: .dark, backgroundRGB: 0x1B2520, surfaceRGB: 0x243029, accentRGB: 0xA6D08A,
+                    tapeRGB: 0xF0CD8A, markerRGB: 0xE89D8A, inkRGB: 0xEDF2E4),
+        ReaderTheme(id: "hand-engawa", name: "夜の縁側 Lantern night", detail: "Desktop · lantern glow",
+                    family: .dark, backgroundRGB: 0x211C29, surfaceRGB: 0x2C2535, accentRGB: 0xF1B15A,
+                    tapeRGB: 0xE98AA6, markerRGB: 0x9CC6E6, inkRGB: 0xF4E9DC),
+        ReaderTheme(id: "hand-momiji", name: "紅葉 Autumn leaves", detail: "Desktop · maple embers",
+                    family: .dark, backgroundRGB: 0x29201B, surfaceRGB: 0x352822, accentRGB: 0xF08B4C,
+                    tapeRGB: 0xE9C46A, markerRGB: 0xB7D07B, inkRGB: 0xF7E9D8),
+        ReaderTheme(id: "hand-hoshi", name: "星空 Starry sky", detail: "Desktop · starlit indigo",
+                    family: .dark, backgroundRGB: 0x141A2D, surfaceRGB: 0x1D253F, accentRGB: 0xFFD27A,
+                    tapeRGB: 0x9FD0FF, markerRGB: 0xF5A0C2, inkRGB: 0xE9EDFF)
+    ]
+
+    static let all: [ReaderTheme] = [system] + desk + light + dark + [custom]
 
     static func named(_ id: String) -> ReaderTheme? { all.first { $0.id == id } }
 
@@ -194,6 +233,9 @@ struct ReaderStyle: Equatable {
     let accent: Color
     /// Readable text on top of a filled accent shape.
     let onAccent: Color
+    /// Washi tape and highlighter-pen colours for the hand-drawn look.
+    let tape: Color
+    let marker: Color
 
     var usesSystemSurfaces: Bool { backgroundRGB == nil }
     var secondary: Color { ink.opacity(0.62) }
@@ -202,12 +244,29 @@ struct ReaderStyle: Equatable {
     var separator: Color { ink.opacity(isDark ? 0.12 : 0.07) }
     var accentSoft: Color { accent.opacity(isDark ? 0.22 : 0.13) }
     var shadow: Color { Color.black.opacity(isDark ? 0.40 : 0.08) }
+    /// Card outline and the offset "pencil" line of hand-drawn cards.
+    var lineStrong: Color { ink.opacity(isDark ? 0.24 : 0.26) }
+    var pencil: Color { ink.opacity(0.16) }
+    /// The hard, offset shadow under sketched cards (desktop: 4px 6px 0 -1px).
+    var shade: Color { isDark ? Color.black.opacity(0.34) : ink.opacity(0.14) }
     /// Locks the interface to the theme's own mode; `nil` keeps following iOS.
     var colorScheme: ColorScheme? { usesSystemSurfaces ? nil : (isDark ? .dark : .light) }
     /// Identity for views that must be rebuilt when the palette changes.
     var identity: String { "\(theme.id)-\(backgroundRGB ?? -1)-\(accentRGB)-\(isDark)" }
 
+    /// Views read the style many times per frame; resolving it (with its contrast
+    /// search) once per combination keeps scrolling and typing smooth.
+    private static var resolved: [String: ReaderStyle] = [:]
     static func resolve(themeID: String, customPaper: Bool, paperRGB: Int, customAccentRGB: Int, systemDark: Bool) -> ReaderStyle {
+        let key = "\(themeID)|\(customPaper)|\(paperRGB)|\(customAccentRGB)|\(systemDark)"
+        if let cached = resolved[key] { return cached }
+        let style = compute(themeID: themeID, customPaper: customPaper, paperRGB: paperRGB,
+                            customAccentRGB: customAccentRGB, systemDark: systemDark)
+        if resolved.count > 64 { resolved.removeAll() }
+        resolved[key] = style
+        return style
+    }
+    private static func compute(themeID: String, customPaper: Bool, paperRGB: Int, customAccentRGB: Int, systemDark: Bool) -> ReaderStyle {
         let theme = ReaderTheme.resolve(themeID, hasCustomPaper: customPaper)
         if theme.id == ReaderTheme.customID {
             guard customPaper else { return system(theme: theme, accentRGB: customAccentRGB, systemDark: systemDark) }
@@ -227,19 +286,28 @@ struct ReaderStyle: Equatable {
             background: Color(uiColor: .systemGroupedBackground),
             surface: Color(uiColor: .secondarySystemGroupedBackground),
             raised: Color(uiColor: .tertiarySystemGroupedBackground),
-            ink: .primary, accent: accent, onAccent: Palette.ink(Palette.rgb(accent)))
+            ink: .primary, accent: accent, onAccent: Palette.ink(Palette.rgb(accent)),
+            tape: Palette.color(systemDark ? 0x8CC3B4 : 0x6E9A5B),
+            marker: Palette.color(systemDark ? 0xE9C46A : 0xD6A03E))
     }
 
     private static func fixed(theme: ReaderTheme, backgroundRGB: Int, surfaceRGB: Int, accentRGB: Int) -> ReaderStyle {
         let dark = Palette.isDark(backgroundRGB)
         let reference = Palette.hardestSurface(backgroundRGB, surfaceRGB, accent: accentRGB)
         let accent = Palette.accessibleAccent(accentRGB, dark: dark, backgroundRGB: reference)
+        // A theme's own warm ink is used only while it stays clearly readable.
+        let plainInk = Palette.rgb(Palette.ink(backgroundRGB))
+        var ink = plainInk
+        if let warm = theme.inkRGB, Palette.contrast(warm, backgroundRGB) >= 7, Palette.contrast(warm, surfaceRGB) >= 7 { ink = warm }
+        let tape = theme.tapeRGB ?? Palette.mix(accentRGB, toward: dark ? 0x8CC3B4 : 0x6E9A5B, 0.55)
+        let marker = theme.markerRGB ?? (dark ? 0xE9C46A : 0xD6A03E)
         return ReaderStyle(
             theme: theme, isDark: dark, backgroundRGB: backgroundRGB, surfaceRGB: surfaceRGB, accentRGB: accentRGB,
             background: Palette.color(backgroundRGB),
             surface: Palette.color(surfaceRGB),
             raised: Palette.color(Palette.raised(surfaceRGB, 0.05)),
-            ink: Palette.ink(backgroundRGB), accent: accent, onAccent: Palette.ink(Palette.rgb(accent)))
+            ink: Palette.color(ink), accent: accent, onAccent: Palette.ink(Palette.rgb(accent)),
+            tape: Palette.color(tape), marker: Palette.color(marker))
     }
 }
 
@@ -247,10 +315,11 @@ struct ReaderStyle: Equatable {
 
 /// Reading and dictionary typefaces available on every iPhone.
 enum ReaderTypeface: String, CaseIterable, Identifiable {
-    case gothic, mincho, rounded
+    case kyokasho, gothic, mincho, rounded
     var id: String { rawValue }
     var title: String {
         switch self {
+        case .kyokasho: return "Textbook · 教科書体"
         case .gothic: return "Gothic · ゴシック"
         case .mincho: return "Mincho · 明朝"
         case .rounded: return "Rounded · 丸ゴシック"
@@ -259,6 +328,7 @@ enum ReaderTypeface: String, CaseIterable, Identifiable {
     /// PostScript names of the Hiragino faces bundled with iOS.
     private var postScriptName: String {
         switch self {
+        case .kyokasho: return HandFont.regular
         case .gothic: return "HiraginoSans-W3"
         case .mincho: return "HiraMinProN-W3"
         case .rounded: return "HiraMaruProN-W4"

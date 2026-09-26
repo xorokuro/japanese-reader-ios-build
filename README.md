@@ -4,7 +4,14 @@ Source-only snapshot for a user-authorized public iOS build. No personal passage
 
 Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuses to run build jobs when this repository is private.
 
-Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7).
+Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.0, build 14).
+
+## 2.0 — desktop hand-drawn design, dictionary card, faster lookups
+
+- **Select part of a phrase**: selecting text no longer jumps to another page. A dictionary card slides up on the same page with the best matches, and the selection handles stay put, so you can drag them shorter or longer (iOS always starts with a whole word). The card also shows the phrase as big characters: drag across (or tap) exactly the characters you want. Tap a result for the full entry, or *All results* for the list. Works in the passage and inside dictionary pages. Library → Dictionary search → *Show selection results in a card* switches back to the old jump-to-results behaviour.
+- **Finds the dictionary form**: 食べました → 食べる, 書いていた → 書く, 高かった → 高い, and trailing particles are trimmed (干しえびを → 干しえび).
+- **Looks like the desktop reader**: Klee One pencil-textbook font (bundled, SIL OFL), paper grain and doodles, pencil-outlined cards with an offset shadow, washi tape, highlighter titles, the 辞 seal, wavy rules, and the eight desktop palettes (和紙, 桜, 海辺, 墨, 抹茶, 夜の縁側, 紅葉, 星空). Light-theme installs switch to 和紙 once; Appearance changes it back. Paper grain & doodles can be turned off there.
+- **Smoother**: one shared database connection per dictionary with cached catalogues, files, decompressed blocks and previews; definitions open before the dictionary switcher list is built; WebKit is started early and shares one process; shorter selection delays; theme colours are resolved once.
 
 ## 1.6 — appearance themes
 

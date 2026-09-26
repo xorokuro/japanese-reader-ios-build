@@ -148,6 +148,12 @@ final class ReaderUITests: XCTestCase {
         app.buttons["undoClearPassage"].tap()
         XCTAssertEqual(reader.value as? String, "みほん")
         reader.coordinate(withNormalizedOffset: CGVector(dx: 0.09, dy: 0.045)).press(forDuration: 1.2)
+        // Selecting opens the dictionary card on the same page instead of leaving it.
+        XCTAssertTrue(app.buttons["peekResult_みほん"].firstMatch.waitForExistence(timeout: 15))
+        XCTAssertTrue(reader.exists)
+        let peekShot = XCTAttachment(screenshot: app.screenshot())
+        peekShot.name = "Selection dictionary card"; peekShot.lifetime = .keepAlways; add(peekShot)
+        app.buttons["peekAllResults"].tap()
         XCTAssertTrue(app.buttons["dictionaryResult_みほん"].firstMatch.waitForExistence(timeout: 15))
         app.buttons["Back to Main Page"].tap()
         XCTAssertEqual(reader.value as? String, "みほん")

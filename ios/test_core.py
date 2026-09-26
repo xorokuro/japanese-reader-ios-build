@@ -69,12 +69,30 @@ assert(prefix.count == 2)
 let loops = try store.search("loop", codes: ["TEST"])
 do { _ = try store.entry(loops[0]); fatalError("Circular alias accepted") } catch {}
 do { _ = try store.media(code: "TEST", name: "../secret"); fatalError("Traversal accepted") } catch {}
+let known = try store.contains(" 日本語 ", code: "TEST")
+let partial = try store.contains("日本", code: "TEST")
+let missing = try store.contains("日本語", code: "MISSING")
+assert(known && !partial && !missing)
+// Shared stores are reused, and cached blocks give identical entries.
+let shared = try DictionaryStore.shared(root: root)
+let again = try DictionaryStore.shared(root: root)
+assert(shared === again)
+let first = try shared.entry(hits[0])
+let cached = try shared.entry(hits[0])
+assert(first == definition && cached == definition)
+let candidates = Deinflector.lookupCandidates("日本語を")
+assert(candidates.first == "日本語を" && candidates.contains("日本語"))
+assert(Deinflector.deinflect("食べました").contains("食べる") && Deinflector.deinflect("書いていた").contains("書く"))
+DictionaryStore.purgeShared()
 let file = root.appendingPathComponent("test.mdx")
 var damaged = try Data(contentsOf: file)
 damaged[4] ^= 1
 try damaged.write(to: file)
-do { _ = try store.entry(hits[0]); fatalError("Checksum damage accepted") } catch {}
-print("PASS: real Swift dictionary engine: Japanese, split blocks, exact/prefix search, aliases, circular links, traversal, corruption")
+// A damaged file is caught the next time it is opened.
+let reopened = try DictionaryStore(root: root)
+do { _ = try reopened.entry(hits[0]); fatalError("Checksum damage accepted") } catch {}
+print("PASS: real Swift dictionary engine: Japanese, split blocks, exact/prefix search, aliases, circular links, traversal, corruption, caching, de-inflection")
 ''', encoding='utf-8')
-    subprocess.run(['swiftc', str(source), str(root / 'main.swift'), '-o', str(root / 'test')], check=True)
+    deinflector = source.parent / 'Deinflector.swift'
+    subprocess.run(['swiftc', str(source), str(deinflector), str(root / 'main.swift'), '-o', str(root / 'test')], check=True)
     subprocess.run([str(root / 'test'), str(root)], check=True)

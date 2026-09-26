@@ -22,7 +22,8 @@ struct EntryVisit {
     let html: String
     let query: String
     let matches: [DictionaryHit]
-    let alternatives: [DictionaryHit]
+    /// Filled in after the entry is on screen (it searches every dictionary).
+    var alternatives: [DictionaryHit]
 }
 
 struct LookupSnapshot {
@@ -112,6 +113,7 @@ struct LookupSnapshot {
         entryTitle = visit.hit.word; entryDictionary = visit.hit.dictionary; entryHitIdentity = visit.hit.identity
         entryID = visit.id; entryMatches = visit.alternatives
         word = visit.query; hits = visit.matches; dictionarySelection = ""
+        closePeek()
         showingEntry = true; showingLookup = true; status = ""
         lookupNavigation = UUID()
     }
@@ -167,27 +169,134 @@ struct LookupSnapshot {
         }
         releasedSelection = action
         // Let UIKit/WebKit deliver the final selection update after touch-up.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: action)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: action)
     }
     func select(_ text: String, inDictionary: Bool) {
         if !text.isEmpty { selectionFromDictionary = inDictionary }
         if inDictionary { dictionarySelection = text } else { readerSelection = text }
         cancelPendingSearch()
-        guard !text.isEmpty, !selectionTouchCancelled,
-              (inDictionary ? dictionaryAutoSearch : readerAutoSearch) else { return }
+        // An open card keeps following the selection, even with auto-search off.
+        let following = selectionPeek && peek?.inDictionary == inDictionary
+        if text.isEmpty {
+            if following { closePeek() }
+            return
+        }
+        guard !selectionTouchCancelled,
+              following || (inDictionary ? dictionaryAutoSearch : readerAutoSearch) else { return }
         if selectionTouchDown {
             heldSelection = (text, inDictionary)
+            return
+        }
+        if selectionPeek {
+            peekLookup(text, inDictionary: inDictionary)
             return
         }
         word = text
         search(dismissKeyboard: false, navigate: true, onlyIfMatched: true)
     }
     func searchSelected(inDictionary: Bool) {
-        word = inDictionary ? dictionarySelection : readerSelection
-        guard !word.isEmpty else { return }
+        let selected = inDictionary ? dictionarySelection : readerSelection
+        guard !selected.isEmpty else { return }
+        if selectionPeek {
+            peekLookup(selected, inDictionary: inDictionary)
+            return
+        }
+        word = selected
         search(dismissKeyboard: true, navigate: true)
     }
+
+    // MARK: Selection peek
+
+    /// Selecting shows a dictionary card instead of leaving the page (default on).
+    @Published var selectionPeek = true {
+        didSet { preferences.set(selectionPeek, forKey: "selectionPeek"); if !selectionPeek { closePeek() } }
+    }
+    @Published private(set) var peek: PeekState?
+    private var peekGeneration = 0
+    private func selectionContext(for text: String, inDictionary: Bool) -> SelectionContext {
+        let stored = inDictionary ? SelectionBridge.shared.dictionaryContext : SelectionBridge.shared.readerContext
+        if stored.text == text { return stored }
+        return SelectionContext(text: text, before: "", after: "", location: -1)
+    }
+    func peekLookup(_ text: String, inDictionary: Bool) {
+        let context = selectionContext(for: text, inDictionary: inDictionary)
+        peekGeneration += 1
+        let generation = peekGeneration
+        let enabled = dictionaries.filter { !disabledDictionaries.contains($0.id) }
+        var next = PeekState(text: text, before: context.before, after: context.after,
+                             location: context.location, inDictionary: inDictionary)
+        // Keep the previous results on screen while a refined lookup runs.
+        if let current = peek, current.inDictionary == inDictionary {
+            next.hits = current.hits; next.matched = current.matched
+        }
+        peek = next
+        queue.async {
+            let found = PeekSearch.bestMatch(for: text, in: enabled)
+            DispatchQueue.main.async {
+                guard generation == self.peekGeneration, var current = self.peek else { return }
+                current.matched = found.query
+                current.hits = found.hits
+                current.busy = false
+                self.peek = current
+            }
+        }
+    }
+    /// Look up another part of the phrase: moves the real selection when possible.
+    func refinePeek(_ range: ClosedRange<Int>) {
+        guard let current = peek else { return }
+        let characters = current.characters
+        guard range.lowerBound >= 0, range.upperBound < characters.count else { return }
+        let text = characters[range].joined()
+        let before = characters[..<range.lowerBound].joined()
+        let after = characters[(range.upperBound + 1)...].joined()
+        let offset = before.utf16.count
+        let location = current.location >= 0 ? current.location - current.before.utf16.count + offset : -1
+        let inDictionary = current.inDictionary
+        let direct: () -> Void = { [weak self] in
+            guard let self else { return }
+            let stored = SelectionContext(text: text, before: before, after: after, location: location)
+            if inDictionary {
+                SelectionBridge.shared.dictionaryContext = stored
+                self.dictionarySelection = text
+            } else {
+                SelectionBridge.shared.readerContext = stored
+                self.readerSelection = text
+            }
+            self.peekLookup(text, inDictionary: inDictionary)
+        }
+        if !SelectionBridge.shared.refine(current, offset: offset, length: text.utf16.count, fallback: direct) { direct() }
+    }
+    func closePeek() {
+        peekGeneration += 1
+        if peek != nil { peek = nil }
+    }
+    func openPeekHit(_ hit: DictionaryHit) {
+        guard let current = peek else { return }
+        word = current.matched.isEmpty ? current.text.trimmingCharacters(in: .whitespacesAndNewlines) : current.matched
+        hits = current.hits
+        status = ""
+        closePeek()
+        open(hit)
+    }
+    func showPeekResults() {
+        guard let current = peek else { return }
+        let previousPage = showingEntry ? snapshot() : nil
+        word = current.matched.isEmpty ? current.text.trimmingCharacters(in: .whitespacesAndNewlines) : current.matched
+        closePeek()
+        guard !current.hits.isEmpty else {
+            search(dismissKeyboard: true, navigate: true)
+            return
+        }
+        cancelPendingSearch()
+        if let previousPage { remember(previousPage) }
+        hits = current.hits
+        status = ""
+        recordSearch(word)
+        showingEntry = false; showingLookup = true; lookupNavigation = UUID()
+    }
+
     func closeLookup() {
+        closePeek()
         cancelPendingSearch()
         lookupHistory = []
         showingLookup = false
@@ -206,6 +315,7 @@ struct LookupSnapshot {
         searchHistory = preferences.stringArray(forKey: "searchHistory") ?? []
         readerAutoSearch = (preferences.object(forKey: "readerAutoSearch") as? Bool) ?? true
         dictionaryAutoSearch = (preferences.object(forKey: "dictionaryAutoSearch") as? Bool) ?? true
+        selectionPeek = (preferences.object(forKey: "selectionPeek") as? Bool) ?? true
         do {
             try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
             let help = documents.appendingPathComponent("ABOUT THIS FOLDER.txt")
@@ -223,6 +333,7 @@ struct LookupSnapshot {
         let root = dictionaryRoot
         let extras = documents.appendingPathComponent("Dictionary Packs", isDirectory: true)
         queue.async {
+            DictionaryStore.purgeShared()
             let roots = [root] + ((try? FileManager.default.contentsOfDirectory(at: extras, includingPropertiesForKeys: nil)) ?? []).sorted { $0.path < $1.path }
             let items = roots.flatMap { folder -> [InstalledDictionary] in
                 guard let catalog = try? DictionaryStore(root: folder).catalog() else { return [] }
@@ -268,7 +379,7 @@ struct LookupSnapshot {
         queue.async {
             let result = Result { () -> [DictionaryHit] in
                 guard !selected.isEmpty else { throw ReaderError("Enable a dictionary in Library first, or add the dictionaries folder.") }
-                return try selected.flatMap { try DictionaryStore(root: $0.root).search(query, codes: [$0.code], mode: mode) }
+                return try selected.flatMap { try DictionaryStore.shared(root: $0.root).search(query, codes: [$0.code], mode: mode) }
             }
             DispatchQueue.main.async {
                 guard generation == self.searchGeneration else { return }
@@ -301,27 +412,17 @@ struct LookupSnapshot {
         let enabled = dictionaries.filter { !disabledDictionaries.contains($0.id) }
         lookupBusy = true
         queue.async {
-            let result = Result { () -> (String, [DictionaryHit]) in
-                let store = try DictionaryStore(root: root)
-                let html = DictionaryPage.make(body: try store.entry(hit), css: try store.stylesheet(code: hit.code), code: hit.code)
-                // The title switcher spans all enabled dictionaries, even if Search
-                // was scoped to one dictionary (as in the reference recording).
-                var seen = Set<String>()
-                let alternatives = enabled.flatMap { dictionary -> [DictionaryHit] in
-                    guard let source = try? DictionaryStore(root: dictionary.root) else { return [] }
-                    var candidates = (try? source.search(hit.word, codes: [dictionary.code], mode: .exact)) ?? []
-                    if DictionaryStore.normalize(query) != DictionaryStore.normalize(hit.word) {
-                        candidates += (try? source.search(query, codes: [dictionary.code], mode: .exact)) ?? []
-                    }
-                    return candidates.filter { seen.insert($0.identity).inserted }
-                }
-                return (html, alternatives.isEmpty ? [hit] : alternatives)
+            let result = Result { () -> String in
+                let store = try DictionaryStore.shared(root: root)
+                return DictionaryPage.make(body: try store.entry(hit), css: try store.stylesheet(code: hit.code), code: hit.code)
             }
             DispatchQueue.main.async {
                 guard generation == self.searchGeneration else { return }
                 self.lookupBusy = false
                 switch result {
-                case .success(let (html, alternatives)):
+                case .success(let html):
+                    // Show the definition at once; the dictionary switcher fills in after.
+                    let alternatives = [hit]
                     self.recordSearch(query)
                     if !replacingCurrent { self.remember(previousPage) }
                     if replacingCurrent, !self.visits.isEmpty {
@@ -333,8 +434,29 @@ struct LookupSnapshot {
                     self.visits.append(visit)
                     if self.visits.count > 30 { let removed = self.visits.removeFirst(); self.entryOffsets.removeValue(forKey: removed.id) }
                     self.display(visit)
+                    self.loadAlternatives(for: visit.id, hit: hit, query: query, enabled: enabled)
                 case .failure(let error): self.status = error.localizedDescription
                 }
+            }
+        }
+    }
+    /// The title switcher spans all enabled dictionaries, even if Search was scoped
+    /// to one dictionary. It is loaded after the definition is already visible.
+    private func loadAlternatives(for visitID: UUID, hit: DictionaryHit, query: String, enabled: [InstalledDictionary]) {
+        queue.async {
+            var seen = Set<String>()
+            let alternatives = enabled.flatMap { dictionary -> [DictionaryHit] in
+                guard let source = try? DictionaryStore.shared(root: dictionary.root) else { return [] }
+                var candidates = (try? source.search(hit.word, codes: [dictionary.code], mode: .exact)) ?? []
+                if DictionaryStore.normalize(query) != DictionaryStore.normalize(hit.word) {
+                    candidates += (try? source.search(query, codes: [dictionary.code], mode: .exact)) ?? []
+                }
+                return candidates.filter { seen.insert($0.identity).inserted }
+            }
+            let value = alternatives.isEmpty ? [hit] : alternatives
+            DispatchQueue.main.async {
+                if let index = self.visits.firstIndex(where: { $0.id == visitID }) { self.visits[index].alternatives = value }
+                if self.entryID == visitID { self.entryMatches = value }
             }
         }
     }
@@ -416,6 +538,7 @@ struct LookupSnapshot {
 @main struct JapaneseReaderApp: App {
     @StateObject private var model: ReaderModel
     init() {
+        HandFont.register()
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--ui-reset-search-keyboard") {
             UserDefaults.standard.removeObject(forKey: "automaticallyShowSearchKeyboard")
@@ -459,7 +582,10 @@ struct ReaderHome: View {
     @AppStorage("customReadingPaper") private var customPaper = false
     // Empty on upgrade: existing installs keep the colors they already chose.
     @AppStorage("readerThemePreset") private var themeID = ""
-    @AppStorage("readerTypeface") private var readerTypefaceRaw = ReaderTypeface.gothic.rawValue
+    @AppStorage("readerTypeface") private var readerTypefaceRaw = ReaderTypeface.kyokasho.rawValue
+    @AppStorage("handDrawnPaper") private var handDrawnPaper = true
+    // One-time switch of light-theme installs to the desktop's Washi look (2.0).
+    @AppStorage("washiRedesignApplied") private var washiRedesignApplied = false
     @AppStorage("readerTextSize") private var readerTextSize = 23.0
     @AppStorage("readerLineSpacing") private var readerLineSpacing = 1.35
     @AppStorage("dictionaryTextSize") private var dictionaryTextSize = 19.0
@@ -476,6 +602,12 @@ struct ReaderHome: View {
     }
     private var activeTheme: ReaderTheme { ReaderTheme.resolve(themeID, hasCustomPaper: customPaper) }
     private var paper: Color { style.background }
+    private var paperBackground: some View { PaperBackground(style: style, texture: handDrawnPaper).equatable() }
+    private func applyRedesignOnce() {
+        guard !washiRedesignApplied else { return }
+        washiRedesignApplied = true
+        if activeTheme.family == .light || activeTheme.family == .system { themeID = "hand-washi" }
+    }
     private var ink: Color { style.ink }
     private var accent: Color { style.accent }
     private func colorBinding(_ value: Binding<Int>) -> Binding<Color> {
@@ -528,8 +660,13 @@ struct ReaderHome: View {
         .tint(accent)
         .foregroundStyle(ink)
         .preferredColorScheme(style.colorScheme)
-        .background(paper.ignoresSafeArea())
+        .background(paperBackground)
         .environment(\.readerStyle, style)
+        .onAppear {
+            applyRedesignOnce()
+            // Start WebKit once the first screen is up, so the first definition opens fast.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { DictionaryPage.prewarm() }
+        }
         .onChange(of: selectedTab) { _, tab in
             // Programmatic lookup navigation must keep the keyboard hidden.
             // User tab taps are handled separately, including reselection.
@@ -572,101 +709,152 @@ struct ReaderHome: View {
     private var readerTab: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                readerHeader
                 readingView
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(paper)
+            .background(paperBackground)
             .translationPresentation(isPresented: $translation, text: model.text)
-            .navigationTitle("Japanese Reader").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    if model.text.isEmpty, let previous = clearedPassage {
-                        Button("Undo clear") { model.text = previous; clearedPassage = nil; model.status = "" }.accessibilityIdentifier("undoClearPassage")
-                    } else {
-                        Button("Clear") { clearPassage() }.disabled(model.text.isEmpty).accessibilityIdentifier("clearPassage")
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("Save") { model.save() }.disabled(model.text.isEmpty)
-                        Button("Translate") { translation = true }.disabled(model.text.isEmpty)
-                        Button("Copy learning prompt") { UIPasteboard.general.string = model.prompt(); model.status = "Learning prompt copied." }
-                            .disabled(model.text.isEmpty)
-                        Divider()
-                        Toggle("Auto-search selected words", isOn: $model.readerAutoSearch)
-                            .accessibilityIdentifier("readerAutoSearch")
-                        Toggle("Auto-save pasted passages", isOn: $model.autoSave)
-                            .accessibilityIdentifier("autoSavePassages")
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                    .accessibilityLabel("Reader options")
-                    .accessibilityIdentifier("readerOptions")
-                }
-            }
+            .toolbar(.hidden, for: .navigationBar)
         }
         .toolbarBackground(paper, for: .tabBar, .navigationBar)
         .toolbarBackground(.visible, for: .tabBar, .navigationBar)
         .tabItem { Label("Read", systemImage: "book") }.tag(0)
     }
 
+    /// Desktop-style header: ensō logo, highlighted 読む title, wavy pencil rule.
+    private var readerHeader: some View {
+        VStack(spacing: 2) {
+            HStack(spacing: 10) {
+                EnsoLogo(style: style)
+                HandTitle(text: "読む", subtitle: "Reading", style: style, size: 25)
+                Spacer(minLength: 6)
+                clearButton
+                readerOptionsMenu
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 4)
+            HandRule(style: style).padding(.horizontal, 4)
+        }
+    }
+
+    @ViewBuilder private var clearButton: some View {
+        if model.text.isEmpty, let previous = clearedPassage {
+            Button("Undo clear") { model.text = previous; clearedPassage = nil; model.status = "" }
+                .buttonStyle(HandSoftButtonStyle(style: style, prominent: true))
+                .accessibilityIdentifier("undoClearPassage")
+        } else {
+            Button("Clear") { clearPassage() }
+                .buttonStyle(HandSoftButtonStyle(style: style))
+                .disabled(model.text.isEmpty)
+                .opacity(model.text.isEmpty ? 0.45 : 1)
+                .accessibilityIdentifier("clearPassage")
+        }
+    }
+
+    private var readerOptionsMenu: some View {
+        Menu {
+            Button("Save") { model.save() }.disabled(model.text.isEmpty)
+            Button("Translate") { translation = true }.disabled(model.text.isEmpty)
+            Button("Copy learning prompt") { UIPasteboard.general.string = model.prompt(); model.status = "Learning prompt copied." }
+                .disabled(model.text.isEmpty)
+            Divider()
+            Toggle("Auto-search selected words", isOn: $model.readerAutoSearch)
+                .accessibilityIdentifier("readerAutoSearch")
+            Toggle("Show results in a card", isOn: $model.selectionPeek)
+                .accessibilityIdentifier("selectionPeek")
+            Toggle("Auto-save pasted passages", isOn: $model.autoSave)
+                .accessibilityIdentifier("autoSavePassages")
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(accent)
+                .frame(width: 40, height: 36)
+                .sketchPill(style)
+        }
+        .accessibilityLabel("Reader options")
+        .accessibilityIdentifier("readerOptions")
+    }
+
+    private var readerPeekVisible: Bool { model.peek.map { !$0.inDictionary } ?? false }
+
     private var readingView: some View {
         VStack(spacing: 0) {
-            SelectableJapanese(text: model.text, ink: UIColor(ink), paper: UIColor(style.surface),
+            SelectableJapanese(text: model.text, ink: UIColor(ink), paper: .clear,
                                tint: UIColor(accent),
                                font: readerTypeface.uiFont(size: CGFloat(readerTextSize)),
                                lineSpacing: CGFloat(readerLineSpacing),
                                initialOffset: model.readerOffset,
+                               bottomInset: readerPeekVisible ? 250 : 0,
                                saveOffset: { model.readerOffset = $0 }) { word in
                 guard !model.showingLookup, selectedTab == 0 else { return }
                 model.select(word, inDictionary: false)
             }
+            .clipShape(SketchShape(radius: 20))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(style.surface)
             .overlay {
                 if model.text.isEmpty {
                     VStack(spacing: 14) {
-                        ZStack {
-                            Circle().fill(style.accentSoft).frame(width: 84, height: 84)
-                            Circle().strokeBorder(accent.opacity(0.35), lineWidth: 1.5).frame(width: 84, height: 84)
-                            Text("読").font(ReaderTypeface.mincho.font(size: 40)).foregroundStyle(accent)
-                        }
-                        Text("Paste a passage to start reading").font(.headline).foregroundStyle(ink)
-                        Text("Copy Japanese from another app, then tap Paste. Select any word to look it up.")
-                            .font(.subheadline).multilineTextAlignment(.center)
+                        EnsoLogo(style: style, size: 88)
+                        Text("Paste a passage to start reading")
+                            .font(HandFont.title(19)).foregroundStyle(ink)
+                        Text("Copy Japanese from another app, then tap Paste. Select any word — or any part of a phrase — to look it up.")
+                            .font(HandFont.body(14.5)).multilineTextAlignment(.center)
                     }
                     .foregroundStyle(style.secondary)
                     .padding(32)
                     .allowsHitTesting(false)
                 }
             }
+            .sketchCard(style, radius: 22, tape: .tape)
+            .padding(.horizontal, 14)
+            .padding(.top, 18)
+            .padding(.bottom, 8)
             readingActions
         }
+        .overlay(alignment: .bottom) {
+            if let peek = model.peek, !peek.inDictionary {
+                peekCard(peek)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: readerPeekVisible)
+    }
+
+    private func peekCard(_ peek: PeekState) -> some View {
+        LookupPeekCard(peek: peek, style: style,
+                       refine: { model.refinePeek($0) },
+                       open: { hit in wantsSearchFocus = false; model.openPeekHit(hit) },
+                       showAll: { wantsSearchFocus = false; model.showPeekResults() },
+                       copy: {
+                           UIPasteboard.general.string = peek.text
+                           model.status = "Copied 「\(peek.text)」."
+                       },
+                       close: { model.closePeek() })
     }
 
     private var readingActions: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 9) {
+        VStack(spacing: 6) {
+            HStack(spacing: 10) {
                 PasteButton(payloadType: String.self, onPaste: pastePassage)
                     .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
                     .tint(accent)
                     .accessibilityIdentifier("pastePassage")
-                Spacer(minLength: 0)
-                if !model.readerSelection.isEmpty {
+                if !model.readerSelection.isEmpty && model.peek == nil {
                     Button("Search selected text") { model.searchSelected(inDictionary: false) }
-                        .buttonStyle(SoftActionStyle(style: style, prominent: true))
+                        .buttonStyle(HandSoftButtonStyle(style: style, prominent: true))
                 }
+                Spacer(minLength: 0)
             }
-            .buttonStyle(SoftActionStyle(style: style))
             if !model.status.isEmpty {
-                Text(model.status).font(.caption).foregroundStyle(style.secondary)
+                Text(model.status).font(HandFont.body(13)).foregroundStyle(style.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(paper)
-        .overlay(alignment: .top) { Rectangle().fill(style.separator).frame(height: 1) }
+        .padding(.horizontal, 16)
+        .padding(.top, 4)
+        .padding(.bottom, 10)
     }
 
     // MARK: - Search
@@ -681,7 +869,7 @@ struct ReaderHome: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(paper)
+            .background(paperBackground)
             // Edge swipes start below the compact header so its buttons stay tappable.
             .overlay(alignment: .leading) { backSwipeEdge(fromLeft: true).padding(.top, model.showingEntry ? 0 : headerHeight) }
             .overlay(alignment: .trailing) { backSwipeEdge(fromLeft: false).padding(.top, model.showingEntry ? 0 : headerHeight) }
@@ -713,7 +901,7 @@ struct ReaderHome: View {
                     resultGroups(model.entryMatches, switching: true)
                         .navigationTitle(model.entryTitle).navigationBarTitleDisplayMode(.inline)
                         .toolbar { Button("Done") { switchingDictionary = false } }
-                        .background(paper)
+                        .background(paperBackground)
                 }
                 .presentationDetents([.medium, .large])
                 .presentationBackground(paper)
@@ -727,41 +915,56 @@ struct ReaderHome: View {
 
     private var entryTitleButton: some View {
         Button { switchingDictionary = true } label: {
-            VStack(spacing: 1) {
-                Text(model.entryDictionary)
-                    .font(.caption2).lineLimit(1).foregroundStyle(style.secondary)
-                HStack(spacing: 4) {
-                    Text(model.entryTitle).font(.headline).lineLimit(1).foregroundStyle(style.ink)
-                    Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold)).foregroundStyle(accent)
+            HStack(spacing: 8) {
+                HandSeal(text: "辞", style: style, size: 26)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(model.entryDictionary)
+                        .font(.system(size: 10.5, weight: .semibold)).lineLimit(1).foregroundStyle(style.secondary)
+                    HStack(spacing: 4) {
+                        Text(model.entryTitle).font(HandFont.title(17)).lineLimit(1).foregroundStyle(style.ink)
+                        Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold)).foregroundStyle(accent)
+                    }
                 }
             }
-            .padding(.horizontal, 12).padding(.vertical, 4)
-            .background(style.accentSoft, in: Capsule(style: .continuous))
+            .padding(.leading, 6).padding(.trailing, 12).padding(.vertical, 3)
+            .sketchPill(style)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("switchDictionary")
     }
 
+    private var entryPeekVisible: Bool { model.peek?.inDictionary ?? false }
+
     private var entryView: some View {
         let visitID = model.entryID
         return ZStack(alignment: .bottom) {
             DictionaryPage(html: model.entryHTML, root: model.entryRoot ?? model.dictionaryRoot, code: model.entryCode,
-                           paperRGB: style.backgroundRGB, accentRGB: style.accentRGB,
+                           paperRGB: style.surfaceRGB, accentRGB: style.accentRGB,
                            textSize: dictionaryTextSize, sansFont: dictionarySans,
                            initialOffset: model.entryOffsets[visitID] ?? .zero,
+                           bottomInset: entryPeekVisible ? 300 : 0,
                            saveOffset: { model.entryOffsets[visitID] = $0 },
                            followLink: { model.followEntryLink($0) }) { word in
                 guard selectedTab == 1, model.showingEntry else { return }
                 model.select(word, inDictionary: true)
             }
             .id(visitID.uuidString + style.identity + "-\(Int(dictionaryTextSize))-\(dictionarySans)")
-            if !model.dictionarySelection.isEmpty {
+            .clipShape(SketchShape(radius: 18))
+            .padding(3)
+            .sketchCard(style, radius: 20, tape: .marker, tapeTrailing: true)
+            .padding(.horizontal, 10)
+            .padding(.top, 14)
+            .padding(.bottom, 8)
+            if let peek = model.peek, peek.inDictionary {
+                peekCard(peek)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else if !model.dictionarySelection.isEmpty {
                 Button("Search selected text") { model.searchSelected(inDictionary: true) }
-                    .buttonStyle(SoftActionStyle(style: style, prominent: true))
-                    .shadow(color: style.shadow, radius: 10, y: 4)
-                    .padding(.bottom, 12)
+                    .buttonStyle(HandSoftButtonStyle(style: style, prominent: true))
+                    .padding(.bottom, 16)
             }
         }
+        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: entryPeekVisible)
         .overlay(alignment: .top) {
             if model.lookupBusy {
                 ProgressView().controlSize(.small).padding(8)
@@ -806,7 +1009,6 @@ struct ReaderHome: View {
             }
         }
         .clipped()
-        .background(paper)
         .onPreferenceChange(SearchHeaderHeightKey.self) { height in
             if height > 0 && abs(height - headerHeight) > 0.5 { headerHeight = height }
         }
@@ -882,9 +1084,9 @@ struct ReaderHome: View {
                     }
                 }
                 .padding(.leading, 14).padding(.trailing, 6).padding(.vertical, 3)
-                .background(style.surface, in: Capsule(style: .continuous))
-                .overlay(Capsule(style: .continuous).strokeBorder(style.hairline, lineWidth: 1))
-                .shadow(color: style.shadow.opacity(0.6), radius: 8, x: 0, y: 3)
+                .background(style.surface, in: SketchShape(radius: 16))
+                .overlay(SketchShape(radius: 16).stroke(style.lineStrong, lineWidth: 1.5))
+                .background(SketchShape(radius: 16).fill(style.shade).offset(x: 3, y: 4))
                 Menu {
                     Button { dismissKeyboard(); showingHistory = true } label: {
                         Label("Search history", systemImage: "clock.arrow.circlepath")
@@ -915,15 +1117,16 @@ struct ReaderHome: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 1)
+                .padding(.top, 1)
+                .padding(.bottom, 4)
             }
             .padding(.horizontal, -12)
         }
         .padding(.horizontal, 12)
         .padding(.top, 6)
         .padding(.bottom, 10)
-        .background(paper)
-        .overlay(alignment: .bottom) { Rectangle().fill(style.separator).frame(height: 1) }
+        .background(paper.opacity(0.94))
+        .overlay(alignment: .bottom) { HandRule(style: style).offset(y: 4) }
     }
 
     /// While the header is away, a small pill keeps the query in view; tap to return.
@@ -934,10 +1137,7 @@ struct ReaderHome: View {
                 Text(model.word).font(.system(size: 13, weight: .semibold)).foregroundStyle(ink).lineLimit(1)
             }
             .padding(.horizontal, 14).padding(.vertical, 6)
-            .background(.ultraThinMaterial, in: Capsule(style: .continuous))
-            .background(style.surface.opacity(0.7), in: Capsule(style: .continuous))
-            .overlay(Capsule(style: .continuous).strokeBorder(style.hairline, lineWidth: 1))
-            .shadow(color: style.shadow, radius: 8, x: 0, y: 3)
+            .sketchPill(style)
         }
         .buttonStyle(.plain)
         .padding(.top, 4)
@@ -961,7 +1161,8 @@ struct ReaderHome: View {
             }
             .foregroundStyle(accent)
             .padding(.horizontal, 12).padding(.vertical, 7)
-            .background(style.accentSoft, in: Capsule(style: .continuous))
+            .background(style.accentSoft, in: SketchShape(radius: 12))
+            .overlay(SketchShape(radius: 12).stroke(accent.opacity(0.35), lineWidth: 1.2))
         }
         .background(KeyboardControlArea())
         .accessibilityLabel("Match")
@@ -975,11 +1176,7 @@ struct ReaderHome: View {
                 .lineLimit(1)
                 .foregroundStyle(selected ? style.onAccent : style.ink)
                 .padding(.horizontal, 13).padding(.vertical, 7)
-                .background(selected ? accent : style.raised, in: Capsule(style: .continuous))
-                .overlay(
-                    Capsule(style: .continuous)
-                        .strokeBorder(selected ? Color.clear : style.hairline, lineWidth: 1)
-                )
+                .sketchPill(style, selected: selected)
         }
         .buttonStyle(.plain)
         .background(KeyboardControlArea())
@@ -1024,7 +1221,6 @@ struct ReaderHome: View {
             if !switching { resultsScrolled(to: minY) }
         }
         .scrollDismissesKeyboard(.immediately)
-        .background(paper)
     }
 
     private func resultGroupHeader(_ dictionary: InstalledDictionary, count: Int, groupID: String, collapsed: Bool) -> some View {
@@ -1034,13 +1230,14 @@ struct ReaderHome: View {
                 else { collapsedResultGroups.insert(groupID) }
             }
         } label: {
-            HStack(spacing: 8) {
-                RoundedRectangle(cornerRadius: 2, style: .continuous)
+            HStack(spacing: 9) {
+                Rectangle()
                     .fill(accent)
-                    .frame(width: 3, height: 16)
+                    .frame(width: 8, height: 8)
+                    .rotationEffect(.degrees(45))
                 Text(dictionary.name)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(ink.opacity(0.82))
+                    .font(HandFont.title(14))
+                    .foregroundStyle(ink.opacity(0.85))
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 Text("\(count)")
@@ -1069,7 +1266,7 @@ struct ReaderHome: View {
     private func resultRow(_ hit: DictionaryHit, switching: Bool) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(hit.word).font(.system(size: 19, weight: .semibold)).foregroundStyle(ink)
+                Text(hit.word).font(HandFont.title(20)).foregroundStyle(ink)
                 if !hit.preview.isEmpty {
                     Text(hit.preview).font(.subheadline).foregroundStyle(style.secondary).lineLimit(2)
                 }
@@ -1082,7 +1279,9 @@ struct ReaderHome: View {
             }
         }
         .padding(.vertical, 10).padding(.horizontal, 14)
-        .readerCard(style, padding: 0, radius: 14, elevated: false)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .sketchCard(style, radius: 15, shadow: CGSize(width: 2, height: 3))
+        .padding(.bottom, 2)
     }
 
     private func goBackInSearch() {
@@ -1167,6 +1366,8 @@ struct ReaderHome: View {
                     savedSection
                     dictionariesSection
                     Section("Dictionary search") {
+                        Toggle("Show selection results in a card", isOn: $model.selectionPeek).accessibilityIdentifier("librarySelectionPeek")
+                        Text("On: selecting text opens a dictionary card on the same page. Drag the selection handles, or drag across the characters on the card, to look up just part of a phrase. Off: selecting jumps straight to the results page.").font(.caption).foregroundStyle(style.secondary)
                         Toggle("Auto-search inside all dictionaries", isOn: $model.dictionaryAutoSearch).accessibilityIdentifier("dictionaryAutoSearch")
                         Text("Independent of Reader auto-search. A matching selection opens results across enabled dictionaries. When off, use Search selected text.").font(.caption).foregroundStyle(style.secondary)
                         Text("Search prefers an enabled Japanese keyboard. Enable Japanese – Romaji in iPhone Settings → General → Keyboard → Keyboards. iOS controls the exact Japanese layout.").font(.caption).foregroundStyle(style.secondary)
@@ -1183,8 +1384,8 @@ struct ReaderHome: View {
                 .listRowBackground(style.surface)
             }
             .scrollContentBackground(.hidden)
-            .background(paper)
-            .navigationTitle("Library & setup")
+            .background(paperBackground)
+            .navigationTitle("書庫 · Library")
             .searchable(text: $librarySearch, prompt: "Find saved text or notes")
             .toolbar { EditButton() }
             .confirmationDialog("Delete all \(model.saved.count) saved passages and their notes?", isPresented: $deleteAll, titleVisibility: .visible) {
@@ -1314,6 +1515,10 @@ struct ReaderHome: View {
                         }
                     }
                 } header: { Text("Automatic & custom") }
+                Section {
+                    themeGrid(ReaderTheme.desk)
+                    Toggle("Paper grain & doodles", isOn: $handDrawnPaper).accessibilityIdentifier("handDrawnPaper")
+                } header: { Text("Hand-drawn · 手描き (same as desktop)") }
                 Section { themeGrid(ReaderTheme.light) } header: { Text("Light · 昼") }
                 Section { themeGrid(ReaderTheme.dark) } header: { Text("Dark · 夜") }
                 Section {
@@ -1359,8 +1564,9 @@ struct ReaderHome: View {
                 } header: { Text("Dictionary pages · 辞書") }
                 Section {
                     Button("Reset appearance", role: .destructive) {
-                        themeID = ReaderTheme.systemID; accentRGB = 0x1F7A73; paperRGB = 0xFFFFFF; customPaper = false
-                        readerTypefaceRaw = ReaderTypeface.gothic.rawValue; readerTextSize = 23; readerLineSpacing = 1.35
+                        themeID = "hand-washi"; accentRGB = 0x1F7A73; paperRGB = 0xFFFFFF; customPaper = false
+                        readerTypefaceRaw = ReaderTypeface.kyokasho.rawValue; readerTextSize = 23; readerLineSpacing = 1.35
+                        handDrawnPaper = true
                         dictionaryTextSize = 19; dictionarySans = false
                     }
                 }
@@ -1368,7 +1574,7 @@ struct ReaderHome: View {
             .listRowBackground(style.surface)
         }
         .scrollContentBackground(.hidden)
-        .background(paper)
+        .background(paperBackground)
         .navigationTitle("Appearance")
         .navigationBarTitleDisplayMode(.inline)
         .tint(accent)
@@ -1424,6 +1630,8 @@ struct SelectableJapanese: UIViewRepresentable {
     var font: UIFont = .systemFont(ofSize: 23)
     var lineSpacing: CGFloat = 1.3
     var initialOffset: CGPoint = .zero
+    /// Room kept free under the text while the dictionary card is open.
+    var bottomInset: CGFloat = 0
     var saveOffset: ((CGPoint) -> Void)? = nil
     let selected: (String) -> Void
     func makeCoordinator() -> Coordinator { Coordinator(selected) }
@@ -1442,8 +1650,9 @@ struct SelectableJapanese: UIViewRepresentable {
         let view = UITextView(); view.isEditable = false; view.isSelectable = true
         view.accessibilityIdentifier = "selectablePassage"
         view.font = .systemFont(ofSize: 23); view.backgroundColor = .clear; view.delegate = context.coordinator
-        view.textContainerInset = UIEdgeInsets(top: 22, left: 18, bottom: 40, right: 18)
+        view.textContainerInset = UIEdgeInsets(top: 24, left: 20, bottom: 40, right: 20)
         view.alwaysBounceVertical = true
+        SelectionBridge.shared.readerView = view
         return view
     }
     func updateUIView(_ view: UITextView, context: Context) {
@@ -1463,6 +1672,19 @@ struct SelectableJapanese: UIViewRepresentable {
         // textColor here would re-apply attributes and drop a live selection.
         if view.backgroundColor != paper { view.backgroundColor = paper }
         if let tint, view.tintColor != tint { view.tintColor = tint }
+        if view.contentInset.bottom != bottomInset {
+            view.contentInset.bottom = bottomInset
+            view.verticalScrollIndicatorInsets.bottom = bottomInset
+            // Keep the selected words visible above the dictionary card.
+            if bottomInset > 0, let range = view.selectedTextRange, !range.isEmpty {
+                let caret = view.caretRect(for: range.end)
+                let visibleBottom = view.contentOffset.y + view.bounds.height - bottomInset
+                if caret.maxY > visibleBottom - 8 {
+                    let target = CGPoint(x: view.contentOffset.x, y: view.contentOffset.y + caret.maxY - visibleBottom + 28)
+                    DispatchQueue.main.async { view.setContentOffset(target, animated: true) }
+                }
+            }
+        }
     }
     final class Coordinator: NSObject, UITextViewDelegate {
         var selected: (String) -> Void
@@ -1482,11 +1704,37 @@ struct SelectableJapanese: UIViewRepresentable {
                 return
             }
             let selectedRange = textView.selectedRange
+            let context = Self.context(in: textView.text ?? "", range: selectedRange, word: word)
             let action = DispatchWorkItem { [weak textView, weak self] in
                 guard let textView, textView.selectedRange == selectedRange else { return }
+                SelectionBridge.shared.readerContext = context
                 self?.selected(word)
             }
-            pending = action; DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: action)
+            pending = action; DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: action)
+        }
+        /// Up to 12 characters on each side of the selection, within the same line.
+        static func context(in text: String, range: NSRange, word: String) -> SelectionContext {
+            let passage = text as NSString
+            guard range.location != NSNotFound, range.location + range.length <= passage.length else {
+                return SelectionContext(text: word, before: "", after: "", location: -1)
+            }
+            let end = range.location + range.length
+            var start = max(0, range.location - 12)
+            if start > 0 { start = passage.rangeOfComposedCharacterSequence(at: start).location }
+            var stop = min(passage.length, end + 12)
+            if stop > end && stop < passage.length {
+                let composed = passage.rangeOfComposedCharacterSequence(at: stop - 1)
+                stop = composed.location + composed.length
+            }
+            var before = passage.substring(with: NSRange(location: start, length: range.location - start))
+            var after = passage.substring(with: NSRange(location: end, length: max(0, stop - end)))
+            if let cut = before.rangeOfCharacter(from: .whitespacesAndNewlines, options: .backwards) {
+                before = String(before[cut.upperBound...])
+            }
+            if let cut = after.rangeOfCharacter(from: .whitespacesAndNewlines) {
+                after = String(after[..<cut.lowerBound])
+            }
+            return SelectionContext(text: word, before: before, after: after, location: range.location)
         }
     }
 }

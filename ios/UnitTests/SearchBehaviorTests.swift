@@ -53,7 +53,47 @@ import SQLite3
         model.open(first)
         try await settle(model)
         XCTAssertTrue(model.entryHTML.contains("見本"))
+        // The switcher list is filled in right after the definition appears.
+        try await settle(model); try await settle(model)
         XCTAssertEqual(Set(model.entryMatches.map(\.code)), Set(["DEMO_A", "DEMO_B"]))
+    }
+    func testSelectionCardFindsDictionaryFormWithoutLeavingThePage() async throws {
+        let (model, root, suite) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
+        model.selectionPeek = true
+        try await settle(model)
+        model.select("原因論を", inDictionary: false)
+        try await settle(model); try await settle(model)
+        let peek = try XCTUnwrap(model.peek)
+        XCTAssertFalse(peek.busy)
+        XCTAssertEqual(peek.matched, "原因論", "Trailing particles are trimmed until a headword matches")
+        XCTAssertEqual(peek.hits.first?.word, "原因論")
+        XCTAssertFalse(model.showingLookup, "Selecting must not leave the reading page")
+        // Refining without a live text view falls back to a direct lookup of that part.
+        model.refinePeek(0...1)
+        try await settle(model); try await settle(model)
+        XCTAssertEqual(model.peek?.text, "原因")
+        XCTAssertEqual(model.peek?.hits.first?.word, "原因")
+        model.showPeekResults()
+        XCTAssertNil(model.peek)
+        XCTAssertTrue(model.showingLookup)
+        XCTAssertEqual(model.word, "原因")
+        XCTAssertEqual(model.hits.first?.word, "原因")
+    }
+    func testSelectionCardClosesWhenSelectionIsCleared() async throws {
+        let (model, root, suite) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
+        model.selectionPeek = true
+        try await settle(model)
+        model.select("原因", inDictionary: true)
+        try await settle(model); try await settle(model)
+        XCTAssertEqual(model.peek?.inDictionary, true)
+        model.select("", inDictionary: true)
+        XCTAssertNil(model.peek)
+        model.select("原因", inDictionary: false)
+        model.closeLookup()
+        try await settle(model); try await settle(model)
+        XCTAssertNil(model.peek, "A closed card never reopens from a late result")
     }
     func testPromptUsesActualSelectionAndFallsBackToPassage() throws {
         let (model, root, suite) = try fixture()
@@ -172,6 +212,9 @@ import SQLite3
         XCTAssertEqual(sqlite3_exec(db, sql, nil, nil, nil), SQLITE_OK)
         let suite = "SearchBehaviorTests." + UUID().uuidString
         let model = ReaderModel(documents: root, preferences: UserDefaults(suiteName: suite)!)
+        // These tests cover the classic "selection opens the results page" flow;
+        // the dictionary card has its own tests below.
+        model.selectionPeek = false
         return (model, root, suite)
     }
     private func settle(_ model: ReaderModel) async throws {
