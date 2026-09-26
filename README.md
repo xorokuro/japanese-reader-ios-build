@@ -4,7 +4,14 @@ Source-only snapshot for a user-authorized public iOS build. No personal passage
 
 Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuses to run build jobs when this repository is private.
 
-Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.5, build 22).
+Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.6, build 23).
+
+## 2.6 — 文法 (Grammar) tab
+
+- New **Grammar** tab with the JLPT grammar collection (N5–N1): level chips, categories, search by pattern or Chinese meaning, 已讀 check marks with progress, and 修正版 / 校對中 marks taken from the desktop index.
+- Lessons (詳解) open in the reader's hand-drawn look and follow the chosen theme, typeface and page margins; two-finger swipe changes their text size. Furigana never gets into a selection, so selecting a word opens the dictionary card like on the Read page. Lesson links (→ 該句型詳解) and ↔ related patterns open the other lesson; 前／次 step through a level.
+- The grammar folder is read as-is (「JLPT文法總目錄N5-N1.html」 + `lessons/`): ⋯ → *Update lessons from Files…* copies a newer folder onto the phone (older versions such as 修正前版本 are skipped). Progress export/import uses the same JSON as the desktop page's 匯出／匯入進度.
+- No lesson content is part of this repository; personal builds add the folder to the app as `Grammar`.
 
 ## 2.5 — page margins
 

@@ -538,6 +538,7 @@ struct LookupSnapshot {
 
 @main struct JapaneseReaderApp: App {
     @StateObject private var model: ReaderModel
+    @StateObject private var grammar: GrammarStore
     init() {
         HandFont.register()
         #if DEBUG
@@ -551,13 +552,23 @@ struct LookupSnapshot {
         if ProcessInfo.processInfo.arguments.contains("--ui-dictionary-fixture") {
             UserDefaults.standard.set(false, forKey: "savePassagesOnRead")
             UserDefaults.standard.set(true, forKey: "readerAutoSearch")
-            _model = StateObject(wrappedValue: ReaderModel(documents: UITestFixture.documents()))
-        } else { _model = StateObject(wrappedValue: ReaderModel()) }
+            UserDefaults.standard.removeObject(forKey: GrammarStore.learnedKey)
+            UserDefaults.standard.removeObject(forKey: "grammarLevel")
+            let documents = UITestFixture.documents()
+            _model = StateObject(wrappedValue: ReaderModel(documents: documents))
+            _grammar = StateObject(wrappedValue: GrammarStore(documents: documents, bundled: nil))
+        } else {
+            _model = StateObject(wrappedValue: ReaderModel())
+            _grammar = StateObject(wrappedValue: GrammarStore())
+        }
         #else
         _model = StateObject(wrappedValue: ReaderModel())
+        _grammar = StateObject(wrappedValue: GrammarStore())
         #endif
     }
-    var body: some Scene { WindowGroup { ReaderHome().environmentObject(model).tint(Palette.color(0x1F7A73)) } }
+    var body: some Scene {
+        WindowGroup { ReaderHome().environmentObject(model).environmentObject(grammar).tint(Palette.color(0x1F7A73)) }
+    }
 }
 
 struct ReaderHome: View {
@@ -664,9 +675,10 @@ struct ReaderHome: View {
             readerTab
             searchTab
             libraryTab
+            grammarTab
         }
         .sheet(isPresented: $showingHistory) { historySheet }
-        .background(SelectionTouchObserver(enabled: selectedTab == 0 || (selectedTab == 1 && model.showingEntry)) { down, cancelled in
+        .background(SelectionTouchObserver(enabled: selectedTab == 0 || selectedTab == 3 || (selectedTab == 1 && model.showingEntry)) { down, cancelled in
             model.selectionTouchChanged(down: down, cancelled: cancelled)
         })
         .background(KeyboardDismissArea(enabled: keyboardVisible && selectedTab != 2, dismiss: dismissKeyboard))
@@ -712,6 +724,8 @@ struct ReaderHome: View {
             Spacer()
             Button("Library") { dismissKeyboard(); selectedTab = 2 }.accessibilityIdentifier("keyboardLibraryTab")
             Spacer()
+            Button("Grammar") { dismissKeyboard(); selectedTab = 3 }.accessibilityIdentifier("keyboardGrammarTab")
+            Spacer()
             Button("Done") { dismissKeyboard() }.accessibilityIdentifier("dismissKeyboard").fontWeight(.semibold)
         }
         .font(.subheadline)
@@ -721,6 +735,17 @@ struct ReaderHome: View {
         .background(paper)
         .background(KeyboardControlArea())
         .overlay(alignment: .top) { Rectangle().fill(style.separator).frame(height: 1) }
+    }
+
+    // MARK: - Grammar
+
+    private var grammarTab: some View {
+        GrammarTab(style: style, margins: pageMargins, quietMenu: quietMenu, active: selectedTab == 3,
+                   typeface: readerTypeface,
+                   showSize: { sizeHUD = $0 }, hideSize: hideSizeHUD)
+            .toolbarBackground(paper, for: .tabBar, .navigationBar)
+            .toolbarBackground(.visible, for: .tabBar, .navigationBar)
+            .tabItem { Label("Grammar", systemImage: "text.book.closed") }.tag(3)
     }
 
     // MARK: - Read
