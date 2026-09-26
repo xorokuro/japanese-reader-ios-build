@@ -4,7 +4,12 @@ Source-only snapshot for a user-authorized public iOS build. No personal passage
 
 Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuses to run build jobs when this repository is private.
 
-Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.0, build 14).
+Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.1, build 15).
+
+## 2.1 — line-by-line translation, quieter selection
+
+- **Translate button (speech-bubble icon) on the Read page**: shows Apple's on-device translation in small print under every sentence. Reader options → *Translate into* picks English, 繁體中文, 简体中文 or 한국어 (iOS asks to download a language the first time). Needs iOS 18; older iOS opens the translation panel instead. Selecting a translation line never triggers a dictionary lookup.
+- **No more overlapping menus**: for short selections the iPhone's Copy / Look Up / Writing Tools bar is hidden, because the dictionary card now has Copy and Translate buttons. Long selections (over 40 characters) still get the normal menu. Library → Dictionary search → *Hide the iPhone Copy / Look Up bar* turns this off.
 
 ## 2.0 — desktop hand-drawn design, dictionary card, faster lookups
 

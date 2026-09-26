@@ -584,6 +584,13 @@ struct ReaderHome: View {
     @AppStorage("readerThemePreset") private var themeID = ""
     @AppStorage("readerTypeface") private var readerTypefaceRaw = ReaderTypeface.kyokasho.rawValue
     @AppStorage("handDrawnPaper") private var handDrawnPaper = true
+    // Keep the iPhone's own Copy / Look Up bar away from the dictionary card.
+    @AppStorage("quietSystemTextMenu") private var quietSystemTextMenu = true
+    // Line-by-line translation under the passage (Apple Translation, iOS 18+).
+    @AppStorage("translationTarget") private var translationTarget = TranslationTarget.english.rawValue
+    @State private var showTranslation = false
+    @State private var translatedLines: [String] = []
+    @State private var translatedKey = ""
     // One-time switch of light-theme installs to the desktop's Washi look (2.0).
     @AppStorage("washiRedesignApplied") private var washiRedesignApplied = false
     @AppStorage("readerTextSize") private var readerTextSize = 23.0
@@ -708,10 +715,10 @@ struct ReaderHome: View {
 
     private var readerTab: some View {
         NavigationStack {
-            VStack(spacing: 0) {
+            translating(VStack(spacing: 0) {
                 readerHeader
                 readingView
-            }
+            })
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(paperBackground)
             .translationPresentation(isPresented: $translation, text: model.text)
@@ -730,6 +737,7 @@ struct ReaderHome: View {
                 HandTitle(text: "読む", subtitle: "Reading", style: style, size: 25)
                 Spacer(minLength: 6)
                 clearButton
+                translateButton
                 readerOptionsMenu
             }
             .padding(.horizontal, 16)
@@ -755,7 +763,11 @@ struct ReaderHome: View {
     private var readerOptionsMenu: some View {
         Menu {
             Button("Save") { model.save() }.disabled(model.text.isEmpty)
-            Button("Translate") { translation = true }.disabled(model.text.isEmpty)
+            Picker("Translate into", selection: $translationTarget) {
+                ForEach(TranslationTarget.allCases) { target in Text(target.title).tag(target.rawValue) }
+            }
+            .pickerStyle(.menu)
+            Button("Translate in a panel") { translation = true }.disabled(model.text.isEmpty)
             Button("Copy learning prompt") { UIPasteboard.general.string = model.prompt(); model.status = "Learning prompt copied." }
                 .disabled(model.text.isEmpty)
             Divider()
@@ -777,6 +789,63 @@ struct ReaderHome: View {
     }
 
     private var readerPeekVisible: Bool { model.peek.map { !$0.inDictionary } ?? false }
+    private var quietMenu: Bool { quietSystemTextMenu && model.selectionPeek }
+    private var translationKey: String { translationTarget + "|" + model.text }
+    private var translationReady: Bool { showTranslation && translatedKey == translationKey }
+    private var translationPending: Bool { showTranslation && !model.text.isEmpty && translatedKey != translationKey }
+
+    private func toggleTranslation() {
+        guard !model.text.isEmpty else { return }
+        if #available(iOS 18.0, *) {
+            withAnimation(.easeInOut(duration: 0.2)) { showTranslation.toggle() }
+        } else {
+            translation = true
+        }
+    }
+
+    private func translationFinished(_ key: String, _ lines: [String]?) {
+        guard key == translationKey else { return }
+        if let lines {
+            translatedLines = lines
+            translatedKey = key
+        } else {
+            showTranslation = false
+            model.status = "Translation isn't available right now. Check Settings → Apps → Translate for downloaded languages."
+        }
+    }
+
+    @ViewBuilder private func translating<Content: View>(_ content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.modifier(PassageTranslationTask(segments: PassageSegments.split(model.text),
+                                                    target: translationTarget,
+                                                    requestKey: translationKey,
+                                                    active: translationPending,
+                                                    finished: translationFinished))
+        } else {
+            content
+        }
+    }
+
+    private var translateButton: some View {
+        Button { toggleTranslation() } label: {
+            ZStack {
+                if translationPending {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "character.bubble")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(showTranslation ? style.onAccent : accent)
+                }
+            }
+            .frame(width: 40, height: 36)
+            .sketchPill(style, selected: showTranslation)
+        }
+        .buttonStyle(.plain)
+        .disabled(model.text.isEmpty)
+        .opacity(model.text.isEmpty ? 0.45 : 1)
+        .accessibilityLabel(showTranslation ? "Hide translation" : "Show translation")
+        .accessibilityIdentifier("toggleTranslation")
+    }
 
     private var readingView: some View {
         VStack(spacing: 0) {
@@ -786,6 +855,8 @@ struct ReaderHome: View {
                                lineSpacing: CGFloat(readerLineSpacing),
                                initialOffset: model.readerOffset,
                                bottomInset: readerPeekVisible ? 250 : 0,
+                               translations: translationReady ? translatedLines : [],
+                               quietMenu: quietMenu,
                                saveOffset: { model.readerOffset = $0 }) { word in
                 guard !model.showingLookup, selectedTab == 0 else { return }
                 model.select(word, inDictionary: false)
@@ -943,6 +1014,7 @@ struct ReaderHome: View {
                            textSize: dictionaryTextSize, sansFont: dictionarySans,
                            initialOffset: model.entryOffsets[visitID] ?? .zero,
                            bottomInset: entryPeekVisible ? 300 : 0,
+                           quietMenu: quietMenu,
                            saveOffset: { model.entryOffsets[visitID] = $0 },
                            followLink: { model.followEntryLink($0) }) { word in
                 guard selectedTab == 1, model.showingEntry else { return }
@@ -1367,6 +1439,9 @@ struct ReaderHome: View {
                     dictionariesSection
                     Section("Dictionary search") {
                         Toggle("Show selection results in a card", isOn: $model.selectionPeek).accessibilityIdentifier("librarySelectionPeek")
+                        Toggle("Hide the iPhone Copy / Look Up bar for short selections", isOn: $quietSystemTextMenu)
+                            .disabled(!model.selectionPeek)
+                            .accessibilityIdentifier("quietSystemTextMenu")
                         Text("On: selecting text opens a dictionary card on the same page. Drag the selection handles, or drag across the characters on the card, to look up just part of a phrase. Off: selecting jumps straight to the results page.").font(.caption).foregroundStyle(style.secondary)
                         Toggle("Auto-search inside all dictionaries", isOn: $model.dictionaryAutoSearch).accessibilityIdentifier("dictionaryAutoSearch")
                         Text("Independent of Reader auto-search. A matching selection opens results across enabled dictionaries. When off, use Search selected text.").font(.caption).foregroundStyle(style.secondary)
@@ -1632,9 +1707,14 @@ struct SelectableJapanese: UIViewRepresentable {
     var initialOffset: CGPoint = .zero
     /// Room kept free under the text while the dictionary card is open.
     var bottomInset: CGFloat = 0
+    /// One translation per `PassageSegments.split(text)` piece; empty hides them.
+    var translations: [String] = []
+    /// Hide the iPhone Copy / Look Up menu for short selections (the card has those).
+    var quietMenu = false
     var saveOffset: ((CGPoint) -> Void)? = nil
     let selected: (String) -> Void
     func makeCoordinator() -> Coordinator { Coordinator(selected) }
+    static let translationKey = NSAttributedString.Key("JapaneseReaderTranslation")
     // Reading typography: comfortable line height and page margins for Japanese.
     static func styled(_ text: String, ink: UIColor, font: UIFont = .systemFont(ofSize: 23), lineSpacing: CGFloat = 1.3) -> NSAttributedString {
         let paragraph = NSMutableParagraphStyle()
@@ -1646,26 +1726,63 @@ struct SelectableJapanese: UIViewRepresentable {
             .paragraphStyle: paragraph
         ])
     }
+    /// The passage with each sentence followed by its translation in small print.
+    static func interlinear(_ text: String, translations: [String], ink: UIColor, font: UIFont, lineSpacing: CGFloat) -> NSAttributedString {
+        let pieces = PassageSegments.split(text)
+        guard !translations.isEmpty, translations.count == pieces.count else {
+            return styled(text, ink: ink, font: font, lineSpacing: lineSpacing)
+        }
+        let original = NSMutableParagraphStyle()
+        original.lineHeightMultiple = lineSpacing
+        original.paragraphSpacing = font.pointSize * 0.12
+        let translated = NSMutableParagraphStyle()
+        translated.lineHeightMultiple = 1.15
+        translated.paragraphSpacing = font.pointSize * 0.75
+        let small = UIFont.systemFont(ofSize: max(13, font.pointSize * 0.62))
+        let result = NSMutableAttributedString()
+        for (index, piece) in pieces.enumerated() {
+            let body = piece.hasSuffix("\n") ? String(piece.dropLast()) : piece
+            let translation = translations[index].trimmingCharacters(in: .whitespacesAndNewlines)
+            let last = index == pieces.count - 1
+            if translation.isEmpty {
+                result.append(NSAttributedString(string: piece, attributes: [.font: font, .foregroundColor: ink, .paragraphStyle: original]))
+                continue
+            }
+            result.append(NSAttributedString(string: body + "\n", attributes: [.font: font, .foregroundColor: ink, .paragraphStyle: original]))
+            result.append(NSAttributedString(string: translation + (last ? "" : "\n"), attributes: [
+                .font: small, .foregroundColor: ink.withAlphaComponent(0.58), .paragraphStyle: translated,
+                translationKey: true
+            ]))
+        }
+        return result
+    }
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView(); view.isEditable = false; view.isSelectable = true
         view.accessibilityIdentifier = "selectablePassage"
         view.font = .systemFont(ofSize: 23); view.backgroundColor = .clear; view.delegate = context.coordinator
         view.textContainerInset = UIEdgeInsets(top: 24, left: 20, bottom: 40, right: 20)
         view.alwaysBounceVertical = true
+        if #available(iOS 18.0, *) { view.writingToolsBehavior = UIWritingToolsBehavior.none }
         SelectionBridge.shared.readerView = view
         return view
     }
     func updateUIView(_ view: UITextView, context: Context) {
-        context.coordinator.selected = selected
-        context.coordinator.saveOffset = saveOffset
+        let coordinator = context.coordinator
+        coordinator.selected = selected
+        coordinator.saveOffset = saveOffset
+        coordinator.quietMenu = quietMenu
         // Rebuilding the attributed text clears the selection, so only do it when
-        // the passage itself or the theme's ink actually changed.
-        let textChanged = view.text != text
+        // the passage, its translations or the theme's ink actually changed.
+        let textChanged = coordinator.appliedText != text
+        let content = translations.joined(separator: "\u{1}")
         let typography = "\(font.fontName)-\(font.pointSize)-\(lineSpacing)"
-        if textChanged || context.coordinator.appliedInk != ink || context.coordinator.appliedTypography != typography {
-            view.attributedText = Self.styled(text, ink: ink, font: font, lineSpacing: lineSpacing)
-            context.coordinator.appliedInk = ink
-            context.coordinator.appliedTypography = typography
+        if textChanged || coordinator.appliedTranslations != content
+            || coordinator.appliedInk != ink || coordinator.appliedTypography != typography {
+            view.attributedText = Self.interlinear(text, translations: translations, ink: ink, font: font, lineSpacing: lineSpacing)
+            coordinator.appliedText = text
+            coordinator.appliedTranslations = content
+            coordinator.appliedInk = ink
+            coordinator.appliedTypography = typography
         }
         if textChanged { DispatchQueue.main.async { view.setContentOffset(initialOffset, animated: false) } }
         // The attributed text above already carries the ink color; assigning
@@ -1691,6 +1808,15 @@ struct SelectableJapanese: UIViewRepresentable {
         var saveOffset: ((CGPoint) -> Void)?
         var appliedInk: UIColor?
         var appliedTypography = ""
+        var appliedText: String?
+        var appliedTranslations = ""
+        var quietMenu = false
+        /// Short selections go to the dictionary card, so the iPhone's own
+        /// Copy / Look Up bar would only cover it. Long selections keep it.
+        func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
+            guard quietMenu, range.length > 0, range.length <= 40 else { return nil }
+            return UIMenu(children: [])
+        }
         func scrollViewDidScroll(_ scrollView: UIScrollView) { saveOffset?(scrollView.contentOffset) }
         var pending: DispatchWorkItem?
         init(_ selected: @escaping (String) -> Void) { self.selected = selected }
@@ -1704,6 +1830,14 @@ struct SelectableJapanese: UIViewRepresentable {
                 return
             }
             let selectedRange = textView.selectedRange
+            // Translation lines are for reading, not for dictionary lookups.
+            if selectedRange.location < textView.attributedText.length,
+               textView.attributedText.attribute(SelectableJapanese.translationKey, at: selectedRange.location, effectiveRange: nil) != nil {
+                let action = DispatchWorkItem { [weak self] in self?.selected("") }
+                pending = action
+                DispatchQueue.main.async(execute: action)
+                return
+            }
             let context = Self.context(in: textView.text ?? "", range: selectedRange, word: word)
             let action = DispatchWorkItem { [weak textView, weak self] in
                 guard let textView, textView.selectedRange == selectedRange else { return }

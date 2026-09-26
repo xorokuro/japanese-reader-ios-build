@@ -2,6 +2,23 @@ import SwiftUI
 import WebKit
 import UniformTypeIdentifiers
 
+/// Entry page web view that can keep the iPhone's Copy / Look Up bar and Writing
+/// Tools out of the way while the dictionary card handles selections.
+final class ReaderWebView: WKWebView {
+    var quietMenu = false
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        quietMenu ? false : super.canPerformAction(action, withSender: sender)
+    }
+    override func buildMenu(with builder: UIMenuBuilder) {
+        super.buildMenu(with: builder)
+        guard quietMenu else { return }
+        builder.remove(menu: .lookup)
+        builder.remove(menu: .share)
+        builder.remove(menu: .standardEdit)
+        builder.remove(menu: .replace)
+    }
+}
+
 struct DictionaryPage: UIViewRepresentable {
     let html: String
     let root: URL
@@ -13,6 +30,8 @@ struct DictionaryPage: UIViewRepresentable {
     var initialOffset: CGPoint = .zero
     /// Room kept free at the bottom while the dictionary card covers the page.
     var bottomInset: CGFloat = 0
+    /// Hide the iPhone Copy / Look Up bar (the dictionary card replaces it).
+    var quietMenu = false
     var saveOffset: ((CGPoint) -> Void)? = nil
     var followLink: ((String) -> Void)? = nil
     let lookup: (String) -> Void
@@ -173,6 +192,7 @@ struct DictionaryPage: UIViewRepresentable {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
         configuration.websiteDataStore = dataStore
+        if #available(iOS 18.0, *) { configuration.writingToolsBehavior = UIWritingToolsBehavior.none }
         configuration.setURLSchemeHandler(coordinator, forURLScheme: "jpread")
         configuration.userContentController.add(coordinator, contentWorld: selectionWorld, name: "readerSelection")
         configuration.userContentController.addUserScript(WKUserScript(source: selectionScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: selectionWorld))
@@ -184,7 +204,7 @@ struct DictionaryPage: UIViewRepresentable {
             let script = "const s=document.createElement('style');s.textContent='\(themeCSS)';document.head.appendChild(s);"
             configuration.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: selectionWorld))
         }
-        let view = WKWebView(frame: .zero, configuration: configuration)
+        let view = ReaderWebView(frame: .zero, configuration: configuration)
         view.scrollView.delegate = coordinator
         view.accessibilityIdentifier = "dictionaryEntryPage"
         view.navigationDelegate = coordinator
@@ -199,6 +219,7 @@ struct DictionaryPage: UIViewRepresentable {
     func updateUIView(_ view: WKWebView, context: Context) {
         context.coordinator.lookup = lookup
         context.coordinator.followLink = followLink
+        (view as? ReaderWebView)?.quietMenu = quietMenu
         view.backgroundColor = paperRGB.map { UIColor(Palette.color($0)) } ?? .systemBackground
         view.scrollView.backgroundColor = view.backgroundColor
         context.coordinator.paperRGB = paperRGB

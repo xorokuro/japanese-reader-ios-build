@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import WebKit
+import Translation
 
 // The selection peek: selecting text no longer jumps to another page. A card slides
 // up with the best dictionary matches while the native selection handles stay in
@@ -108,6 +109,7 @@ struct LookupPeekCard: View {
     let copy: () -> Void
     let close: () -> Void
     @State private var expanded = false
+    @State private var translating = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -239,16 +241,26 @@ struct LookupPeekCard: View {
     private var footer: some View {
         HStack(spacing: 8) {
             Button(action: showAll) {
-                Label(peek.hits.isEmpty ? String("Search") : String("All results · \(peek.hits.count)"), systemImage: "list.bullet")
+                Label(peek.hits.isEmpty ? String("Search") : String("Results · \(peek.hits.count)"), systemImage: "list.bullet")
             }
             .buttonStyle(HandSoftButtonStyle(style: style, prominent: true))
             .accessibilityIdentifier("peekAllResults")
-            Button(action: copy) { Label("Copy", systemImage: "doc.on.doc") }
-                .buttonStyle(HandSoftButtonStyle(style: style))
-                .accessibilityIdentifier("peekCopy")
+            Button { translating = true } label: {
+                Label("Translate", systemImage: "character.bubble")
+            }
+            .buttonStyle(HandSoftButtonStyle(style: style))
+            .accessibilityIdentifier("peekTranslate")
+            Button(action: copy) {
+                Label("Copy", systemImage: "doc.on.doc").labelStyle(.iconOnly)
+            }
+            .buttonStyle(HandSoftButtonStyle(style: style))
+            .accessibilityLabel("Copy")
+            .accessibilityIdentifier("peekCopy")
             Spacer(minLength: 0)
         }
         .labelStyle(.titleAndIcon)
+        .lineLimit(1)
+        .translationPresentation(isPresented: $translating, text: peek.text)
     }
 }
 
