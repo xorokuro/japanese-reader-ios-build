@@ -1,6 +1,12 @@
 import XCTest
 
 final class ReaderUITests: XCTestCase {
+    /// Result groups collapse with an animation, so rows can linger briefly.
+    private func waitForResultCount(_ app: XCUIApplication, _ count: Int, file: StaticString = #filePath, line: UInt = #line) {
+        let rows = app.buttons.matching(identifier: "dictionaryResult_みほん")
+        let settled = expectation(for: NSPredicate(format: "count == %d", count), evaluatedWith: rows)
+        XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 5), .completed, "Expected \(count) みほん rows", file: file, line: line)
+    }
     func testDictionaryResultGroupsCollapseIndependently() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard"]
@@ -17,14 +23,14 @@ final class ReaderUITests: XCTestCase {
         first.tap()
         XCTAssertEqual(first.value as? String, "Collapsed")
         XCTAssertTrue(second.isHittable)
-        XCTAssertEqual(app.buttons.matching(identifier: "dictionaryResult_みほん").count, 1)
+        waitForResultCount(app, 1)
         second.tap()
         XCTAssertEqual(second.value as? String, "Collapsed")
-        XCTAssertFalse(app.buttons["dictionaryResult_みほん"].exists)
+        XCTAssertTrue(app.buttons["dictionaryResult_みほん"].waitForNonExistence(timeout: 5))
         first.tap()
         XCTAssertEqual(first.value as? String, "Expanded")
         XCTAssertEqual(second.value as? String, "Collapsed")
-        XCTAssertEqual(app.buttons.matching(identifier: "dictionaryResult_みほん").count, 1)
+        waitForResultCount(app, 1)
         app.buttons["dictionaryResult_みほん"].tap()
         XCTAssertTrue(app.webViews["dictionaryEntryPage"].waitForExistence(timeout: 10))
         app.buttons["Back"].tap()

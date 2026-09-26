@@ -682,8 +682,9 @@ struct ReaderHome: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(paper)
-            .overlay(alignment: .leading) { backSwipeEdge(fromLeft: true) }
-            .overlay(alignment: .trailing) { backSwipeEdge(fromLeft: false) }
+            // Edge swipes start below the compact header so its buttons stay tappable.
+            .overlay(alignment: .leading) { backSwipeEdge(fromLeft: true).padding(.top, model.showingEntry ? 0 : headerHeight) }
+            .overlay(alignment: .trailing) { backSwipeEdge(fromLeft: false).padding(.top, model.showingEntry ? 0 : headerHeight) }
             .navigationBarTitleDisplayMode(.inline)
             // Results draw their own compact header; definitions keep the title bar.
             .toolbar(model.showingEntry ? .visible : .hidden, for: .navigationBar)
