@@ -99,6 +99,10 @@ struct PhotoTextImport: View {
     let cancel: () -> Void
     @State private var crop = CGRect(x: 0, y: 0, width: 1, height: 1)
     @State private var dragStart: CGRect?
+    /// True while any crop gesture is active; clears the drag anchor even when
+    /// iOS cancels a gesture without calling onEnded.
+    @GestureState private var gestureActive = false
+    private static let space = "cropArea"
     @State private var working = false
     @State private var failure: String?
     @State private var reviewing = false
@@ -187,8 +191,12 @@ struct PhotoTextImport: View {
                             .accessibilityHidden(true)
                     }
                 }
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                .coordinateSpace(name: Self.space)
             }
-            .padding(18)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .onChange(of: gestureActive) { _, active in if !active { dragStart = nil } }
             VStack(spacing: 8) {
                 if working {
                     HStack(spacing: 8) {
@@ -222,16 +230,18 @@ struct PhotoTextImport: View {
 
     /// Dragging on the picture draws a new box.
     private func draw(_ frame: CGRect) -> some Gesture {
-        DragGesture(minimumDistance: 6)
+        DragGesture(minimumDistance: 6, coordinateSpace: .named(Self.space))
+            .updating($gestureActive) { _, active, _ in active = true }
             .onChanged { value in
                 guard frame.width > 0, frame.height > 0 else { return }
-                crop = clampRect(value.startLocation.x / frame.width, value.startLocation.y / frame.height,
-                                 value.location.x / frame.width, value.location.y / frame.height)
+                crop = clampRect((value.startLocation.x - frame.minX) / frame.width, (value.startLocation.y - frame.minY) / frame.height,
+                                 (value.location.x - frame.minX) / frame.width, (value.location.y - frame.minY) / frame.height)
             }
     }
 
     private func move(_ frame: CGRect) -> some Gesture {
-        DragGesture()
+        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.space))
+            .updating($gestureActive) { _, active, _ in active = true }
             .onChanged { value in
                 guard frame.width > 0, frame.height > 0 else { return }
                 let start = dragStart ?? crop
@@ -245,7 +255,8 @@ struct PhotoTextImport: View {
 
     /// Corners: 0 top-left, 1 top-right, 2 bottom-left, 3 bottom-right.
     private func resize(_ corner: Int, _ frame: CGRect) -> some Gesture {
-        DragGesture()
+        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.space))
+            .updating($gestureActive) { _, active, _ in active = true }
             .onChanged { value in
                 guard frame.width > 0, frame.height > 0 else { return }
                 let start = dragStart ?? crop
