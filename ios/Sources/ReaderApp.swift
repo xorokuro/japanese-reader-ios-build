@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 import UniformTypeIdentifiers
 import Translation
 
@@ -589,6 +590,11 @@ struct ReaderHome: View {
     @AppStorage(SelectionLimit.key) private var selectionLimit = SelectionLimit.standard
     // Line-by-line translation under the passage (Apple Translation, iOS 18+).
     @AppStorage("translationTarget") private var translationTarget = TranslationTarget.english.rawValue
+    // Reading text from photos, screenshots and the camera.
+    @State private var showingPhotoPicker = false
+    @State private var showingCamera = false
+    @State private var photoItem: PhotosPickerItem?
+    @State private var photoImport: ImportedImage?
     @State private var showTranslation = false
     @State private var translatedLines: [String] = []
     @State private var translatedKey = ""
@@ -724,6 +730,34 @@ struct ReaderHome: View {
             .background(paperBackground)
             .translationPresentation(isPresented: $translation, text: model.text)
             .toolbar(.hidden, for: .navigationBar)
+            .photosPicker(isPresented: $showingPhotoPicker, selection: $photoItem, matching: .images)
+            .onChange(of: photoItem) { _, item in
+                guard let item else { return }
+                photoItem = nil
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) {
+                        beginPhotoImport(image)
+                    } else {
+                        model.status = "That photo couldn't be opened."
+                    }
+                }
+            }
+            .fullScreenCover(isPresented: $showingCamera) {
+                CameraPicker { image in
+                    showingCamera = false
+                    if let image { beginPhotoImport(image) }
+                }
+                .ignoresSafeArea()
+            }
+            .fullScreenCover(item: $photoImport) { imported in
+                PhotoTextImport(image: imported.image, style: style,
+                                finish: { text in
+                                    photoImport = nil
+                                    pastePassage([text])
+                                    model.status = "Read from photo. Select any word to look it up."
+                                },
+                                cancel: { photoImport = nil })
+            }
         }
         .toolbarBackground(paper, for: .tabBar, .navigationBar)
         .toolbarBackground(.visible, for: .tabBar, .navigationBar)
@@ -905,6 +939,35 @@ struct ReaderHome: View {
                        close: { model.closePeek() })
     }
 
+    private func beginPhotoImport(_ image: UIImage) {
+        let upright = TextRecognizer.upright(image)
+        // Let any sheet that is still closing finish first.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { photoImport = ImportedImage(image: upright) }
+    }
+
+    private var photoMenu: some View {
+        Menu {
+            Button { showingPhotoPicker = true } label: {
+                Label("Choose photo or screenshot", systemImage: "photo.on.rectangle")
+            }
+            Button { showingCamera = true } label: { Label("Take picture", systemImage: "camera") }
+                .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
+            Button {
+                if let image = UIPasteboard.general.image { beginPhotoImport(image) }
+                else { model.status = "There's no image on the clipboard. Copy an image first, or take a screenshot and choose it from Photos." }
+            } label: { Label("Paste image", systemImage: "doc.on.clipboard") }
+        } label: {
+            Label("Photo", systemImage: "text.viewfinder")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(accent)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 36)
+                .sketchPill(style)
+        }
+        .accessibilityLabel("Read text from a photo")
+        .accessibilityIdentifier("photoImport")
+    }
+
     private var readingActions: some View {
         VStack(spacing: 6) {
             HStack(spacing: 10) {
@@ -913,6 +976,7 @@ struct ReaderHome: View {
                     .buttonBorderShape(.capsule)
                     .tint(accent)
                     .accessibilityIdentifier("pastePassage")
+                photoMenu
                 if !model.readerSelection.isEmpty && model.peek == nil {
                     Button("Search selected text") { model.searchSelected(inDictionary: false) }
                         .buttonStyle(HandSoftButtonStyle(style: style, prominent: true))

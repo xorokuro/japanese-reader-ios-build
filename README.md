@@ -4,7 +4,12 @@ Source-only snapshot for a user-authorized public iOS build. No personal passage
 
 Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuses to run build jobs when this repository is private.
 
-Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.1.1, build 16).
+Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.2, build 17).
+
+## 2.2 — read text from photos and screenshots
+
+- **Photo** button next to Paste on the Read page: *Choose photo or screenshot*, *Take picture*, or *Paste image*. Drag the box corners (or draw a new box) around the text, tap **Scan**, fix any misread characters, and tap **Read** — the text becomes the passage, ready for lookups, the dictionary card and translation.
+- Uses Apple's on-device text recognition (Japanese and English); nothing is uploaded. Wrapped lines are joined back into sentences, paragraphs are kept, and vertical (tategaki) columns are read right to left.
 
 ## 2.1 — line-by-line translation, quieter selection
 
