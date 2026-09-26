@@ -277,14 +277,56 @@ struct LookupPeekCard: View {
     }
 }
 
-/// Big characters of the selection and its neighbours. Drag across them (or tap
-/// one) to look up exactly those characters; the real selection follows.
+/// Word boundaries for stepping the selection word by word (Apple's Japanese
+/// word segmentation). Offsets are character indices; punctuation is skipped.
+enum WordSteps {
+    static func words(in text: String) -> [Range<Int>] {
+        guard !text.isEmpty else { return [] }
+        // UTF-16 offset → character index, so results line up with the strip cells.
+        var characterAt: [Int] = []
+        for (index, character) in text.enumerated() {
+            for _ in 0..<character.utf16.count { characterAt.append(index) }
+        }
+        let characterCount = text.count
+        characterAt.append(characterCount)
+        let length = (text as NSString).length
+        let tokenizer = CFStringTokenizerCreate(nil, text as CFString, CFRange(location: 0, length: length),
+                                                kCFStringTokenizerUnitWordBoundary, Locale(identifier: "ja") as CFLocale)
+        let skip = CharacterSet.punctuationCharacters.union(.whitespacesAndNewlines).union(.symbols)
+        var words: [Range<Int>] = []
+        while CFStringTokenizerAdvanceToNextToken(tokenizer).rawValue != 0 {
+            let range = CFStringTokenizerGetCurrentTokenRange(tokenizer)
+            guard range.location >= 0, range.length > 0, range.location + range.length <= length else { continue }
+            let token = (text as NSString).substring(with: NSRange(location: range.location, length: range.length))
+            if token.unicodeScalars.allSatisfy({ skip.contains($0) }) { continue }
+            let start = characterAt[range.location], end = characterAt[range.location + range.length]
+            if start < end { words.append(start..<end) }
+        }
+        return words
+    }
+
+    /// The next (`direction` 1) or previous (-1) word next to `selection`.
+    static func step(from selection: ClosedRange<Int>, direction: Int, in text: String) -> ClosedRange<Int>? {
+        let words = words(in: text)
+        if direction > 0 {
+            guard let word = words.first(where: { $0.lowerBound > selection.upperBound }) else { return nil }
+            return word.lowerBound...(word.upperBound - 1)
+        }
+        guard let word = words.last(where: { $0.upperBound <= selection.lowerBound }) else { return nil }
+        return word.lowerBound...(word.upperBound - 1)
+    }
+}
+
+/// Big characters of the selection and its neighbours. Drag slowly across them
+/// (or tap one) to look up exactly those characters; flick left or right, or use
+/// the arrows, to jump to the next or previous word. The real selection follows.
 struct RefineStrip: View {
     let characters: [String]
     let selection: ClosedRange<Int>
     let style: ReaderStyle
     let commit: (ClosedRange<Int>) -> Void
     @State private var dragging: ClosedRange<Int>?
+    @State private var dragBegan: Date?
 
     private func window(fitting cells: Int) -> Range<Int> {
         let count = characters.count
@@ -297,50 +339,93 @@ struct RefineStrip: View {
         return start..<end
     }
 
+    private func step(_ direction: Int) {
+        guard let next = WordSteps.step(from: selection, direction: direction, in: characters.joined()),
+              next.upperBound < characters.count else {
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            return
+        }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        commit(next)
+    }
+
+    private func arrow(_ direction: Int) -> some View {
+        Button { step(direction) } label: {
+            Image(systemName: direction > 0 ? "chevron.right" : "chevron.left")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(style.accent)
+                .frame(width: 30, height: 40)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(direction > 0 ? "Next word" : "Previous word")
+        .accessibilityIdentifier(direction > 0 ? "peekNextWord" : "peekPreviousWord")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            GeometryReader { proxy in
-                let visible = window(fitting: max(1, Int(proxy.size.width / 26)))
-                let count = max(visible.count, 1)
-                let cell = max(1, min(34, proxy.size.width / CGFloat(count)))
-                let active = dragging ?? selection
-                HStack(spacing: 0) {
-                    ForEach(Array(visible), id: \.self) { index in
-                        let inside = active.contains(index)
-                        Text(characters[index] == "\n" ? "↵" : characters[index])
-                            .font(HandFont.title(min(22, cell * 0.72)))
-                            .foregroundStyle(inside ? style.ink : style.faint)
-                            .frame(width: cell, height: 40)
-                            .background(inside ? style.marker.opacity(style.isDark ? 0.34 : 0.45) : Color.clear)
-                    }
-                }
-                .frame(width: cell * CGFloat(count), height: 40)
-                .background(style.raised.opacity(0.55), in: SketchShape(radius: 10))
-                .overlay(SketchShape(radius: 10).stroke(style.lineStrong.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            let first = visible.lowerBound + clamp(Int(value.startLocation.x / cell), count)
-                            let last = visible.lowerBound + clamp(Int(value.location.x / cell), count)
-                            let range = min(first, last)...max(first, last)
-                            if range != dragging {
-                                dragging = range
-                                UISelectionFeedbackGenerator().selectionChanged()
-                            }
-                        }
-                        .onEnded { _ in
-                            if let range = dragging, range != selection { commit(range) }
-                            dragging = nil
-                        }
-                )
-                .frame(maxWidth: .infinity)
+            HStack(spacing: 2) {
+                arrow(-1)
+                strip
+                arrow(1)
             }
-            .frame(height: 40)
-            Text("Drag across the characters to look up just part of it")
+            Text("Drag across characters to pick part of it · flick ← → for the next word")
                 .font(HandFont.body(11.5))
                 .foregroundStyle(style.faint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
+    }
+
+    private var strip: some View {
+        GeometryReader { proxy in
+            let visible = window(fitting: max(1, Int(proxy.size.width / 26)))
+            let count = max(visible.count, 1)
+            let cell = max(1, min(34, proxy.size.width / CGFloat(count)))
+            let active = dragging ?? selection
+            HStack(spacing: 0) {
+                ForEach(Array(visible), id: \.self) { index in
+                    let inside = active.contains(index)
+                    Text(characters[index] == "\n" ? "↵" : characters[index])
+                        .font(HandFont.title(min(22, cell * 0.72)))
+                        .foregroundStyle(inside ? style.ink : style.faint)
+                        .frame(width: cell, height: 40)
+                        .background(inside ? style.marker.opacity(style.isDark ? 0.34 : 0.45) : Color.clear)
+                }
+            }
+            .frame(width: cell * CGFloat(count), height: 40)
+            .background(style.raised.opacity(0.55), in: SketchShape(radius: 10))
+            .overlay(SketchShape(radius: 10).stroke(style.lineStrong.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        if dragBegan == nil { dragBegan = Date() }
+                        let first = visible.lowerBound + clamp(Int(value.startLocation.x / cell), count)
+                        let last = visible.lowerBound + clamp(Int(value.location.x / cell), count)
+                        let range = min(first, last)...max(first, last)
+                        if range != dragging {
+                            dragging = range
+                            UISelectionFeedbackGenerator().selectionChanged()
+                        }
+                    }
+                    .onEnded { value in
+                        let quick = Date().timeIntervalSince(dragBegan ?? Date()) < 0.3
+                        let dx = value.translation.width
+                        dragBegan = nil
+                        // A quick sideways flick steps word by word: left = next, right = previous.
+                        if quick && abs(dx) > 24 && abs(dx) > abs(value.translation.height) {
+                            dragging = nil
+                            step(dx < 0 ? 1 : -1)
+                            return
+                        }
+                        if let range = dragging, range != selection { commit(range) }
+                        dragging = nil
+                    }
+            )
+            .frame(maxWidth: .infinity)
+        }
+        .frame(height: 40)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Refine selection")
         .accessibilityValue(characters.indices.contains(selection.upperBound) ? characters[selection].joined() : "")

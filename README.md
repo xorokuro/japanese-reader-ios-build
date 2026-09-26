@@ -4,7 +4,11 @@ Source-only snapshot for a user-authorized public iOS build. No personal passage
 
 Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuses to run build jobs when this repository is private.
 
-Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.3.1, build 20).
+Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.4, build 21).
+
+## 2.4 — step word by word on the dictionary card
+
+- On the card's character strip, **flick left** to jump the selection to the next word and **flick right** for the previous word (or tap the ‹ › arrows at each end). The real selection, the lookup and the card all follow, so you can walk through a sentence word by word. A slow drag still picks any exact characters.
 
 ## 2.3.1 — text size gestures fixed
 
