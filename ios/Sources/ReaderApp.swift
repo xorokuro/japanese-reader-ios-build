@@ -596,6 +596,8 @@ struct ReaderHome: View {
     @State private var photoItem: PhotosPickerItem?
     @State private var photoImport: ImportedImage?
     @State private var showTranslation = false
+    /// The size shown while a two-finger swipe changes it.
+    @State private var sizeHUD: Int?
     @State private var translatedLines: [String] = []
     @State private var translatedKey = ""
     // One-time switch of light-theme installs to the desktop's Washi look (2.0).
@@ -676,6 +678,7 @@ struct ReaderHome: View {
         .preferredColorScheme(style.colorScheme)
         .background(paperBackground)
         .environment(\.readerStyle, style)
+        .overlay(alignment: .top) { sizeBadge }
         .onAppear {
             applyRedesignOnce()
             // Start WebKit once the first screen is up, so the first definition opens fast.
@@ -823,6 +826,29 @@ struct ReaderHome: View {
         .accessibilityIdentifier("readerOptions")
     }
 
+    private func hideSizeHUD() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { withAnimation(.easeOut(duration: 0.25)) { sizeHUD = nil } }
+    }
+
+    /// Size readout while two fingers change the text size.
+    private var sizeBadge: some View {
+        Group {
+            if let size = sizeHUD {
+                HStack(spacing: 6) {
+                    Image(systemName: "textformat.size")
+                    Text("\(size) pt").monospacedDigit()
+                }
+                .font(HandFont.title(17))
+                .foregroundStyle(style.onAccent)
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .background(style.accent.opacity(0.92), in: SketchShape(radius: 14))
+                .padding(.top, 70)
+                .transition(.opacity)
+                .allowsHitTesting(false)
+            }
+        }
+    }
+
     private var readerPeekVisible: Bool { model.peek.map { !$0.inDictionary } ?? false }
     private var quietMenu: Bool { quietSystemTextMenu && model.selectionPeek }
     private var translationKey: String { translationTarget + "|" + model.text }
@@ -892,6 +918,9 @@ struct ReaderHome: View {
                                bottomInset: readerPeekVisible ? 250 : 0,
                                translations: translationReady ? translatedLines : [],
                                quietMenu: quietMenu,
+                               resize: TextResize(value: readerTextSize, range: 16...38,
+                                                  set: { readerTextSize = $0; sizeHUD = Int($0) },
+                                                  ended: hideSizeHUD),
                                saveOffset: { model.readerOffset = $0 }) { word in
                 guard !model.showingLookup, selectedTab == 0 else { return }
                 model.select(word, inDictionary: false)
@@ -1080,12 +1109,15 @@ struct ReaderHome: View {
                            initialOffset: model.entryOffsets[visitID] ?? .zero,
                            bottomInset: entryPeekVisible ? 300 : 0,
                            quietMenu: quietMenu,
+                           resize: TextResize(value: dictionaryTextSize, range: 14...28,
+                                              set: { dictionaryTextSize = $0; sizeHUD = Int($0) },
+                                              ended: hideSizeHUD),
                            saveOffset: { model.entryOffsets[visitID] = $0 },
                            followLink: { model.followEntryLink($0) }) { word in
                 guard selectedTab == 1, model.showingEntry else { return }
                 model.select(word, inDictionary: true)
             }
-            .id(visitID.uuidString + style.identity + "-\(Int(dictionaryTextSize))-\(dictionarySans)")
+            .id(visitID.uuidString + style.identity + "-\(dictionarySans)")
             .clipShape(SketchShape(radius: 18))
             .padding(3)
             .sketchCard(style, radius: 20, tape: .marker, tapeTrailing: true)
@@ -1785,6 +1817,8 @@ struct SelectableJapanese: UIViewRepresentable {
     var translations: [String] = []
     /// Hide the iPhone Copy / Look Up menu for short selections (the card has those).
     var quietMenu = false
+    /// Two-finger swipe up / down to change the text size.
+    var resize: TextResize? = nil
     var saveOffset: ((CGPoint) -> Void)? = nil
     let selected: (String) -> Void
     func makeCoordinator() -> Coordinator { Coordinator(selected) }
@@ -1837,6 +1871,7 @@ struct SelectableJapanese: UIViewRepresentable {
         view.textContainerInset = UIEdgeInsets(top: 24, left: 20, bottom: 40, right: 20)
         view.alwaysBounceVertical = true
         if #available(iOS 18.0, *) { view.writingToolsBehavior = UIWritingToolsBehavior.none }
+        context.coordinator.sizeSwipe.attach(to: view, scrollView: view)
         SelectionBridge.shared.readerView = view
         return view
     }
@@ -1845,6 +1880,7 @@ struct SelectableJapanese: UIViewRepresentable {
         coordinator.selected = selected
         coordinator.saveOffset = saveOffset
         coordinator.quietMenu = quietMenu
+        coordinator.sizeSwipe.resize = resize
         // Rebuilding the attributed text clears the selection, so only do it when
         // the passage, its translations or the theme's ink actually changed.
         let textChanged = coordinator.appliedText != text
@@ -1885,6 +1921,7 @@ struct SelectableJapanese: UIViewRepresentable {
         var appliedText: String?
         var appliedTranslations = ""
         var quietMenu = false
+        let sizeSwipe = TextSizeSwipe()
         /// Short selections go to the dictionary card, so the iPhone's own
         /// Copy / Look Up bar would only cover it. Long selections keep it.
         func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {

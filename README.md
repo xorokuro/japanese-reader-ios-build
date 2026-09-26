@@ -4,7 +4,11 @@ Source-only snapshot for a user-authorized public iOS build. No personal passage
 
 Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuses to run build jobs when this repository is private.
 
-Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.2.1, build 18).
+Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.3, build 19).
+
+## 2.3 — two-finger text size
+
+- Swipe **up with two fingers** to make the text bigger, **down** to make it smaller — on the Read page and on dictionary pages. The text re-wraps at the new size (unlike pinch zoom, which still works in dictionary pages); a badge shows the size, and the choice is remembered (same settings as Appearance). Dictionary pages restyle in place without reloading.
 
 ## 2.2 — read text from photos and screenshots
 

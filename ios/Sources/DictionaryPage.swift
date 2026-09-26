@@ -32,6 +32,8 @@ struct DictionaryPage: UIViewRepresentable {
     var bottomInset: CGFloat = 0
     /// Hide the iPhone Copy / Look Up bar (the dictionary card replaces it).
     var quietMenu = false
+    /// Two-finger swipe up / down to change the definition text size.
+    var resize: TextResize? = nil
     var saveOffset: ((CGPoint) -> Void)? = nil
     var followLink: ((String) -> Void)? = nil
     let lookup: (String) -> Void
@@ -211,6 +213,7 @@ struct DictionaryPage: UIViewRepresentable {
         view.navigationDelegate = coordinator
         view.isOpaque = false
         view.loadHTMLString(html, baseURL: URL(string: "jpread://dictionary/"))
+        coordinator.sizeSwipe.attach(to: view, scrollView: view.scrollView)
         SelectionBridge.shared.dictionaryView = view
         return view
     }
@@ -221,6 +224,12 @@ struct DictionaryPage: UIViewRepresentable {
         context.coordinator.lookup = lookup
         context.coordinator.followLink = followLink
         (view as? ReaderWebView)?.quietMenu = quietMenu
+        context.coordinator.sizeSwipe.resize = resize
+        // Size changes restyle the open page in place (no reload, scroll kept).
+        if context.coordinator.textSize != textSize {
+            context.coordinator.textSize = textSize
+            Self.evaluateSelectionScript("document.documentElement.style.setProperty('--e-size', '\(Int(textSize.rounded()))px'); true", in: view) { _, _ in }
+        }
         view.backgroundColor = paperRGB.map { UIColor(Palette.color($0)) } ?? .systemBackground
         view.scrollView.backgroundColor = view.backgroundColor
         context.coordinator.paperRGB = paperRGB
@@ -248,6 +257,7 @@ struct DictionaryPage: UIViewRepresentable {
         var paperRGB: Int?
         var accentRGB: Int?
         var textSize: Double = 19
+        let sizeSwipe = TextSizeSwipe()
         var sansFont = false
         var initialOffset: CGPoint = .zero
         var saveOffset: ((CGPoint) -> Void)?
