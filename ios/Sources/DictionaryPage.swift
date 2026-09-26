@@ -34,6 +34,7 @@ struct DictionaryPage: UIViewRepresentable {
     var quietMenu = false
     /// Two-finger swipe up / down to change the definition text size.
     var resize: TextResize? = nil
+    var margins: PageMargins = .compact
     var saveOffset: ((CGPoint) -> Void)? = nil
     var followLink: ((String) -> Void)? = nil
     let lookup: (String) -> Void
@@ -145,6 +146,22 @@ struct DictionaryPage: UIViewRepresentable {
             const last = nodes[nodes.length - 1];
             return last ? [last, last.data.length] : null;
         };
+        // Publishers indent senses and examples generously; scale those indents
+        // (kept relative to the text size) so large text does not waste width.
+        window.__jpIndent = (scale) => {
+            for (const element of document.body.querySelectorAll("*")) {
+                let base = element.__jpBase;
+                if (!base) {
+                    const style = getComputedStyle(element), size = parseFloat(style.fontSize) || 16;
+                    base = { margin: (parseFloat(style.marginLeft) || 0) / size, padding: (parseFloat(style.paddingLeft) || 0) / size };
+                    element.__jpBase = base;
+                }
+                if (base.margin > 0.3) element.style.setProperty("margin-left", (base.margin * scale).toFixed(3) + "em", "important");
+                if (base.padding > 0.3) element.style.setProperty("padding-left", (base.padding * scale).toFixed(3) + "em", "important");
+            }
+            return true;
+        };
+        if (typeof window.__jpIndentScale === "number") setTimeout(() => window.__jpIndent(window.__jpIndentScale), 0);
         window.__jpRefine = (startDelta, endDelta) => {
             const base = window.__jpLast;
             if (!base) return false;
@@ -170,6 +187,7 @@ struct DictionaryPage: UIViewRepresentable {
         coordinator.paperRGB = paperRGB
         coordinator.accentRGB = accentRGB
         coordinator.textSize = textSize
+        coordinator.margins = margins
         coordinator.sansFont = sansFont
         coordinator.initialOffset = initialOffset
         coordinator.saveOffset = saveOffset
@@ -197,14 +215,14 @@ struct DictionaryPage: UIViewRepresentable {
         if #available(iOS 18.0, *) { configuration.writingToolsBehavior = UIWritingToolsBehavior.none }
         configuration.setURLSchemeHandler(coordinator, forURLScheme: "jpread")
         configuration.userContentController.add(coordinator, contentWorld: selectionWorld, name: "readerSelection")
-        configuration.userContentController.addUserScript(WKUserScript(source: "window.__jpLimit = \(SelectionLimit.current);", injectionTime: .atDocumentStart, forMainFrameOnly: true, in: selectionWorld))
+        configuration.userContentController.addUserScript(WKUserScript(source: "window.__jpLimit = \(SelectionLimit.current); window.__jpIndentScale = \(coordinator.margins.indentScale);", injectionTime: .atDocumentStart, forMainFrameOnly: true, in: selectionWorld))
         configuration.userContentController.addUserScript(WKUserScript(source: selectionScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: selectionWorld))
         // Entry pages follow the chosen iOS theme through the book stylesheet's
         // --e-* variables: background, readable ink, accent, example colour, type.
         let themeCSS = DictionaryBookStyle.variables(backgroundRGB: coordinator.paperRGB, accentRGB: coordinator.accentRGB,
                                                      size: coordinator.textSize, sans: coordinator.sansFont)
         if !themeCSS.isEmpty {
-            let script = "const s=document.createElement('style');s.textContent='\(themeCSS)';document.head.appendChild(s);"
+            let script = "const s=document.createElement('style');s.textContent='\(themeCSS):root{--e-pad:\(coordinator.margins.pagePadding)px}';document.head.appendChild(s);"
             configuration.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: selectionWorld))
         }
         let view = ReaderWebView(frame: .zero, configuration: configuration)
@@ -227,6 +245,10 @@ struct DictionaryPage: UIViewRepresentable {
         context.coordinator.sizeSwipe.resize = resize
         context.coordinator.sizeSwipe.claimTwoFingers()
         // Size changes restyle the open page in place (no reload, scroll kept).
+        if context.coordinator.margins != margins {
+            context.coordinator.margins = margins
+            Self.evaluateSelectionScript("document.documentElement.style.setProperty('--e-pad', '\(margins.pagePadding)px'); window.__jpIndent && window.__jpIndent(\(margins.indentScale)); true", in: view) { _, _ in }
+        }
         if context.coordinator.textSize != textSize {
             context.coordinator.textSize = textSize
             Self.evaluateSelectionScript("document.documentElement.style.setProperty('--e-size', '\(Int(textSize.rounded()))px'); true", in: view) { _, _ in }
@@ -258,6 +280,7 @@ struct DictionaryPage: UIViewRepresentable {
         var paperRGB: Int?
         var accentRGB: Int?
         var textSize: Double = 19
+        var margins: PageMargins = .compact
         let sizeSwipe = TextSizeSwipe()
         var sansFont = false
         var initialOffset: CGPoint = .zero

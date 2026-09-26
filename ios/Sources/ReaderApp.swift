@@ -606,6 +606,8 @@ struct ReaderHome: View {
     @AppStorage("readerLineSpacing") private var readerLineSpacing = 1.35
     @AppStorage("dictionaryTextSize") private var dictionaryTextSize = 19.0
     @AppStorage("dictionarySans") private var dictionarySans = false
+    @AppStorage("pageMargins") private var pageMarginsRaw = PageMargins.compact.rawValue
+    private var pageMargins: PageMargins { PageMargins.resolve(pageMarginsRaw) }
     // Search header: hides while scrolling down through results, returns on scroll up.
     @State private var headerCollapsed = false
     @State private var headerHeight: CGFloat = 104
@@ -918,6 +920,7 @@ struct ReaderHome: View {
                                bottomInset: readerPeekVisible ? 250 : 0,
                                translations: translationReady ? translatedLines : [],
                                quietMenu: quietMenu,
+                               sideInset: pageMargins.readerInset,
                                resize: TextResize(value: readerTextSize, range: 16...38,
                                                   set: { readerTextSize = $0; sizeHUD = Int($0) },
                                                   ended: hideSizeHUD),
@@ -942,7 +945,7 @@ struct ReaderHome: View {
                 }
             }
             .sketchCard(style, radius: 22, tape: .tape)
-            .padding(.horizontal, 14)
+            .padding(.horizontal, pageMargins.cardInset + 4)
             .padding(.top, 18)
             .padding(.bottom, 8)
             readingActions
@@ -1055,6 +1058,10 @@ struct ReaderHome: View {
                     if model.showingEntry {
                         Menu {
                             Button("Search results") { model.showResults(); applySearchKeyboardPreference() }
+                            Picker("Page margins", selection: $pageMarginsRaw) {
+                                ForEach(PageMargins.allCases) { margin in Text(margin.title).tag(margin.rawValue) }
+                            }
+                            .pickerStyle(.menu)
                             Button("Copy learning prompt") { UIPasteboard.general.string = model.prompt(inDictionary: true); model.status = "Learning prompt copied." }
                             Button("Back to Main Page") { selectedTab = 0 }
                         } label: { Image(systemName: "line.3.horizontal") }.accessibilityLabel("Dictionary navigation")
@@ -1112,6 +1119,7 @@ struct ReaderHome: View {
                            resize: TextResize(value: dictionaryTextSize, range: 14...28,
                                               set: { dictionaryTextSize = $0; sizeHUD = Int($0) },
                                               ended: hideSizeHUD),
+                           margins: pageMargins,
                            saveOffset: { model.entryOffsets[visitID] = $0 },
                            followLink: { model.followEntryLink($0) }) { word in
                 guard selectedTab == 1, model.showingEntry else { return }
@@ -1119,9 +1127,9 @@ struct ReaderHome: View {
             }
             .id(visitID.uuidString + style.identity + "-\(dictionarySans)")
             .clipShape(SketchShape(radius: 18))
-            .padding(3)
+            .padding(pageMargins == .compact ? 1 : 3)
             .sketchCard(style, radius: 20, tape: .marker, tapeTrailing: true)
-            .padding(.horizontal, 10)
+            .padding(.horizontal, pageMargins.cardInset)
             .padding(.top, 14)
             .padding(.bottom, 8)
             if let peek = model.peek, peek.inDictionary {
@@ -1727,6 +1735,11 @@ struct ReaderHome: View {
                     }
                 } header: { Text("Reading text · 本文") }
                 Section {
+                    Picker("Page margins", selection: $pageMarginsRaw) {
+                        ForEach(PageMargins.allCases) { margin in Text(margin.title).tag(margin.rawValue) }
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("pageMargins")
                     Picker("Dictionary typeface", selection: $dictionarySans) {
                         Text("Book serif · 明朝").tag(false)
                         Text("Sans · ゴシック").tag(true)
@@ -1817,6 +1830,8 @@ struct SelectableJapanese: UIViewRepresentable {
     var translations: [String] = []
     /// Hide the iPhone Copy / Look Up menu for short selections (the card has those).
     var quietMenu = false
+    /// Left and right space inside the reading card.
+    var sideInset: CGFloat = 20
     /// Two-finger swipe up / down to change the text size.
     var resize: TextResize? = nil
     var saveOffset: ((CGPoint) -> Void)? = nil
@@ -1881,6 +1896,9 @@ struct SelectableJapanese: UIViewRepresentable {
         coordinator.saveOffset = saveOffset
         coordinator.quietMenu = quietMenu
         coordinator.sizeSwipe.resize = resize
+        if view.textContainerInset.left != sideInset {
+            view.textContainerInset = UIEdgeInsets(top: 24, left: sideInset, bottom: 40, right: sideInset)
+        }
         // Rebuilding the attributed text clears the selection, so only do it when
         // the passage, its translations or the theme's ink actually changed.
         let textChanged = coordinator.appliedText != text

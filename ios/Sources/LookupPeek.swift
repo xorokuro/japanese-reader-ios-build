@@ -21,6 +21,28 @@ enum SelectionLimit {
     }
 }
 
+/// How much blank space pages keep at their edges and before indented lines.
+enum PageMargins: String, CaseIterable, Identifiable {
+    case compact, normal, wide
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .compact: return "Compact"
+        case .normal: return "Normal"
+        case .wide: return "Wide"
+        }
+    }
+    /// Dictionary page edge padding (CSS px).
+    var pagePadding: Int { self == .compact ? 6 : self == .normal ? 12 : 16 }
+    /// Multiplier for the publishers' own indents.
+    var indentScale: Double { self == .compact ? 0.4 : self == .normal ? 0.7 : 1 }
+    /// Space between the screen edge and a card.
+    var cardInset: CGFloat { self == .compact ? 4 : self == .normal ? 8 : 10 }
+    /// Reading passage side inset inside its card.
+    var readerInset: CGFloat { self == .compact ? 12 : self == .normal ? 16 : 20 }
+    static func resolve(_ raw: String) -> PageMargins { PageMargins(rawValue: raw) ?? .compact }
+}
+
 /// What was selected and the characters around it (same line / paragraph only).
 struct SelectionContext: Equatable {
     var text = ""

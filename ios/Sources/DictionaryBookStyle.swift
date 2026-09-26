@@ -18,7 +18,7 @@ enum DictionaryBookStyle {
 html,body{overscroll-behavior:contain;overflow-anchor:none}
 html,body{background:var(--e-bg)!important;color:var(--e-fg)!important}
 body{
- margin:0!important;padding:16px 16px 48px!important;
+ margin:0!important;padding:var(--e-pad,16px) var(--e-pad,16px) 48px!important;
  font:400 var(--e-size)/1.78 var(--e-font)!important;
  overflow-wrap:anywhere;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
  font-kerning:normal;

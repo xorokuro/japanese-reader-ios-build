@@ -4,7 +4,11 @@ Source-only snapshot for a user-authorized public iOS build. No personal passage
 
 Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuses to run build jobs when this repository is private.
 
-Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.4, build 21).
+Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.5, build 22).
+
+## 2.5 — page margins
+
+- **Page margins: Compact / Normal / Wide** (Library → Appearance → Dictionary pages, or the ≡ menu on any definition). Compact (the new default) shrinks the empty space at the page edges and scales down the dictionaries' own indents, which used to grow with the text size and waste much of the width at large sizes. Changes apply instantly without reloading. The reading card uses the same setting.
 
 ## 2.4 — step word by word on the dictionary card
 
