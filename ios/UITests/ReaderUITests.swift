@@ -81,7 +81,7 @@ final class ReaderUITests: XCTestCase {
         app.buttons["Back"].tap()
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         XCTAssertFalse(app.keyboards.firstMatch.exists)
-        app.buttons["searchOptions"].tap()
+        app.buttons["searchOptions"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         app.buttons["Show search keyboard"].tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         field.typeText("missing")
@@ -98,7 +98,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         field.typeText("みほん")
         app.buttons["Search dictionaries"].tap()
-        app.buttons["searchOptions"].tap()
+        app.buttons["searchOptions"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         app.buttons["Search history"].tap()
         let query = app.buttons["みほん"].firstMatch
         XCTAssertTrue(query.waitForExistence(timeout: 5))
