@@ -1468,7 +1468,8 @@ struct ReaderHome: View {
         } else { selectedTab = 0 }
     }
     private func backSwipeEdge(fromLeft: Bool) -> some View {
-        Color.clear.frame(width: 24).contentShape(Rectangle())
+        // Narrow, so taps on text near the page edge still reach the page.
+        Color.clear.frame(width: 16).contentShape(Rectangle())
             .accessibilityIdentifier(fromLeft ? "backSwipeLeftEdge" : "backSwipeRightEdge")
             .gesture(DragGesture(minimumDistance: 25).onEnded { value in
                 let horizontal = value.translation.width

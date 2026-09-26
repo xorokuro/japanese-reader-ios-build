@@ -33,11 +33,12 @@ enum PageMargins: String, CaseIterable, Identifiable {
         }
     }
     /// Dictionary page edge padding (CSS px).
-    var pagePadding: Int { self == .compact ? 6 : self == .normal ? 12 : 16 }
+    /// Compact still keeps text clear of the 16 pt swipe-back strip at the edges.
+    var pagePadding: Int { self == .compact ? 12 : self == .normal ? 14 : 16 }
     /// Multiplier for the publishers' own indents.
     var indentScale: Double { self == .compact ? 0.4 : self == .normal ? 0.7 : 1 }
     /// Space between the screen edge and a card.
-    var cardInset: CGFloat { self == .compact ? 4 : self == .normal ? 8 : 10 }
+    var cardInset: CGFloat { self == .compact ? 4 : self == .normal ? 7 : 10 }
     /// Reading passage side inset inside its card.
     var readerInset: CGFloat { self == .compact ? 12 : self == .normal ? 16 : 20 }
     static func resolve(_ raw: String) -> PageMargins { PageMargins(rawValue: raw) ?? .compact }
