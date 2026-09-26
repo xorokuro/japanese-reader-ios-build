@@ -8,6 +8,19 @@ import Translation
 // place, so the range can still be dragged shorter or longer. The character strip
 // on the card selects any exact part of the phrase, one character at a time.
 
+/// The longest selection (in characters) that is looked up and handled by the
+/// dictionary card; longer selections keep the normal iPhone menu.
+/// Library → Dictionary search changes it.
+enum SelectionLimit {
+    static let key = "selectionLookupLimit"
+    static let range = 5...200
+    static let standard = 40
+    static var current: Int {
+        let stored = UserDefaults.standard.integer(forKey: key)
+        return stored == 0 ? standard : min(max(stored, range.lowerBound), range.upperBound)
+    }
+}
+
 /// What was selected and the characters around it (same line / paragraph only).
 struct SelectionContext: Equatable {
     var text = ""

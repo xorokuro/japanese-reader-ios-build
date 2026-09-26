@@ -107,7 +107,7 @@ struct DictionaryPage: UIViewRepresentable {
         document.addEventListener("selectionchange", () => {
             clearTimeout(pending);
             const text = window.getSelection()?.toString().trim() || "";
-            if (!text || Array.from(text).length > 40) { previous = ""; post(""); return; }
+            if (!text || Array.from(text).length > (window.__jpLimit || 40)) { previous = ""; post(""); return; }
             pending = setTimeout(() => {
                 const selection = window.getSelection();
                 const raw = selection ? selection.toString() : "";
@@ -195,6 +195,7 @@ struct DictionaryPage: UIViewRepresentable {
         if #available(iOS 18.0, *) { configuration.writingToolsBehavior = UIWritingToolsBehavior.none }
         configuration.setURLSchemeHandler(coordinator, forURLScheme: "jpread")
         configuration.userContentController.add(coordinator, contentWorld: selectionWorld, name: "readerSelection")
+        configuration.userContentController.addUserScript(WKUserScript(source: "window.__jpLimit = \(SelectionLimit.current);", injectionTime: .atDocumentStart, forMainFrameOnly: true, in: selectionWorld))
         configuration.userContentController.addUserScript(WKUserScript(source: selectionScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: selectionWorld))
         // Entry pages follow the chosen iOS theme through the book stylesheet's
         // --e-* variables: background, readable ink, accent, example colour, type.
@@ -270,7 +271,7 @@ struct DictionaryPage: UIViewRepresentable {
                 context.after = body["after"] as? String ?? ""
             } else { return }
             let word = context.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard word.count <= 40 else { return }
+            guard word.count <= SelectionLimit.current else { return }
             context.text = word
             SelectionBridge.shared.dictionaryContext = context
             lookup(word)

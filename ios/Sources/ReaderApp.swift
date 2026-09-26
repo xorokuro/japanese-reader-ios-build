@@ -586,6 +586,7 @@ struct ReaderHome: View {
     @AppStorage("handDrawnPaper") private var handDrawnPaper = true
     // Keep the iPhone's own Copy / Look Up bar away from the dictionary card.
     @AppStorage("quietSystemTextMenu") private var quietSystemTextMenu = true
+    @AppStorage(SelectionLimit.key) private var selectionLimit = SelectionLimit.standard
     // Line-by-line translation under the passage (Apple Translation, iOS 18+).
     @AppStorage("translationTarget") private var translationTarget = TranslationTarget.english.rawValue
     @State private var showTranslation = false
@@ -1439,6 +1440,15 @@ struct ReaderHome: View {
                     dictionariesSection
                     Section("Dictionary search") {
                         Toggle("Show selection results in a card", isOn: $model.selectionPeek).accessibilityIdentifier("librarySelectionPeek")
+                        Stepper(value: $selectionLimit, in: SelectionLimit.range, step: 5) {
+                            HStack {
+                                Text("Look up selections up to")
+                                Spacer()
+                                Text("\(selectionLimit) characters").foregroundStyle(style.secondary).monospacedDigit()
+                            }
+                        }
+                        .accessibilityIdentifier("selectionLookupLimit")
+                        Text("Selecting this many characters or fewer opens the dictionary card (and hides the iPhone bar below). Longer selections get the normal iPhone menu, e.g. to copy a paragraph. New dictionary pages use the new limit.").font(.caption).foregroundStyle(style.secondary)
                         Toggle("Hide the iPhone Copy / Look Up bar for short selections", isOn: $quietSystemTextMenu)
                             .disabled(!model.selectionPeek)
                             .accessibilityIdentifier("quietSystemTextMenu")
@@ -1814,7 +1824,9 @@ struct SelectableJapanese: UIViewRepresentable {
         /// Short selections go to the dictionary card, so the iPhone's own
         /// Copy / Look Up bar would only cover it. Long selections keep it.
         func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
-            guard quietMenu, range.length > 0, range.length <= 40 else { return nil }
+            guard quietMenu, range.length > 0,
+                  let text = textView.text, range.location + range.length <= (text as NSString).length,
+                  (text as NSString).substring(with: range).count <= SelectionLimit.current else { return nil }
             return UIMenu(children: [])
         }
         func scrollViewDidScroll(_ scrollView: UIScrollView) { saveOffset?(scrollView.contentOffset) }
@@ -1822,7 +1834,7 @@ struct SelectableJapanese: UIViewRepresentable {
         init(_ selected: @escaping (String) -> Void) { self.selected = selected }
         func textViewDidChangeSelection(_ textView: UITextView) {
             pending?.cancel()
-            guard let range = textView.selectedTextRange, let word = textView.text(in: range), !word.isEmpty, word.count <= 40 else {
+            guard let range = textView.selectedTextRange, let word = textView.text(in: range), !word.isEmpty, word.count <= SelectionLimit.current else {
                 // UIKit can clear selection inside updateUIView; publish after that update.
                 let action = DispatchWorkItem { [weak self] in self?.selected("") }
                 pending = action
