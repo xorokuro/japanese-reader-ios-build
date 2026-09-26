@@ -57,7 +57,7 @@ struct DictionaryPage: UIViewRepresentable {
         let rendered = audioLinks(clean)
         return """
         <!doctype html><html lang="ja"><head><meta charset="utf-8">
-        <meta name="viewport" content="width=device-width,initial-scale=1">
+        <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src jpread: data:; media-src jpread:; font-src jpread:; style-src 'unsafe-inline' jpread:; script-src 'none'; frame-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'">
         <style>\(safeCSS)</style><style>\(DictionaryBookStyle.css)</style><style>ddudm,ddudc,ddudt{display:block}img{max-width:100%;height:auto;border-radius:6px}audio{max-width:100%;margin:5px 0}</style></head><body>\(rendered)</body></html>
         """
@@ -225,6 +225,7 @@ struct DictionaryPage: UIViewRepresentable {
         context.coordinator.followLink = followLink
         (view as? ReaderWebView)?.quietMenu = quietMenu
         context.coordinator.sizeSwipe.resize = resize
+        context.coordinator.sizeSwipe.claimTwoFingers()
         // Size changes restyle the open page in place (no reload, scroll kept).
         if context.coordinator.textSize != textSize {
             context.coordinator.textSize = textSize
@@ -265,6 +266,7 @@ struct DictionaryPage: UIViewRepresentable {
         func scrollViewDidScroll(_ scrollView: UIScrollView) { if loaded { saveOffset?(scrollView.contentOffset) } }
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             webView.scrollView.setContentOffset(initialOffset, animated: false)
+            sizeSwipe.claimTwoFingers()
             loaded = true
         }
         let queue = DispatchQueue(label: "JapaneseReader.media")
