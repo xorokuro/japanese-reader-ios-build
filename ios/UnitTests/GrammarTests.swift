@@ -74,4 +74,23 @@ final class GrammarTests: XCTestCase {
         XCTAssertEqual(object?["done"] as? [String], ["N2|〜ぬく"])
         XCTAssertEqual(object?["app"] as? String, "JLPT文法總目錄N5-N1")
     }
+
+    func testBuiltInLessonsWithPlainFileNamesAreRestored() throws {
+        let original = try fixture()
+        let packed = FileManager.default.temporaryDirectory.appendingPathComponent("GrammarPacked-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: packed.appendingPathComponent("lessons"), withIntermediateDirectories: true)
+        var names: [String: String] = [:]
+        let files = ["JLPT文法總目錄N5-N1.html", "lessons/manifest.js", "lessons/N2_ぬく.html", "lessons/N2_きる.html", "lessons/N5_は.html"]
+        for (index, file) in files.enumerated() {
+            let plain = index == 0 ? "index.html" : "lessons/g\(index).dat"
+            try FileManager.default.copyItem(at: original.appendingPathComponent(file), to: packed.appendingPathComponent(plain))
+            names[plain] = file
+        }
+        try JSONEncoder().encode(names).write(to: packed.appendingPathComponent("names.json"))
+        let root = try XCTUnwrap(GrammarStore.unpackBuiltIn(packed))
+        let index = try GrammarIndexParser.parse(root: root)
+        XCTAssertEqual(index.entries.count, 5)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("lessons/N2_ぬく.html").path))
+        XCTAssertEqual(GrammarStore.unpackBuiltIn(packed), root, "Unpacked once per build")
+    }
 }

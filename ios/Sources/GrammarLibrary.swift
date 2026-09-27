@@ -194,8 +194,9 @@ enum GrammarIndexParser {
                     result = (try GrammarIndexParser.parse(root: imported), imported, .imported(date))
                 } catch { failure = error }
             }
-            if result == nil, let bundled, let index = try? GrammarIndexParser.parse(root: bundled) {
-                result = (index, bundled, .builtIn)
+            if result == nil, let bundled, let root = GrammarStore.unpackBuiltIn(bundled),
+               let index = try? GrammarIndexParser.parse(root: root) {
+                result = (index, root, .builtIn)
             }
             DispatchQueue.main.async {
                 self.loading = false
@@ -356,6 +357,41 @@ enum GrammarIndexParser {
         load()
     }
     var hasBuiltIn: Bool { bundled != nil }
+
+    /// Sideloading tools on Windows cannot install apps whose files have Japanese
+    /// names, so the built-in lessons ship under plain names with a `names.json`
+    /// map ({"lessons/g0001.html": "lessons/N1_あっての.html", …}). They are
+    /// restored to their real names once per build, in Caches.
+    nonisolated static func unpackBuiltIn(_ packed: URL) -> URL? {
+        let fm = FileManager.default
+        let map = packed.appendingPathComponent("names.json")
+        guard let data = try? Data(contentsOf: map) else { return packed }
+        guard let names = try? JSONDecoder().decode([String: String].self, from: data) else { return nil }
+        let build = (Bundle.main.infoDictionary?["CFBundleVersion"] as? String) ?? "0"
+        let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let target = caches.appendingPathComponent("GrammarBuiltIn-\(build)-\(data.count)", isDirectory: true)
+        let done = target.appendingPathComponent(".complete")
+        if fm.fileExists(atPath: done.path) { return target }
+        try? fm.removeItem(at: target)
+        do {
+            for (plain, original) in names {
+                guard !original.contains(".."), !plain.contains("..") else { continue }
+                let destination = target.appendingPathComponent(original)
+                try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try fm.copyItem(at: packed.appendingPathComponent(plain), to: destination)
+            }
+            try Data().write(to: done)
+            // Older unpacked copies are no longer needed.
+            for old in (try? fm.contentsOfDirectory(at: caches, includingPropertiesForKeys: nil)) ?? []
+            where old.lastPathComponent.hasPrefix("GrammarBuiltIn-") && old.lastPathComponent != target.lastPathComponent {
+                try? fm.removeItem(at: old)
+            }
+            return target
+        } catch {
+            try? fm.removeItem(at: target)
+            return nil
+        }
+    }
 
     nonisolated private static func coordinatedCopy(_ source: URL, to destination: URL) throws {
         var coordinationError: NSError?
