@@ -327,7 +327,6 @@ struct GrammarLessonPage: UIViewRepresentable {
                 context.after = body["after"] as? String ?? ""
             } else { return }
             let word = context.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard word.count <= SelectionLimit.current else { return }
             context.text = word
             SelectionBridge.shared.dictionaryContext = context
             lookup(word)

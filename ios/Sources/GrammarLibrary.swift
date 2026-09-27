@@ -35,6 +35,43 @@ struct GrammarEntry: Codable, Identifiable, Hashable {
     var isRevised: Bool { revision != nil }
 }
 
+/// One row of the 文法 list: a category heading or a pattern. The list is kept
+/// flat (no loop inside a loop) and every row has a unique id, so the lazy list
+/// never mixes rows up while scrolling.
+struct GrammarListItem: Identifiable, Equatable {
+    enum Kind: Equatable {
+        case header(title: String, count: Int, level: String)
+        case entry(GrammarEntry)
+    }
+    let id: String
+    let kind: Kind
+
+    /// Consecutive patterns of the same level and category share one heading.
+    static func build(_ entries: [GrammarEntry], grouped: Bool) -> [GrammarListItem] {
+        guard grouped else {
+            return entries.enumerated().map { index, entry in
+                GrammarListItem(id: "e\(index)|" + entry.id, kind: .entry(entry))
+            }
+        }
+        var items: [GrammarListItem] = []
+        var start = 0
+        var group = 0
+        while start < entries.count {
+            let first = entries[start]
+            var end = start + 1
+            while end < entries.count, entries[end].level == first.level, entries[end].category == first.category { end += 1 }
+            items.append(GrammarListItem(id: "h\(group)|\(first.level)|\(first.category)",
+                                         kind: .header(title: first.category, count: end - start, level: first.level)))
+            for index in start..<end {
+                items.append(GrammarListItem(id: "e\(index)|" + entries[index].id, kind: .entry(entries[index])))
+            }
+            group += 1
+            start = end
+        }
+        return items
+    }
+}
+
 struct GrammarIndex: Codable {
     let levels: [String]
     let meta: [String: String]

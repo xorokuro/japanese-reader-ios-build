@@ -233,47 +233,35 @@ struct GrammarTab: View {
     }
 
     private var entryList: some View {
-        ScrollView {
+        // One flat list of rows (headers and patterns), each with its own unique id.
+        // A lazy stack with a loop inside a loop (header + its patterns) mixed its
+        // rows up while scrolling and kept showing the first few patterns again.
+        let items = GrammarListItem.build(visibleEntries, grouped: !searching)
+        let showLevel = searching || level == "ALL"
+        return ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                if visibleEntries.isEmpty {
+                if items.isEmpty {
                     EmptyHint(symbol: searching ? "magnifyingglass" : "checkmark.seal",
                               title: searching ? "找不到符合的句型" : "All done here",
                               detail: searching ? "Try a shorter part of the pattern (ばかり, として) or a Chinese meaning (只要, 既然)." : "Every pattern at this level is marked 已讀. Turn off Hide 已讀 in the ⋯ menu to see them again.",
                               style: style)
                         .padding(.top, 30)
-                } else if searching {
-                    ForEach(visibleEntries) { entry in row(entry, showLevel: true) }
                 } else {
-                    ForEach(groups, id: \.key) { group in
-                        groupHeader(group.title, count: group.entries.count, level: group.level)
-                        ForEach(group.entries) { entry in row(entry, showLevel: level == "ALL") }
+                    ForEach(items) { item in
+                        switch item.kind {
+                        case .header(let title, let count, let itemLevel):
+                            groupHeader(title, count: count, level: itemLevel)
+                        case .entry(let entry):
+                            row(entry, showLevel: showLevel)
+                        }
                     }
                 }
             }
             .padding(.horizontal, margins.cardInset + 8)
             .padding(.bottom, 28)
         }
+        .id(searching ? "search" : level)
         .scrollDismissesKeyboard(.immediately)
-    }
-
-    private struct EntryGroup {
-        let key: String
-        let level: String
-        let title: String
-        let entries: [GrammarEntry]
-    }
-
-    private var groups: [EntryGroup] {
-        var result: [EntryGroup] = []
-        for entry in visibleEntries {
-            let key = entry.level + "|" + entry.category
-            if let last = result.last, last.key.hasPrefix(key + "#") {
-                result[result.count - 1] = EntryGroup(key: key, level: last.level, title: last.title, entries: last.entries + [entry])
-            } else {
-                result.append(EntryGroup(key: key + "#\(result.count)", level: entry.level, title: entry.category, entries: [entry]))
-            }
-        }
-        return result
     }
 
     private func groupHeader(_ title: String, count: Int, level: String) -> some View {
@@ -404,6 +392,7 @@ struct GrammarLessonScreen: View {
     @AppStorage("grammarTextSize") private var textSize = 17.0
     @State private var html = ""
     @State private var failed = false
+    @State private var copiedPattern = false
     @AppStorage("handDrawnPaper") private var handDrawnPaper = true
 
     private var entry: GrammarEntry? { grammar.entry(id: entryID) }
@@ -418,10 +407,7 @@ struct GrammarLessonScreen: View {
                                    refine: { model.refinePeek($0) },
                                    open: { hit in model.openPeekHit(hit) },
                                    showAll: { model.showPeekResults() },
-                                   copy: {
-                                       UIPasteboard.general.string = peek.text
-                                       grammar.status = "Copied 「\(peek.text)」."
-                                   },
+                                   copy: { UIPasteboard.general.string = peek.text },
                                    close: { model.closePeek() })
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
@@ -429,6 +415,14 @@ struct GrammarLessonScreen: View {
             .animation(.spring(response: 0.34, dampingFraction: 0.86), value: peekVisible)
             if !peekVisible { bottomBar }
         }
+        .overlay(alignment: .top) {
+            if copiedPattern {
+                CopiedNote(style: style, text: "已複製「\(entry?.pattern ?? "")」")
+                    .padding(.top, 6)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.snappy(duration: 0.22), value: copiedPattern)
         .background(PaperBackground(style: style, texture: handDrawnPaper).equatable())
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -541,7 +535,12 @@ struct GrammarLessonScreen: View {
                 }
                 Section {
                     Text(entry.meaning)
-                    Button { UIPasteboard.general.string = entry.pattern } label: { Label("Copy pattern", systemImage: "doc.on.doc") }
+                    Button {
+                        UIPasteboard.general.string = entry.pattern
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        copiedPattern = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { copiedPattern = false }
+                    } label: { Label("Copy pattern", systemImage: "doc.on.doc") }
                     Button {
                         path = []
                     } label: { Label("Back to the list", systemImage: "list.bullet") }

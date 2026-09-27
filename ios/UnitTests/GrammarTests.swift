@@ -24,6 +24,30 @@ final class GrammarTests: XCTestCase {
         XCTAssertNil(index.entries.first { $0.pattern == "〜が（主語）" }?.file)
     }
 
+    func testListRowsAreFlatUniqueAndInOrder() {
+        func entry(_ number: Int, _ category: String, _ pattern: String) -> GrammarEntry {
+            GrammarEntry(level: "N1", category: category, pattern: pattern, meaning: "", number: number,
+                         refs: [], file: nil, revision: nil)
+        }
+        let entries = [entry(1, "時間", "〜が早いか"), entry(2, "時間", "〜や"), entry(3, "限定", "〜をもって"),
+                       entry(4, "時間", "〜そばから"), entry(5, "時間", "〜や")]
+        let items = GrammarListItem.build(entries, grouped: true)
+        XCTAssertEqual(Set(items.map(\.id)).count, items.count, "every row needs its own id")
+        let headers = items.compactMap { item -> String? in
+            if case .header(let title, let count, _) = item.kind { return "\(title)\(count)" }
+            return nil
+        }
+        XCTAssertEqual(headers, ["時間2", "限定1", "時間2"])
+        let numbers = items.compactMap { item -> Int? in
+            if case .entry(let entry) = item.kind { return entry.number }
+            return nil
+        }
+        XCTAssertEqual(numbers, [1, 2, 3, 4, 5])
+        let flat = GrammarListItem.build(entries, grouped: false)
+        XCTAssertEqual(flat.count, 5)
+        XCTAssertEqual(Set(flat.map(\.id)).count, 5)
+    }
+
     func testMissingIndexPageIsReported() throws {
         let empty = FileManager.default.temporaryDirectory.appendingPathComponent("GrammarEmpty-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)

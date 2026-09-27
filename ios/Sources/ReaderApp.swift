@@ -226,8 +226,16 @@ struct LookupSnapshot {
         let enabled = dictionaries.filter { !disabledDictionaries.contains($0.id) }
         var next = PeekState(text: text, before: context.before, after: context.after,
                              location: context.location, inDictionary: inDictionary)
+        // A sentence or paragraph is not looked up: the card shows the whole
+        // selection with Copy, Translate and Share instead.
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).count > SelectionLimit.current {
+            next.long = true
+            next.busy = false
+            peek = next
+            return
+        }
         // Keep the previous results on screen while a refined lookup runs.
-        if let current = peek, current.inDictionary == inDictionary {
+        if let current = peek, current.inDictionary == inDictionary, !current.long {
             next.hits = current.hits; next.matched = current.matched
         }
         peek = next
@@ -1578,8 +1586,8 @@ struct ReaderHome: View {
                             }
                         }
                         .accessibilityIdentifier("selectionLookupLimit")
-                        Text("Selecting this many characters or fewer opens the dictionary card (and hides the iPhone bar below). Longer selections get the normal iPhone menu, e.g. to copy a paragraph. New dictionary pages use the new limit.").font(.caption).foregroundStyle(style.secondary)
-                        Toggle("Hide the iPhone Copy / Look Up bar for short selections", isOn: $quietSystemTextMenu)
+                        Text("Selections up to this length are looked up in the dictionary card. Longer selections (a sentence or a paragraph) open the same card with the whole text and Copy, Translate and Share.").font(.caption).foregroundStyle(style.secondary)
+                        Toggle("Hide the iPhone Copy / Look Up bar", isOn: $quietSystemTextMenu)
                             .disabled(!model.selectionPeek)
                             .accessibilityIdentifier("quietSystemTextMenu")
                         Text("On: selecting text opens a dictionary card on the same page. Drag the selection handles, or drag across the characters on the card, to look up just part of a phrase. Off: selecting jumps straight to the results page.").font(.caption).foregroundStyle(style.secondary)
@@ -1966,12 +1974,10 @@ struct SelectableJapanese: UIViewRepresentable {
         var appliedTranslations = ""
         var quietMenu = false
         let sizeSwipe = TextSizeSwipe()
-        /// Short selections go to the dictionary card, so the iPhone's own
-        /// Copy / Look Up bar would only cover it. Long selections keep it.
+        /// Every selection goes to the card (short ones are looked up, long ones get
+        /// Copy / Translate / Share), so the iPhone's own bar would only cover it.
         func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
-            guard quietMenu, range.length > 0,
-                  let text = textView.text, range.location + range.length <= (text as NSString).length,
-                  (text as NSString).substring(with: range).count <= SelectionLimit.current else { return nil }
+            guard quietMenu, range.length > 0 else { return nil }
             return UIMenu(children: [])
         }
         func scrollViewDidScroll(_ scrollView: UIScrollView) { saveOffset?(scrollView.contentOffset) }
@@ -1979,7 +1985,7 @@ struct SelectableJapanese: UIViewRepresentable {
         init(_ selected: @escaping (String) -> Void) { self.selected = selected }
         func textViewDidChangeSelection(_ textView: UITextView) {
             pending?.cancel()
-            guard let range = textView.selectedTextRange, let word = textView.text(in: range), !word.isEmpty, word.count <= SelectionLimit.current else {
+            guard let range = textView.selectedTextRange, let word = textView.text(in: range), !word.isEmpty else {
                 // UIKit can clear selection inside updateUIView; publish after that update.
                 let action = DispatchWorkItem { [weak self] in self?.selected("") }
                 pending = action

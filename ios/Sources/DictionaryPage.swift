@@ -110,7 +110,8 @@ struct DictionaryPage: UIViewRepresentable {
         document.addEventListener("selectionchange", () => {
             clearTimeout(pending);
             const text = window.getSelection()?.toString().trim() || "";
-            if (!text || Array.from(text).length > (window.__jpLimit || 40)) { previous = ""; post(""); return; }
+            // Long selections are posted too: the card shows them with Copy / Translate.
+            if (!text) { previous = ""; post(""); return; }
             pending = setTimeout(() => {
                 const selection = window.getSelection();
                 const raw = selection ? selection.toString() : "";
@@ -306,7 +307,6 @@ struct DictionaryPage: UIViewRepresentable {
                 context.after = body["after"] as? String ?? ""
             } else { return }
             let word = context.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard word.count <= SelectionLimit.current else { return }
             context.text = word
             SelectionBridge.shared.dictionaryContext = context
             lookup(word)
