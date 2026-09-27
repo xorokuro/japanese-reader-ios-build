@@ -6,6 +6,12 @@ Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuse
 
 Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.6, build 23).
 
+## 2.6.1 — grammar list, long selections, Copy feedback
+
+- **文法 list scrolls properly**: it no longer repeats the first two or three patterns while scrolling; every pattern of the level appears in order.
+- **Long selections open the card too**: select a sentence or a whole paragraph (longer than the lookup limit) in a lesson, a dictionary page or the Read tab, and the card shows the full selection with **Copy**, **Translate** and **Share** (no dictionary lookup for long text).
+- **Copy shows that it worked**: the Copy button turns grey and reads *Copied* until you select something else, and a small 已複製 note appears. *Copy pattern* in a lesson's ↔ menu shows the note too.
+
 ## 2.6 — 文法 (Grammar) tab
 
 - New **Grammar** tab with the JLPT grammar collection (N5–N1): level chips, categories, search by pattern or Chinese meaning, 已讀 check marks with progress, and 修正版 marks taken from the desktop index.
