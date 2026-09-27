@@ -318,9 +318,7 @@ struct GrammarTab: View {
                                 .foregroundStyle(style.faint)
                             if entry.isRevised {
                                 tag("修正版", filled: false)
-                            } else if entry.hasLesson {
-                                tag("校對中", filled: false, faint: true)
-                            } else {
+                            } else if !entry.hasLesson {
                                 tag("講義なし", filled: false, faint: true)
                             }
                         }
@@ -441,7 +439,7 @@ struct GrammarLessonScreen: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                     if let entry {
-                        Text(entry.code + (entry.isRevised ? " · 修正版" : entry.hasLesson ? " · 校對中" : ""))
+                        Text(entry.code + (entry.isRevised ? " · 修正版" : ""))
                             .font(.system(size: 10.5, weight: .semibold))
                             .foregroundStyle(style.secondary)
                     }
