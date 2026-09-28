@@ -119,5 +119,15 @@ do { _ = try reopened.entry(hits[0]); fatalError("Checksum damage accepted") } c
 print("PASS: real Swift dictionary engine: Japanese, split blocks, exact/prefix/full-text search, aliases, circular links, traversal, corruption, caching, de-inflection")
 ''', encoding='utf-8')
     deinflector = source.parent / 'Deinflector.swift'
-    subprocess.run(['swiftc', str(source), str(deinflector), str(root / 'main.swift'), '-o', str(root / 'test')], check=True)
-    subprocess.run([str(root / 'test'), str(root)], check=True)
+    def run(command, title):
+        result = subprocess.run(command, capture_output=True, text=True)
+        print(result.stdout, end='')
+        print(result.stderr, end='')
+        if result.returncode != 0:
+            # Surface the failure as annotations so it is readable without the log.
+            lines = [line for line in (result.stderr + result.stdout).splitlines() if 'error' in line.lower() or 'assert' in line.lower() or 'fatal' in line.lower()]
+            for line in (lines or (result.stderr + result.stdout).splitlines()[-10:])[:20]:
+                print(f'::error title={title}::{line[:900]}')
+            raise SystemExit(1)
+    run(['swiftc', str(source), str(deinflector), str(root / 'main.swift'), '-o', str(root / 'test')], 'Engine test compile error')
+    run([str(root / 'test'), str(root)], 'Engine test failed')

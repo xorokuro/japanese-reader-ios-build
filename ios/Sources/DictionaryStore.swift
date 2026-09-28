@@ -328,14 +328,19 @@ struct VisibleTextScanner<Unit: FixedWidthInteger & UnsignedInteger> {
     private var tagNameDone = false
     private var hidden: [Unit]? = nil
 
-    init(needle: [Unit]) { self.needle = needle }
+    /// Elements whose text is not shown: furigana and code.
+    private let hiddenNames: [[Unit]]
+
+    init(needle: [Unit]) {
+        self.needle = needle
+        hiddenNames = ["rt", "rp", "script", "style"].map(Self.name)
+    }
 
     private static func unit(_ ascii: Character) -> Unit { Unit(ascii.asciiValue!) }
     private static func lower(_ value: Unit) -> Unit {
         value >= unit("A") && value <= unit("Z") ? value + 32 : value
     }
     private static func name(_ string: String) -> [Unit] { string.unicodeScalars.map { Unit($0.value) } }
-    private static let hiddenNames: [[Unit]] = ["rt", "rp", "script", "style"].map(name)
 
     /// Adds one decoded block; `base` is the block's byte offset, `width` the unit size.
     mutating func append(_ units: UnsafeBufferPointer<Unit>, base: Int64, width: Int64) {
@@ -350,7 +355,7 @@ struct VisibleTextScanner<Unit: FixedWidthInteger & UnsignedInteger> {
                     let bare = Array(closing ? tagName.dropFirst() : tagName[...])
                     if let current = hidden {
                         if closing && bare == current { hidden = nil }
-                    } else if !closing, Self.hiddenNames.contains(bare) {
+                    } else if !closing, hiddenNames.contains(bare) {
                         hidden = bare
                     }
                 } else if !tagNameDone {
