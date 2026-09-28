@@ -37,6 +37,28 @@ final class ReaderUITests: XCTestCase {
         let emptiedAgain = expectation(for: NSPredicate(format: "value == '' OR value == nil OR placeholderValue == value"), evaluatedWith: field)
         XCTAssertEqual(XCTWaiter.wait(for: [emptiedAgain], timeout: 5), .completed, "The Nothing-found page can be pulled to clear too")
     }
+    /// 全文: text that only appears inside a definition finds its entry, with the
+    /// match shown in the preview, and opening it keeps working.
+    func testFullTextSearchFindsTextInsideDefinitions() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard"]
+        app.launch()
+        app.tabBars.buttons["Search"].tap()
+        let field = app.textFields["dictionarySearchField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        let match = app.buttons["Match"]
+        XCTAssertTrue(match.waitForExistence(timeout: 5))
+        match.tap()
+        let fullText = app.buttons["Full text · 全文 (definitions & examples)"]
+        XCTAssertTrue(fullText.waitForExistence(timeout: 5))
+        fullText.tap()
+        field.tap(); field.typeText("trade fair")
+        let row = app.buttons["dictionaryResult_みほんいち"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 15), "The entry whose definition says 'trade fair' is found")
+        XCTAssertFalse(app.buttons["dictionaryResult_みほん"].exists, "Only entries that contain the text")
+        row.tap()
+        XCTAssertTrue(app.webViews["dictionaryEntryPage"].waitForExistence(timeout: 10))
+    }
     func testDictionaryResultGroupsCollapseIndependently() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard"]

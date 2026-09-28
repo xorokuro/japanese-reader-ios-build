@@ -149,6 +149,7 @@ body span.mean_yorei *{color:inherit!important}
 }
 body con_table>accent,body accent_text{white-space:nowrap}body con_table>accent{display:flex;justify-content:space-between;width:100%}
 body,body *{-webkit-user-select:text;user-select:text}
+body mark.jp-hit{background:color-mix(in srgb,var(--e-strong) 24%,transparent)!important;color:inherit!important;border-radius:3px;padding:0 1px;box-shadow:0 0 0 1px color-mix(in srgb,var(--e-strong) 35%,transparent)!important}
 :root[data-font="sans"]{--e-font:var(--e-sans)}
 """#
 

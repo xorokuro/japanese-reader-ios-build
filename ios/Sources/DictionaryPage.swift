@@ -78,6 +78,8 @@ struct DictionaryPage: UIViewRepresentable {
     var followLink: ((String) -> Void)? = nil
     /// Double-tap: -1 on the left half of the page, +1 on the right half.
     var doubleTapStep: ((Int) -> Void)? = nil
+    /// Text to mark and scroll to once the page loads (a full-text result).
+    var highlight: String = ""
     let lookup: (String) -> Void
     static func audioLinks(_ source: String) -> String {
         guard let pattern = try? NSRegularExpression(pattern: "(?is)<a\\b[^>]*href=[\"']sound://([^\"']+)[\"'][^>]*>.*?</a>") else { return source }
@@ -247,6 +249,45 @@ struct DictionaryPage: UIViewRepresentable {
             return true;
         };
         if (typeof window.__jpIndentScale === "number") setTimeout(() => window.__jpIndent(window.__jpIndentScale), 0);
+        // Marks each occurrence of a full-text search in the visible text (furigana
+        // skipped, matches may cross <b> and other inline tags) and scrolls to the first.
+        window.__jpMark = (needle, scroll) => {
+            if (!needle) return 0;
+            const nodes = [], starts = [];
+            let text = "";
+            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+                acceptNode: (node) => node.parentElement && node.parentElement.closest("rt,rp,style,script") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT
+            });
+            let node;
+            while ((node = walker.nextNode())) { starts.push(text.length); nodes.push(node); text += node.data; }
+            const found = [];
+            let from = 0;
+            while (found.length < 60) {
+                const at = text.indexOf(needle, from);
+                if (at < 0) break;
+                found.push(at);
+                from = at + needle.length;
+            }
+            // Wrap from the end so earlier offsets stay valid.
+            for (let k = found.length - 1; k >= 0; k--) {
+                const s = found[k], e = s + needle.length;
+                for (let i = nodes.length - 1; i >= 0; i--) {
+                    const ns = starts[i], ne = ns + nodes[i].data.length;
+                    if (ne <= s || ns >= e) continue;
+                    try {
+                        const range = document.createRange();
+                        range.setStart(nodes[i], Math.max(s, ns) - ns);
+                        range.setEnd(nodes[i], Math.min(e, ne) - ns);
+                        const mark = document.createElement("mark");
+                        mark.className = "jp-hit";
+                        range.surroundContents(mark);
+                    } catch (error) {}
+                }
+            }
+            const first = document.querySelector("mark.jp-hit");
+            if (first && scroll) first.scrollIntoView({ block: "center" });
+            return found.length;
+        };
         window.__jpRefine = (startDelta, endDelta) => {
             const base = window.__jpLast;
             if (!base) return false;
@@ -276,6 +317,7 @@ struct DictionaryPage: UIViewRepresentable {
         coordinator.sansFont = sansFont
         coordinator.initialOffset = initialOffset
         coordinator.saveOffset = saveOffset
+        coordinator.highlight = highlight
         return coordinator
     }
     /// One private, in-memory data store for every entry page, so WebKit can reuse
@@ -382,10 +424,17 @@ struct DictionaryPage: UIViewRepresentable {
         var saveOffset: ((CGPoint) -> Void)?
         private var loaded = false
         func scrollViewDidScroll(_ scrollView: UIScrollView) { if loaded { saveOffset?(scrollView.contentOffset) } }
+        var highlight = ""
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             webView.scrollView.setContentOffset(initialOffset, animated: false)
             sizeSwipe.claimTwoFingers()
             loaded = true
+            // A full-text result: mark every occurrence; jump to the first one only
+            // on a fresh visit (going back keeps the old scroll position).
+            if !highlight.isEmpty, let data = try? JSONEncoder().encode(highlight), let text = String(data: data, encoding: .utf8) {
+                let scroll = initialOffset == .zero ? "true" : "false"
+                DictionaryPage.evaluateSelectionScript("window.__jpMark ? window.__jpMark(\(text), \(scroll)) : 0", in: webView) { _, _ in }
+            }
         }
         let queue = DispatchQueue(label: "JapaneseReader.media")
         var cancelled = Set<ObjectIdentifier>()

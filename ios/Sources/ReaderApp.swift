@@ -27,6 +27,14 @@ struct EntryVisit {
     var alternatives: [DictionaryHit]
 }
 
+/// Cancels a background scan from the main thread.
+final class CancelFlag {
+    private let lock = NSLock()
+    private var cancelled = false
+    var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
+    func cancel() { lock.lock(); cancelled = true; lock.unlock() }
+}
+
 struct LookupSnapshot {
     let visit: EntryVisit?
     let visits: [EntryVisit]
@@ -103,7 +111,8 @@ struct LookupSnapshot {
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let pending = DispatchWorkItem { [weak self] in self?.search(dismissKeyboard: false) }
         liveSearch = pending
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: pending)
+        // Full text reads every dictionary: wait until typing pauses.
+        DispatchQueue.main.asyncAfter(deadline: .now() + (searchMode == .fullText ? 0.6 : 0.18), execute: pending)
     }
     func followEntryLink(_ query: String) {
         word = query
@@ -113,6 +122,7 @@ struct LookupSnapshot {
         entryHTML = visit.html; entryRoot = visit.hit.root; entryCode = visit.hit.code
         entryTitle = visit.hit.word; entryDictionary = visit.hit.dictionary; entryHitIdentity = visit.hit.identity
         entryID = visit.id; entryMatches = visit.alternatives
+        entryHighlight = visit.hit.match
         word = visit.query; hits = visit.matches; dictionarySelection = ""
         closePeek()
         showingEntry = true; showingLookup = true; status = ""
@@ -328,9 +338,21 @@ struct LookupSnapshot {
         showingLookup = false
         showingEntry = false
     }
-    private var searchGeneration = 0
+    private var searchGeneration = 0 {
+        didSet { fullTextCancel?.cancel(); if !fullTextProgress.isEmpty { fullTextProgress = "" } }
+    }
     private var libraryWritable = true
     let queue = DispatchQueue(label: "JapaneseReader.dictionary", qos: .userInitiated)
+    /// Full-text scans read whole dictionaries; they get their own queue so card
+    /// lookups and opening entries never wait behind them.
+    private let fullTextQueue = DispatchQueue(label: "JapaneseReader.fullText", qos: .userInitiated)
+    private var fullTextCancel: CancelFlag?
+    /// "Searching 大辞泉… 3/11" while a full-text search runs.
+    @Published private(set) var fullTextProgress = ""
+    /// The searched text to mark on the open entry (full-text results only).
+    @Published private(set) var entryHighlight = ""
+    static let fullTextLimit = 300
+    static let fullTextPerDictionary = 80
     let documents: URL
     private let preferences: UserDefaults
     var dictionaryRoot: URL { documents.appendingPathComponent("dictionaries", isDirectory: true) }
@@ -401,6 +423,10 @@ struct LookupSnapshot {
         let selected = dictionaries.filter { !disabledDictionaries.contains($0.id) && (navigate || searchScope.isEmpty || $0.id == searchScope) }
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { hits = []; lookupBusy = false; status = ""; return }
         if dismissKeyboard || navigate { recordSearch(query) }
+        if mode == .fullText {
+            fullTextSearch(query, in: selected, generation: generation)
+            return
+        }
         lookupBusy = true
         queue.async {
             let result = Result { () -> [DictionaryHit] in
@@ -421,6 +447,53 @@ struct LookupSnapshot {
                         self.showingEntry = false; self.showingLookup = true; self.lookupNavigation = UUID()
                     }
                 case .failure(let error): self.hits = []; self.status = error.localizedDescription
+                }
+            }
+        }
+    }
+    /// 全文: every entry whose definition or example sentences contain the text.
+    /// Results appear dictionary by dictionary while the scan continues.
+    private func fullTextSearch(_ query: String, in selected: [InstalledDictionary], generation: Int) {
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !selected.isEmpty else {
+            hits = []; lookupBusy = false; status = "Enable a dictionary in Library first, or add the dictionaries folder."
+            return
+        }
+        let flag = CancelFlag()
+        fullTextCancel = flag
+        hits = []; status = ""; lookupBusy = true
+        fullTextProgress = "Searching \(selected[0].name)… 1/\(selected.count)"
+        let overall = Self.fullTextLimit, perDictionary = Self.fullTextPerDictionary
+        fullTextQueue.async {
+            var stores: [String: DictionaryStore] = [:]
+            var total = 0
+            for (index, dictionary) in selected.enumerated() {
+                if flag.isCancelled || total >= overall { break }
+                if index > 0 {
+                    let label = "Searching \(dictionary.name)… \(index + 1)/\(selected.count)"
+                    DispatchQueue.main.async { if generation == self.searchGeneration { self.fullTextProgress = label } }
+                }
+                // A private store: the scan must not hold the shared one's lock.
+                let key = dictionary.root.standardizedFileURL.path
+                guard let store = stores[key] ?? (try? DictionaryStore(root: dictionary.root)) else { continue }
+                stores[key] = store
+                let limit = min(perDictionary, overall - total)
+                let found = (try? store.searchText(text, code: dictionary.code, dictionary: dictionary.name,
+                                                   limit: limit, cancelled: { flag.isCancelled })) ?? []
+                total += found.count
+                if !found.isEmpty {
+                    DispatchQueue.main.async { if generation == self.searchGeneration { self.hits += found } }
+                }
+            }
+            let capped = total >= overall
+            DispatchQueue.main.async {
+                guard generation == self.searchGeneration else { return }
+                self.lookupBusy = false
+                self.fullTextProgress = ""
+                if self.hits.isEmpty {
+                    self.status = "No definition or example sentence contains “\(text)”."
+                } else if capped {
+                    self.status = "Showing the first \(overall) entries. Add more characters to narrow it down."
                 }
             }
         }
@@ -1203,6 +1276,25 @@ struct ReaderHome: View {
         }
     }
 
+    /// Progress (and the final note) of a full-text search, above the tab bar.
+    @ViewBuilder private var fullTextStatus: some View {
+        let text = !model.fullTextProgress.isEmpty ? model.fullTextProgress
+            : (model.searchMode == .fullText && !model.word.isEmpty ? model.status : "")
+        if !text.isEmpty && !model.showingEntry {
+            HStack(spacing: 8) {
+                if !model.fullTextProgress.isEmpty { ProgressView().controlSize(.small) }
+                Text(text).font(.system(size: 12.5, weight: .medium)).foregroundStyle(style.secondary)
+                    .lineLimit(2).multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .background(style.surface, in: Capsule())
+            .overlay(Capsule().stroke(style.separator, lineWidth: 1))
+            .padding(.horizontal, 16).padding(.bottom, 12)
+            .allowsHitTesting(false)
+            .accessibilityIdentifier("fullTextStatus")
+        }
+    }
+
     /// Pull the results (or the empty page) down and let go: with text in the box
     /// it is cleared; with an empty box the keyboard comes up. Like pull to
     /// refresh, so a typo needs no tap on the small ✕.
@@ -1317,7 +1409,8 @@ struct ReaderHome: View {
                            margins: pageMargins,
                            saveOffset: { model.entryOffsets[visitID] = $0 },
                            followLink: { model.followEntryLink($0) },
-                           doubleTapStep: { doubleTapStep($0) }) { word in
+                           doubleTapStep: { doubleTapStep($0) },
+                           highlight: model.entryHighlight) { word in
                 guard selectedTab == 1, model.showingEntry else { return }
                 model.select(word, inDictionary: true)
             }
@@ -1371,10 +1464,15 @@ struct ReaderHome: View {
                     VStack(spacing: 0) {
                         Color.clear.frame(height: headerHeight)
                         EmptyHint(symbol: model.word.isEmpty ? "character.book.closed" : "magnifyingglass",
-                                  title: model.word.isEmpty ? "Look up any Japanese word" : "Nothing found yet",
+                                  title: model.word.isEmpty ? "Look up any Japanese word"
+                                    : (model.fullTextProgress.isEmpty ? "Nothing found yet" : "Searching…"),
                                   detail: model.word.isEmpty
-                                    ? "Type above, or highlight a word while reading. Enabled dictionaries are searched in your chosen order."
-                                    : "Exact matches appear first, then words that start with your text. Try the dictionary form.",
+                                    ? (model.searchMode == .fullText
+                                       ? "Full text: type a word or phrase to find it anywhere in the definitions and example sentences of every enabled dictionary."
+                                       : "Type above, or highlight a word while reading. Enabled dictionaries are searched in your chosen order.")
+                                    : (model.searchMode == .fullText
+                                       ? "Full text searches every definition and example sentence; results appear dictionary by dictionary."
+                                       : "Exact matches appear first, then words that start with your text. Try the dictionary form."),
                                   style: style)
                             .padding(.top, 36)
                         Spacer(minLength: 0)
@@ -1402,6 +1500,7 @@ struct ReaderHome: View {
             }
         }
         .clipped()
+        .overlay(alignment: .bottom) { fullTextStatus }
         .onPreferenceChange(SearchHeaderHeightKey.self) { height in
             if height > 0 && abs(height - headerHeight) > 0.5 { headerHeight = height }
         }
@@ -1538,17 +1637,33 @@ struct ReaderHome: View {
         .accessibilityIdentifier("showSearchHeader")
     }
 
+    private var matchModeSymbol: String {
+        switch model.searchMode {
+        case .prefix: return "text.line.first.and.arrowtriangle.forward"
+        case .exact: return "equal"
+        case .fullText: return "text.magnifyingglass"
+        }
+    }
+    private var matchModeTitle: String {
+        switch model.searchMode {
+        case .prefix: return "Starts with"
+        case .exact: return "Exact word"
+        case .fullText: return "Full text"
+        }
+    }
+
     private var matchModeChip: some View {
         Menu {
             Picker("Match", selection: $model.searchMode) {
-                Text("Starts with").tag(DictionarySearchMode.prefix)
-                Text("Exact word").tag(DictionarySearchMode.exact)
+                Label("Starts with", systemImage: "text.line.first.and.arrowtriangle.forward").tag(DictionarySearchMode.prefix)
+                Label("Exact word", systemImage: "equal").tag(DictionarySearchMode.exact)
+                Label("Full text · 全文 (definitions & examples)", systemImage: "text.magnifyingglass").tag(DictionarySearchMode.fullText)
             }
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: model.searchMode == .prefix ? "text.line.first.and.arrowtriangle.forward" : "equal")
+                Image(systemName: matchModeSymbol)
                     .font(.system(size: 11, weight: .bold))
-                Text(model.searchMode == .prefix ? "Starts with" : "Exact word")
+                Text(matchModeTitle)
                     .font(.system(size: 13, weight: .semibold))
                 Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .bold))
             }
@@ -1657,12 +1772,26 @@ struct ReaderHome: View {
         .accessibilityHint(collapsed ? "Expand dictionary results" : "Collapse dictionary results")
     }
 
+    /// The full-text match in bold accent colour inside its preview line.
+    private func highlighted(_ text: String, _ match: String) -> AttributedString {
+        var value = AttributedString(text)
+        guard !match.isEmpty else { return value }
+        var cursor = value.startIndex
+        while cursor < value.endIndex, let range = value[cursor...].range(of: match) {
+            value[range].foregroundColor = accent
+            value[range].inlinePresentationIntent = .stronglyEmphasized
+            cursor = range.upperBound
+        }
+        return value
+    }
+
     private func resultRow(_ hit: DictionaryHit, switching: Bool) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(hit.word).font(HandFont.title(20)).foregroundStyle(ink)
                 if !hit.preview.isEmpty {
-                    Text(hit.preview).font(.subheadline).foregroundStyle(style.secondary).lineLimit(2)
+                    Text(highlighted(hit.preview, hit.match)).font(.subheadline).foregroundStyle(style.secondary)
+                        .lineLimit(hit.match.isEmpty ? 2 : 3)
                 }
             }
             Spacer(minLength: 0)

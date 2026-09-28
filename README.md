@@ -6,6 +6,13 @@ Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuse
 
 Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.6, build 23).
 
+## 2.7 — Full-text search (全文)
+
+- **New match mode "Full text · 全文"** (Search → the *Starts with* chip): finds your text anywhere in the definitions and **example sentences** of every enabled dictionary, not just in headwords. Matches may cross bold words and ignore furigana, so 「間際に」 finds 「大引け**間際**に急落した」.
+- Results appear dictionary by dictionary while the rest are still being searched (a small "Searching 大辞泉… 3/11" note shows progress). Each row shows the sentence around the match with the match in bold.
+- Opening a result marks every occurrence on the page and scrolls to the first one.
+- The first 300 entries (80 per dictionary) are listed; add more characters to narrow it down. Full text waits until you pause typing, and a new search stops the old one at once.
+
 ## 2.6.3 — double-tap to switch dictionaries, pull to clear search
 
 - **Double-tap a definition** on its right half to go to the same word in the next dictionary, or on its left half for the previous one (same as the ‹ › arrows). A chevron flashes on that side; at the first / last dictionary the phone just buzzes.
