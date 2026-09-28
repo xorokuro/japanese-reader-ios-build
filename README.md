@@ -9,7 +9,7 @@ Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with
 ## 2.6.3 — double-tap to switch dictionaries, pull to clear search
 
 - **Double-tap a definition** on its right half to go to the same word in the next dictionary, or on its left half for the previous one (same as the ‹ › arrows). A chevron flashes on that side; at the first / last dictionary the phone just buzzes.
-- **Pull down to clear the search box**: on the Search tab, pull the results (or the "Nothing found" page) down past the top and the search text is cleared, with the keyboard ready for a new word. No need to hit the small ✕.
+- **Pull down and release to clear the search box** (build 28): on the Search tab, pull the results (or the "Nothing found" page) down; *↑ Release to clear* appears, and letting go clears the text with the keyboard ready for a new word. With the box already empty, pull and release brings up the keyboard. No need to hit the small ✕.
 - The top-bar ‹ › arrows no longer overlap the ☰ menu.
 
 ## 2.6.2 — per-dictionary text size, ‹ › dictionary arrows, selection card, Takoboto layout

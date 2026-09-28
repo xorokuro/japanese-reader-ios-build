@@ -672,7 +672,6 @@ struct ReaderHome: View {
     @State private var entryStepFlash: Int?
     /// How far the results are pulled down past the top (pull to clear).
     @State private var searchPull: CGFloat = 0
-    @State private var searchPullCleared = false
     @State private var headerHeight: CGFloat = 104
     @State private var scrollTracker = ScrollTracker()
     private var readerTypeface: ReaderTypeface { ReaderTypeface.resolve(readerTypefaceRaw) }
@@ -1204,33 +1203,52 @@ struct ReaderHome: View {
         }
     }
 
-    /// Pulling the results (or the empty page) down past the top clears the
-    /// search text, like pull to refresh, so a typo needs no tap on the small ✕.
-    private static let searchPullThreshold: CGFloat = 72
-    private func searchPulled(_ minY: CGFloat) {
-        let pull = max(0, minY)
-        if searchPull != pull { searchPull = pull }
-        if pull < 8 { searchPullCleared = false; return }
-        guard pull >= Self.searchPullThreshold, !searchPullCleared, !model.word.isEmpty else { return }
-        searchPullCleared = true
+    /// Pull the results (or the empty page) down and let go: with text in the box
+    /// it is cleared; with an empty box the keyboard comes up. Like pull to
+    /// refresh, so a typo needs no tap on the small ✕.
+    private static let searchPullThreshold: CGFloat = 70
+    private var searchPullRelease: PullRelease {
+        PullRelease(threshold: Self.searchPullThreshold,
+                    pulled: { pull in
+                        if abs(pull - searchPull) > 0.5 || pull == 0 {
+                            let crossed = (pull >= Self.searchPullThreshold) != (searchPull >= Self.searchPullThreshold)
+                            searchPull = pull
+                            if crossed && pull >= Self.searchPullThreshold { UISelectionFeedbackGenerator().selectionChanged() }
+                        }
+                    },
+                    released: { searchPullReleased() })
+    }
+    private func searchPullReleased() {
+        guard selectedTab == 1, !model.showingEntry else { return }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        model.typedSearch("", clearSelection: true)
-        // After the drag ends, so the scroll view does not dismiss the keyboard again.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+        // Clearing can swap the result list for the empty page mid-bounce.
+        searchPull = 0
+        if !model.word.isEmpty { model.typedSearch("", clearSelection: true) }
+        // After the list springs back, so the drag does not dismiss the keyboard again.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             if selectedTab == 1, !model.showingEntry { requestSearchFocus() }
         }
     }
+    /// "↑ Release to clear", shown in the gap above the pulled-down list.
     private var searchPullHint: some View {
         let progress = min(searchPull / Self.searchPullThreshold, 1)
-        return Label(searchPullCleared ? "Cleared" : "Pull to clear",
-                     systemImage: searchPullCleared ? "checkmark.circle.fill" : "xmark.circle")
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(accent)
-            .padding(.horizontal, 12).padding(.vertical, 6)
-            .background(style.surface, in: Capsule())
-            .opacity(Double(progress))
-            .scaleEffect(0.85 + 0.15 * progress)
-            .allowsHitTesting(false)
+        let ready = progress >= 1
+        let text = model.word.isEmpty
+            ? (ready ? "Release to show keyboard" : "Pull down to show keyboard")
+            : (ready ? "Release to clear" : "Pull down to clear")
+        return HStack(spacing: 8) {
+            Image(systemName: "arrow.up")
+                .font(.system(size: 20, weight: .light))
+                .rotationEffect(.degrees(ready ? 0 : 180))
+                .animation(.snappy(duration: 0.18), value: ready)
+            Text(text).font(.system(size: 13, weight: .medium))
+        }
+        .foregroundStyle(style.secondary)
+        .frame(maxWidth: .infinity)
+        .frame(height: max(searchPull, 0))
+        .opacity(Double(min(1, searchPull / 30)))
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     /// ‹ / › : the same word in the previous / next dictionary.
@@ -1361,21 +1379,16 @@ struct ReaderHome: View {
                             .padding(.top, 36)
                         Spacer(minLength: 0)
                     }
-                    .background(GeometryReader { proxy in
-                        Color.clear.preference(key: ResultsScrollOffsetKey.self,
-                                               value: proxy.frame(in: .named("emptySearch")).minY)
-                    })
+                    .background(searchPullRelease)
                     }
-                    .coordinateSpace(name: "emptySearch")
                     .scrollBounceBehavior(.always, axes: .vertical)
                     .scrollDismissesKeyboard(.immediately)
-                    .onPreferenceChange(ResultsScrollOffsetKey.self) { searchPulled($0) }
                 } else {
                     resultGroups(model.hits, topInset: headerHeight)
                 }
             }
-            if searchPull > 4 && (!model.word.isEmpty || searchPullCleared) {
-                searchPullHint.padding(.top, headerHeight + 6)
+            if searchPull > 4 && !searchChromeHidden {
+                searchPullHint.padding(.top, headerHeight + 4)
             }
             searchHeader(focusSearch: focusSearch)
                 .background(GeometryReader { proxy in
@@ -1595,10 +1608,11 @@ struct ReaderHome: View {
                 Color.clear.preference(key: ResultsScrollOffsetKey.self,
                                        value: proxy.frame(in: .named(switching ? "switcherResults" : "searchResults")).minY - topInset - 4)
             })
+            .background { if !switching { searchPullRelease } }
         }
         .coordinateSpace(name: switching ? "switcherResults" : "searchResults")
         .onPreferenceChange(ResultsScrollOffsetKey.self) { minY in
-            if !switching { resultsScrolled(to: minY); searchPulled(minY) }
+            if !switching { resultsScrolled(to: minY) }
         }
         .scrollDismissesKeyboard(.immediately)
     }

@@ -7,6 +7,36 @@ final class ReaderUITests: XCTestCase {
         let settled = expectation(for: NSPredicate(format: "count == %d", count), evaluatedWith: rows)
         XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 5), .completed, "Expected \(count) みほん rows", file: file, line: line)
     }
+    /// Pull the results down and let go: the search text is cleared and the
+    /// keyboard is ready for the next word. Works on the "Nothing found" page too.
+    func testPullDownAndReleaseClearsTheSearchText() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard"]
+        app.launch()
+        app.tabBars.buttons["Search"].tap()
+        let field = app.textFields["dictionarySearchField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap(); field.typeText("みほん")
+        let row = app.buttons["dictionaryResult_みほん"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        app.buttons["dismissKeyboard"].tap()
+        let start = row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 260)),
+                    withVelocity: .slow, thenHoldForDuration: 0.2)
+        let emptied = expectation(for: NSPredicate(format: "value == '' OR value == nil OR placeholderValue == value"), evaluatedWith: field)
+        XCTAssertEqual(XCTWaiter.wait(for: [emptied], timeout: 5), .completed, "Pull and release must clear the search text")
+        XCTAssertTrue(row.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "The keyboard comes back for the next word")
+        // A typo with no results: the empty page can be pulled as well.
+        field.typeText("zzqx")
+        XCTAssertEqual(field.value as? String, "zzqx")
+        app.buttons["dismissKeyboard"].tap()
+        let middle = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
+        middle.press(forDuration: 0.05, thenDragTo: middle.withOffset(CGVector(dx: 0, dy: 260)),
+                     withVelocity: .slow, thenHoldForDuration: 0.2)
+        let emptiedAgain = expectation(for: NSPredicate(format: "value == '' OR value == nil OR placeholderValue == value"), evaluatedWith: field)
+        XCTAssertEqual(XCTWaiter.wait(for: [emptiedAgain], timeout: 5), .completed, "The Nothing-found page can be pulled to clear too")
+    }
     func testDictionaryResultGroupsCollapseIndependently() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard"]
