@@ -21,6 +21,19 @@ jobs:
           grep -E "error:" "$RUNNER_TEMP/build.log" | grep -v "^note:" | sort -u | head -30 | while IFS= read -r line; do
             echo "::error title=Compile error::${line:0:900}"
           done || true
+      - name: Launch the optimized (Release) build in the simulator
+        run: |
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for devices in d["devices"].values() for x in devices if "iPhone" in x["name"]))')
+          xcrun simctl boot "$DEVICE" || true
+          xcodebuild -project ios/JapaneseReader.xcodeproj -scheme JapaneseReader -configuration Release -sdk iphonesimulator -destination "id=$DEVICE" -derivedDataPath ios/build/release-sim CODE_SIGNING_ALLOWED=NO build -quiet
+          APP=$(find ios/build/release-sim/Build/Products/Release-iphonesimulator -maxdepth 1 -name 'JapaneseReader.app' | head -1)
+          xcrun simctl install "$DEVICE" "$APP"
+          BUNDLE=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP/Info.plist")
+          PID=$(xcrun simctl launch "$DEVICE" "$BUNDLE" | awk '{print $NF}')
+          echo "Launched $BUNDLE as $PID"
+          for tab in 1 2 3 4 5 6 7 8 9 10; do sleep 1; kill -0 "$PID" 2>/dev/null || { echo "::error title=Release launch::The optimized app quit within ${tab}s of launch"; exit 1; }; done
+          echo "Release build still running after 10 s"
+          xcrun simctl terminate "$DEVICE" "$BUNDLE" || true
       - uses: actions/upload-artifact@v4
         with:
           name: JapaneseReader-iPhone

@@ -1277,7 +1277,8 @@ struct ReaderHome: View {
     }
 
     /// Progress (and the final note) of a full-text search, above the tab bar.
-    @ViewBuilder private var fullTextStatus: some View {
+    private var fullTextStatus: AnyView { AnyView(fullTextStatusContent) }
+    @ViewBuilder private var fullTextStatusContent: some View {
         let text = !model.fullTextProgress.isEmpty ? model.fullTextProgress
             : (model.searchMode == .fullText && !model.word.isEmpty ? model.status : "")
         if !text.isEmpty && !model.showingEntry {
@@ -1322,7 +1323,8 @@ struct ReaderHome: View {
         }
     }
     /// "↑ Release to clear", shown in the gap above the pulled-down list.
-    private var searchPullHint: some View {
+    private var searchPullHint: AnyView { AnyView(searchPullHintContent) }
+    private var searchPullHintContent: some View {
         let progress = min(searchPull / Self.searchPullThreshold, 1)
         let ready = progress >= 1
         let text = model.word.isEmpty
@@ -1344,7 +1346,8 @@ struct ReaderHome: View {
     }
 
     /// ‹ / › : the same word in the previous / next dictionary.
-    private func entryStepButton(_ step: Int) -> some View {
+    private func entryStepButton(_ step: Int) -> AnyView { AnyView(entryStepButtonContent(step)) }
+    private func entryStepButtonContent(_ step: Int) -> some View {
         let count = model.orderedEntryMatches.count
         let index = model.entryMatchIndex
         let enabled = index.map { count > 1 && (0..<count).contains($0 + step) } ?? false
@@ -1362,7 +1365,8 @@ struct ReaderHome: View {
         .accessibilityIdentifier(step < 0 ? "previousDictionaryEntry" : "nextDictionaryEntry")
     }
 
-    private var entryTitleButton: some View {
+    private var entryTitleButton: AnyView { AnyView(entryTitleButtonContent) }
+    private var entryTitleButtonContent: some View {
         Button { switchingDictionary = true } label: {
             HStack(spacing: 6) {
                 HandSeal(text: "辞", style: style, size: 22)
@@ -1394,7 +1398,8 @@ struct ReaderHome: View {
 
     private var entryPeekVisible: Bool { model.peek?.inDictionary ?? false }
 
-    private var entryView: some View {
+    private var entryView: AnyView { AnyView(entryViewContent) }
+    private var entryViewContent: some View {
         let visitID = model.entryID
         return ZStack(alignment: .bottom) {
             DictionaryPage(html: model.entryHTML, root: model.entryRoot ?? model.dictionaryRoot, code: model.entryCode,
@@ -1456,7 +1461,8 @@ struct ReaderHome: View {
         headerCollapsed && !model.showingEntry && !keyboardVisible && !model.hits.isEmpty
     }
 
-    private func lookup(focusSearch: Bool) -> some View {
+    private func lookup(focusSearch: Bool) -> AnyView { AnyView(lookupContent(focusSearch: focusSearch)) }
+    private func lookupContent(focusSearch: Bool) -> some View {
         ZStack(alignment: .top) {
             Group {
                 if model.hits.isEmpty {
@@ -1539,8 +1545,23 @@ struct ReaderHome: View {
         }
     }
 
+    // The search bar is built from separately type-erased rows. As one nested
+    // view, its type got so deep that decoding it at launch overflowed the main
+    // thread's stack in the optimized device build (2.7 build 29 crash).
     private func searchHeader(focusSearch: Bool) -> some View {
         VStack(spacing: 10) {
+            searchFieldRow(focusSearch: focusSearch)
+            searchChipsRow
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 6)
+        .padding(.bottom, 10)
+        .background(paper.opacity(0.94))
+        .overlay(alignment: .bottom) { HandRule(style: style).offset(y: 4) }
+    }
+
+    private func searchFieldRow(focusSearch: Bool) -> AnyView {
+        AnyView(
             HStack(spacing: 6) {
                 Button { goBackInSearch() } label: {
                     Image(systemName: "chevron.left")
@@ -1599,6 +1620,11 @@ struct ReaderHome: View {
                 .accessibilityIdentifier("searchOptions")
                 .background(KeyboardControlArea())
             }
+        )
+    }
+
+    private var searchChipsRow: AnyView {
+        AnyView(
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 7) {
                     matchModeChip
@@ -1613,12 +1639,7 @@ struct ReaderHome: View {
                 .padding(.bottom, 4)
             }
             .padding(.horizontal, -12)
-        }
-        .padding(.horizontal, 12)
-        .padding(.top, 6)
-        .padding(.bottom, 10)
-        .background(paper.opacity(0.94))
-        .overlay(alignment: .bottom) { HandRule(style: style).offset(y: 4) }
+        )
     }
 
     /// While the header is away, a small pill keeps the query in view; tap to return.
@@ -1652,8 +1673,8 @@ struct ReaderHome: View {
         }
     }
 
-    private var matchModeChip: some View {
-        Menu {
+    private var matchModeChip: AnyView {
+        AnyView(Menu {
             Picker("Match", selection: $model.searchMode) {
                 Label("Starts with", systemImage: "text.line.first.and.arrowtriangle.forward").tag(DictionarySearchMode.prefix)
                 Label("Exact word", systemImage: "equal").tag(DictionarySearchMode.exact)
@@ -1673,7 +1694,7 @@ struct ReaderHome: View {
             .overlay(SketchShape(radius: 12).stroke(accent.opacity(0.35), lineWidth: 1.2))
         }
         .background(KeyboardControlArea())
-        .accessibilityLabel("Match")
+        .accessibilityLabel("Match"))
     }
 
     private func scopeChip(_ name: String, id: String) -> some View {
@@ -1691,7 +1712,10 @@ struct ReaderHome: View {
         .accessibilityIdentifier("searchScope_" + id)
     }
 
-    private func resultGroups(_ hits: [DictionaryHit], switching: Bool = false, topInset: CGFloat = 0) -> some View {
+    private func resultGroups(_ hits: [DictionaryHit], switching: Bool = false, topInset: CGFloat = 0) -> AnyView {
+        AnyView(resultGroupsContent(hits, switching: switching, topInset: topInset))
+    }
+    private func resultGroupsContent(_ hits: [DictionaryHit], switching: Bool, topInset: CGFloat) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 6) {
                 ForEach(model.dictionaries) { dictionary in

@@ -6,6 +6,10 @@ Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuse
 
 Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.6, build 23).
 
+## 2.7.1 — launch crash fix
+
+- 2.7 (build 29) closed at once on iPhone: in the optimized device build the search bar was one very deeply nested SwiftUI type, and decoding it at launch overflowed the main thread's stack. The search bar, result list, entry page and title are now built from separately type-erased parts. CI also launches the optimized build in the simulator before packaging.
+
 ## 2.7 — Full-text search (全文)
 
 - **New match mode "Full text · 全文"** (Search → the *Starts with* chip): finds your text anywhere in the definitions and **example sentences** of every enabled dictionary, not just in headwords. Matches may cross bold words and ignore furigana, so 「間際に」 finds 「大引け**間際**に急落した」.
