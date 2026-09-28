@@ -21,6 +21,28 @@ import SQLite3
         XCTAssertTrue(field.isFirstResponder)
         XCTAssertEqual(field.selectedTextRange.flatMap { field.text(in: $0) }, "日本語")
     }
+    /// A selection that outlived its card (tab switch, card closed) reopens the
+    /// card when tapped, even with automatic lookup off, and only for that text.
+    func testTapOnLeftoverSelectionReopensTheCard() throws {
+        let (model, root, suite) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
+        model.selectionPeek = true
+        model.dictionaryAutoSearch = false
+        let passage = String(repeating: "容疑者は密輸品を受け渡している", count: 4)
+        model.select(passage, inDictionary: true)
+        XCTAssertNil(model.peek)
+        SelectionBridge.shared.reopenText = passage
+        model.select(passage, inDictionary: true)
+        XCTAssertEqual(model.peek?.text, passage)
+        XCTAssertEqual(model.peek?.inDictionary, true)
+        XCTAssertNil(SelectionBridge.shared.reopenText)
+        model.closePeek()
+        // A stale request never reopens the card for different text.
+        SelectionBridge.shared.reopenText = passage
+        model.select(passage + "。", inDictionary: true)
+        XCTAssertNil(model.peek)
+        XCTAssertNil(SelectionBridge.shared.reopenText)
+    }
     func testSearchHistoryPersistsDeduplicatesAndDeletes() throws {
         let (model, root, suite) = try fixture()
         defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
@@ -56,6 +78,23 @@ import SQLite3
         // The switcher list is filled in right after the definition appears.
         try await settle(model); try await settle(model)
         XCTAssertEqual(Set(model.entryMatches.map(\.code)), Set(["DEMO_A", "DEMO_B"]))
+        // The ‹ › arrows step through the same list without opening the switcher.
+        let ordered = model.orderedEntryMatches
+        let start = try XCTUnwrap(model.entryMatchIndex)
+        let step = start + 1 < ordered.count ? 1 : -1
+        let target = ordered[start + step]
+        model.stepEntry(step)
+        try await settle(model); try await settle(model)
+        XCTAssertEqual(model.entryHitIdentity, target.identity)
+        XCTAssertEqual(model.entryMatchIndex, start + step)
+        model.stepEntry(-step)
+        try await settle(model); try await settle(model)
+        XCTAssertEqual(model.entryMatchIndex, start)
+        // Past either end nothing happens.
+        let edge = model.entryHitIdentity
+        model.stepEntry(step < 0 ? 1 : -1 * ordered.count)
+        try await settle(model)
+        XCTAssertEqual(model.entryHitIdentity, edge)
     }
     func testSelectionCardFindsDictionaryFormWithoutLeavingThePage() async throws {
         let (model, root, suite) = try fixture()

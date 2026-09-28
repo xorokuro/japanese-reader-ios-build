@@ -173,6 +173,12 @@ struct LookupSnapshot {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: action)
     }
     func select(_ text: String, inDictionary: Bool) {
+        let reopen = SelectionBridge.shared.reopenText
+        SelectionBridge.shared.reopenText = nil
+        if let reopen, !reopen.isEmpty, reopen == text {
+            reopenPeek(text, inDictionary: inDictionary)
+            return
+        }
         if !text.isEmpty { selectionFromDictionary = inDictionary }
         if inDictionary { dictionarySelection = text } else { readerSelection = text }
         cancelPendingSearch()
@@ -194,6 +200,17 @@ struct LookupSnapshot {
         }
         word = text
         search(dismissKeyboard: false, navigate: true, onlyIfMatched: true)
+    }
+    /// A tap on a selection that has no card (the card was closed, or the page was
+    /// left and reopened) brings the card back: with the iPhone bar hidden it is
+    /// the only place to Copy or Translate the selection.
+    func reopenPeek(_ text: String, inDictionary: Bool) {
+        guard selectionPeek, !text.isEmpty else { return }
+        if let current = peek, current.inDictionary == inDictionary, current.text == text { return }
+        selectionFromDictionary = inDictionary
+        if inDictionary { dictionarySelection = text } else { readerSelection = text }
+        cancelPendingSearch()
+        peekLookup(text, inDictionary: inDictionary)
     }
     func searchSelected(inDictionary: Bool) {
         let selected = inDictionary ? dictionarySelection : readerSelection
@@ -449,6 +466,26 @@ struct LookupSnapshot {
             }
         }
     }
+    /// The same word in every enabled dictionary, in the switcher list's order
+    /// (dictionary order first, then each dictionary's own order).
+    var orderedEntryMatches: [DictionaryHit] {
+        let rank = Dictionary(dictionaries.enumerated().map { ($0.element.root.path + "/" + $0.element.code, $0.offset) },
+                              uniquingKeysWith: { first, _ in first })
+        return entryMatches.enumerated().sorted { a, b in
+            let x = rank[a.element.root.path + "/" + a.element.code] ?? Int.max
+            let y = rank[b.element.root.path + "/" + b.element.code] ?? Int.max
+            return x != y ? x < y : a.offset < b.offset
+        }.map(\.element)
+    }
+    /// Position of the open definition among `orderedEntryMatches`.
+    var entryMatchIndex: Int? { orderedEntryMatches.firstIndex { $0.identity == entryHitIdentity } }
+    /// The ‹ › arrows beside the title: the previous / next dictionary's entry for
+    /// the same word, without opening the switcher list.
+    func stepEntry(_ step: Int) {
+        let matches = orderedEntryMatches
+        guard let index = entryMatchIndex, matches.indices.contains(index + step) else { return }
+        open(matches[index + step], replacingCurrent: true)
+    }
     /// The title switcher spans all enabled dictionaries, even if Search was scoped
     /// to one dictionary. It is loaded after the definition is already visible.
     private func loadAlternatives(for visitID: UUID, hit: DictionaryHit, query: String, enabled: [InstalledDictionary]) {
@@ -624,6 +661,7 @@ struct ReaderHome: View {
     @AppStorage("readerTextSize") private var readerTextSize = 23.0
     @AppStorage("readerLineSpacing") private var readerLineSpacing = 1.35
     @AppStorage("dictionaryTextSize") private var dictionaryTextSize = 19.0
+    @AppStorage(DictionaryTextSizes.key) private var dictionaryTextSizes = ""
     @AppStorage("dictionarySans") private var dictionarySans = false
     @AppStorage("pageMargins") private var pageMarginsRaw = PageMargins.compact.rawValue
     private var pageMargins: PageMargins { PageMargins.resolve(pageMarginsRaw) }
@@ -861,6 +899,14 @@ struct ReaderHome: View {
         .accessibilityIdentifier("readerOptions")
     }
 
+    /// The open dictionary's own definition size, or the default one.
+    private var entryTextSize: Double {
+        DictionaryTextSizes.size(for: model.entryCode, in: dictionaryTextSizes, fallback: dictionaryTextSize)
+    }
+    private var entryHasOwnSize: Bool { DictionaryTextSizes.decode(dictionaryTextSizes)[model.entryCode] != nil }
+    private func setEntryTextSize(_ value: Double) {
+        dictionaryTextSizes = DictionaryTextSizes.setting(value, for: model.entryCode, in: dictionaryTextSizes)
+    }
     private func hideSizeHUD() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { withAnimation(.easeOut(duration: 0.25)) { sizeHUD = nil } }
     }
@@ -1085,7 +1131,13 @@ struct ReaderHome: View {
                     }
                 }
                 ToolbarItem(placement: .principal) {
-                    if model.showingEntry { entryTitleButton }
+                    if model.showingEntry {
+                        HStack(spacing: 6) {
+                            entryStepButton(-1)
+                            entryTitleButton
+                            entryStepButton(1)
+                        }
+                    }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     if model.showingEntry {
@@ -1095,6 +1147,19 @@ struct ReaderHome: View {
                                 ForEach(PageMargins.allCases) { margin in Text(margin.title).tag(margin.rawValue) }
                             }
                             .pickerStyle(.menu)
+                            Menu {
+                                Button { setEntryTextSize(entryTextSize + 1) } label: { Label("Larger", systemImage: "textformat.size.larger") }
+                                    .disabled(entryTextSize >= DictionaryTextSizes.range.upperBound)
+                                Button { setEntryTextSize(entryTextSize - 1) } label: { Label("Smaller", systemImage: "textformat.size.smaller") }
+                                    .disabled(entryTextSize <= DictionaryTextSizes.range.lowerBound)
+                                if entryHasOwnSize {
+                                    Button("Use default size (\(Int(dictionaryTextSize)) pt)") {
+                                        dictionaryTextSizes = DictionaryTextSizes.removing(model.entryCode, in: dictionaryTextSizes)
+                                    }
+                                }
+                            } label: {
+                                Label("Text size for this dictionary · \(Int(entryTextSize)) pt", systemImage: "textformat.size")
+                            }
                             Button("Copy learning prompt") { UIPasteboard.general.string = model.prompt(inDictionary: true); model.status = "Learning prompt copied." }
                             Button("Back to Main Page") { selectedTab = 0 }
                         } label: { Image(systemName: "line.3.horizontal") }.accessibilityLabel("Dictionary navigation")
@@ -1118,18 +1183,46 @@ struct ReaderHome: View {
         .tabItem { Label("Search", systemImage: "magnifyingglass") }.tag(1)
     }
 
+    /// ‹ / › : the same word in the previous / next dictionary.
+    private func entryStepButton(_ step: Int) -> some View {
+        let count = model.orderedEntryMatches.count
+        let index = model.entryMatchIndex
+        let enabled = index.map { count > 1 && (0..<count).contains($0 + step) } ?? false
+        return Button { model.stepEntry(step) } label: {
+            Image(systemName: step < 0 ? "chevron.left" : "chevron.right")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(accent)
+                .frame(width: 30, height: 30)
+                .sketchPill(style)
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.3)
+        .accessibilityLabel(step < 0 ? "Previous dictionary" : "Next dictionary")
+        .accessibilityIdentifier(step < 0 ? "previousDictionaryEntry" : "nextDictionaryEntry")
+    }
+
     private var entryTitleButton: some View {
         Button { switchingDictionary = true } label: {
             HStack(spacing: 8) {
                 HandSeal(text: "辞", style: style, size: 26)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(model.entryDictionary)
-                        .font(.system(size: 10.5, weight: .semibold)).lineLimit(1).foregroundStyle(style.secondary)
+                    HStack(spacing: 4) {
+                        Text(model.entryDictionary)
+                            .font(.system(size: 10.5, weight: .semibold)).lineLimit(1).foregroundStyle(style.secondary)
+                        if let index = model.entryMatchIndex, model.orderedEntryMatches.count > 1 {
+                            Text("\(index + 1)/\(model.orderedEntryMatches.count)")
+                                .font(.system(size: 10, weight: .bold).monospacedDigit()).foregroundStyle(accent)
+                                .fixedSize()
+                        }
+                    }
                     HStack(spacing: 4) {
                         Text(model.entryTitle).font(HandFont.title(17)).lineLimit(1).foregroundStyle(style.ink)
                         Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold)).foregroundStyle(accent)
                     }
                 }
+                // Leaves room for the ‹ › arrows; long dictionary names truncate.
+                .frame(maxWidth: 170, alignment: .leading)
             }
             .padding(.leading, 6).padding(.trailing, 12).padding(.vertical, 3)
             .sketchPill(style)
@@ -1145,12 +1238,12 @@ struct ReaderHome: View {
         return ZStack(alignment: .bottom) {
             DictionaryPage(html: model.entryHTML, root: model.entryRoot ?? model.dictionaryRoot, code: model.entryCode,
                            paperRGB: style.surfaceRGB, accentRGB: style.accentRGB,
-                           textSize: dictionaryTextSize, sansFont: dictionarySans,
+                           textSize: entryTextSize, sansFont: dictionarySans,
                            initialOffset: model.entryOffsets[visitID] ?? .zero,
                            bottomInset: entryPeekVisible ? 300 : 0,
                            quietMenu: quietMenu,
-                           resize: TextResize(value: dictionaryTextSize, range: 14...28,
-                                              set: { dictionaryTextSize = $0; sizeHUD = Int($0) },
+                           resize: TextResize(value: entryTextSize, range: DictionaryTextSizes.range,
+                                              set: { setEntryTextSize($0); sizeHUD = Int($0) },
                                               ended: hideSizeHUD),
                            margins: pageMargins,
                            saveOffset: { model.entryOffsets[visitID] = $0 },
@@ -1781,11 +1874,20 @@ struct ReaderHome: View {
                     .pickerStyle(.segmented)
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text("Definition size")
+                            Text("Default definition size")
                             Spacer()
                             Text("\(Int(dictionaryTextSize)) pt").foregroundStyle(style.secondary).monospacedDigit()
                         }
-                        Slider(value: $dictionaryTextSize, in: 14...28, step: 1)
+                        Slider(value: $dictionaryTextSize, in: DictionaryTextSizes.range, step: 1)
+                    }
+                    let ownSizes = DictionaryTextSizes.decode(dictionaryTextSizes).count
+                    Text(ownSizes == 0
+                         ? "Each dictionary keeps its own size: swipe up or down with two fingers (or pinch) on a definition, or use ☰ → Text size. Dictionaries you have not resized use this default."
+                         : (ownSizes == 1 ? "1 dictionary has its own size" : "\(ownSizes) dictionaries have their own size") + " (set with two fingers on a definition, or ☰ → Text size). The others use this default.")
+                        .font(.caption).foregroundStyle(style.secondary)
+                    if ownSizes > 0 {
+                        Button("Use the default size for every dictionary") { dictionaryTextSizes = "" }
+                            .accessibilityIdentifier("resetDictionarySizes")
                     }
                     Text("Dictionary pages keep each publisher's layout and use your theme: large headwords, muted labels, and examples as an indented phrase with the translation underneath.")
                         .font(.caption).foregroundStyle(style.secondary)
@@ -1795,7 +1897,7 @@ struct ReaderHome: View {
                         themeID = "hand-washi"; accentRGB = 0x1F7A73; paperRGB = 0xFFFFFF; customPaper = false
                         readerTypefaceRaw = ReaderTypeface.kyokasho.rawValue; readerTextSize = 23; readerLineSpacing = 1.35
                         handDrawnPaper = true
-                        dictionaryTextSize = 19; dictionarySans = false
+                        dictionaryTextSize = 19; dictionaryTextSizes = ""; dictionarySans = false
                     }
                 }
             }
@@ -1921,6 +2023,13 @@ struct SelectableJapanese: UIViewRepresentable {
         view.alwaysBounceVertical = true
         if #available(iOS 18.0, *) { view.writingToolsBehavior = UIWritingToolsBehavior.none }
         context.coordinator.sizeSwipe.attach(to: view, scrollView: view)
+        let coordinator = context.coordinator
+        coordinator.reopenTap.enabled = quietMenu
+        coordinator.reopenTap.attach(to: view)
+        coordinator.reopenTap.tapped = { [weak view, weak coordinator] point in
+            guard let view, let coordinator else { return }
+            coordinator.reopen(in: view, at: point)
+        }
         SelectionBridge.shared.readerView = view
         return view
     }
@@ -1929,6 +2038,7 @@ struct SelectableJapanese: UIViewRepresentable {
         coordinator.selected = selected
         coordinator.saveOffset = saveOffset
         coordinator.quietMenu = quietMenu
+        coordinator.reopenTap.enabled = quietMenu
         coordinator.sizeSwipe.resize = resize
         if view.textContainerInset.left != sideInset {
             view.textContainerInset = UIEdgeInsets(top: 24, left: sideInset, bottom: 40, right: sideInset)
@@ -1974,6 +2084,21 @@ struct SelectableJapanese: UIViewRepresentable {
         var appliedTranslations = ""
         var quietMenu = false
         let sizeSwipe = TextSizeSwipe()
+        let reopenTap = SelectionReopenTap()
+        /// A tap on the text that is still selected reopens the card for it.
+        func reopen(in textView: UITextView, at point: CGPoint) {
+            guard let range = textView.selectedTextRange, !range.isEmpty,
+                  let word = textView.text(in: range), !word.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            let hit = textView.selectionRects(for: range).contains { $0.rect.width > 0 && $0.rect.insetBy(dx: -12, dy: -12).contains(point) }
+            guard hit else { return }
+            let selectedRange = textView.selectedRange
+            if selectedRange.location < textView.attributedText.length,
+               textView.attributedText.attribute(SelectableJapanese.translationKey, at: selectedRange.location, effectiveRange: nil) != nil { return }
+            pending?.cancel()
+            SelectionBridge.shared.readerContext = Self.context(in: textView.text ?? "", range: selectedRange, word: word)
+            SelectionBridge.shared.reopenText = word
+            selected(word)
+        }
         /// Every selection goes to the card (short ones are looked up, long ones get
         /// Copy / Translate / Share), so the iPhone's own bar would only cover it.
         func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {

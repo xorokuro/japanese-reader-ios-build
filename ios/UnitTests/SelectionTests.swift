@@ -111,4 +111,48 @@ import WebKit
         let unsafe = try await evaluate("document.getElementById('unsafe').click(); document.body.dataset.unsafe || 'blocked'", in: view)
         XCTAssertEqual(unsafe as? String, "blocked")
     }
+    /// Takoboto-style hanging indents stay on the page at Compact margins, and a
+    /// tap on a selection that has lost its card posts it again for the card.
+    func testHangingIndentsStayOnPageAndLeftoverSelectionReposts() async throws {
+        let posted = expectation(description: "selection posted again")
+        posted.assertForOverFulfill = false
+        var words: [String] = []
+        let coordinator = DictionaryPage.Coordinator(root: FileManager.default.temporaryDirectory, code: "TEST") { word in
+            guard !word.isEmpty else { return }
+            words.append(word)
+            if SelectionBridge.shared.reopenText == word { posted.fulfill() }
+        }
+        coordinator.margins = .compact
+        let css = ".def2{text-indent:-2em;padding-left:3em}.read{display:block;font-size:1.3em;text-indent:-1em;padding-left:1em}.dfen{display:block}"
+        let body = "<div class='tkbt-entry'><div class='read'>まぎわ magiwa</div><div class='def2'><span class='dfen'><span class='dfcn' id='cn'>之前的那个点,做的那个点,即将发生的那个点</span>the point just before</span></div></div>"
+        let view = DictionaryPage.makeWebView(html: DictionaryPage.make(body: body, css: css, code: "TEST"), coordinator: coordinator)
+        let window = host(view)
+        defer {
+            view.configuration.userContentController.removeScriptMessageHandler(forName: "readerSelection", contentWorld: DictionaryPage.selectionWorld)
+            window.isHidden = true
+            SelectionBridge.shared.reopenText = nil
+        }
+        for _ in 0..<600 {
+            if !view.isLoading && view.url != nil { break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        _ = try await evaluate("window.__jpIndent(0.4)", in: view)
+        let offPage = try await evaluate("""
+        (() => { const edge = document.body.getBoundingClientRect().left + parseFloat(getComputedStyle(document.body).paddingLeft);
+          let worst = 0; const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); let node;
+          while ((node = walker.nextNode())) { if (!node.data.trim()) continue; const range = document.createRange(); range.selectNodeContents(node);
+            for (const rect of range.getClientRects()) worst = Math.max(worst, edge - rect.left); }
+          return worst; })()
+        """, in: view)
+        XCTAssertLessThanOrEqual((offPage as? Double) ?? 0, 0.5, "No line may start left of the page padding")
+        _ = try await evaluate("(() => { const n = document.getElementById('cn').firstChild; const r = document.createRange(); r.setStart(n, 0); r.setEnd(n, 5); const s = getSelection(); s.removeAllRanges(); s.addRange(r); return true; })()", in: view)
+        try await Task.sleep(nanoseconds: 600_000_000)
+        let missed = try await evaluate("window.__jpRepost(2, 2000)", in: view)
+        XCTAssertEqual(missed as? Bool, false)
+        let hit = try await evaluate("(() => { const q = getSelection().getRangeAt(0).getClientRects()[0]; return window.__jpRepost(q.left + q.width / 2 + scrollX, q.top + q.height / 2 + scrollY); })()", in: view)
+        XCTAssertEqual(hit as? Bool, true)
+        await fulfillment(of: [posted], timeout: 5)
+        XCTAssertEqual(words.last, "之前的那个")
+    }
 }

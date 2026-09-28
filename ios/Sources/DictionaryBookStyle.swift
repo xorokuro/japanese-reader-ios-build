@@ -113,6 +113,9 @@ body .mjrhsjcd-entry .def2{display:inline}
 body .tkbt-entry .phrases{margin-top:.6em}
 body .tkbt-entry .dfen{margin:.3em 0!important}
 body .tkbt-entry .dfen .dfcn{display:block;color:var(--e-muted)!important}
+body .tkbt-entry :is(.dfcn,.excn,.exen,.exjp){text-indent:0!important}
+body .tkbt-entry{max-width:100%;overflow-wrap:anywhere}
+body .tkbt-entry :is(.kanji01,.kanji02,.kanji03){display:inline-block;max-width:100%}
 body section.description p[data-orgtag="meaning"]{margin:.3em 0!important}
 body :is(.ref,.ref_item,.sansyou_g,.dc-xref,.canzhao){color:var(--e-link)!important}
 body :is(.SubItem,.ComplexG){margin-top:1.1em!important}

@@ -6,6 +6,13 @@ Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuse
 
 Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.6, build 23).
 
+## 2.6.2 — per-dictionary text size, ‹ › dictionary arrows, selection card, Takoboto layout
+
+- **Each dictionary keeps its own text size**: two fingers (or pinch) on a definition now resizes only that dictionary, and ☰ → *Text size for this dictionary* has Larger / Smaller / Use default. Appearance → *Default definition size* is used by dictionaries you have not resized, with a button to put every dictionary back on the default.
+- **‹ › beside the dictionary title**: on a definition page, jump to the same word in the previous / next dictionary (same order as the ▾ list) without opening the list. The title shows where you are, e.g. *2/5*.
+- **Tapping a leftover selection works again**: if text is still selected after you switch tabs and come back (or after closing the card), tapping the selection reopens the card with Copy, Translate and the dictionary results. Before, nothing happened because the iPhone bar is hidden. Works in lessons, dictionary pages and the Read tab.
+- **Takoboto no longer runs off the left edge**: hanging indents (negative text-indent) are now scaled with the page margins, and no line may start left of the page padding, in any dictionary.
+
 ## 2.6.1 — grammar list, long selections, Copy feedback
 
 - **文法 list scrolls properly**: it no longer repeats the first two or three patterns while scrolling; every pattern of the level appears in order.

@@ -252,6 +252,8 @@ struct GrammarLessonPage: UIViewRepresentable {
         view.scrollView.backgroundColor = .clear
         view.loadHTMLString(html, baseURL: URL(string: "jpgrammar://lesson/"))
         coordinator.sizeSwipe.attach(to: view, scrollView: view.scrollView)
+        coordinator.reopenTap.enabled = quietMenu
+        coordinator.reopenTap.attach(to: view)
         SelectionBridge.shared.dictionaryView = view
         return view
     }
@@ -262,6 +264,7 @@ struct GrammarLessonPage: UIViewRepresentable {
         coordinator.openLesson = openLesson
         coordinator.saveOffset = saveOffset
         (view as? ReaderWebView)?.quietMenu = quietMenu
+        coordinator.reopenTap.enabled = quietMenu
         coordinator.sizeSwipe.resize = resize
         coordinator.sizeSwipe.claimTwoFingers()
         // Selections here drive the dictionary card while this page is on screen.
@@ -298,6 +301,7 @@ struct GrammarLessonPage: UIViewRepresentable {
         var initialOffset: CGPoint = .zero
         var saveOffset: ((CGPoint) -> Void)?
         let sizeSwipe = TextSizeSwipe()
+        let reopenTap = SelectionReopenTap()
         private var loaded = false
         private var cancelled = Set<ObjectIdentifier>()
         private let queue = DispatchQueue(label: "JapaneseReader.grammarMedia")
@@ -325,6 +329,7 @@ struct GrammarLessonPage: UIViewRepresentable {
                 context.text = text
                 context.before = body["before"] as? String ?? ""
                 context.after = body["after"] as? String ?? ""
+                if body["again"] as? Bool == true { SelectionBridge.shared.reopenText = text.trimmingCharacters(in: .whitespacesAndNewlines) }
             } else { return }
             let word = context.text.trimmingCharacters(in: .whitespacesAndNewlines)
             context.text = word

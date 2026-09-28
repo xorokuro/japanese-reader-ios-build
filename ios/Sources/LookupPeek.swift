@@ -83,6 +83,9 @@ final class SelectionBridge {
     weak var dictionaryView: WKWebView?
     var readerContext = SelectionContext()
     var dictionaryContext = SelectionContext()
+    /// Set when a tap on a still-selected passage asks for the card again, so the
+    /// next `select` of exactly this text reopens it (see `SelectionReopenTap`).
+    var reopenText: String?
 
     /// Moves the native selection. Returns false when the view is gone, in which
     /// case the caller looks the new text up directly.
