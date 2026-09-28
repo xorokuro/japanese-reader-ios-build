@@ -1132,7 +1132,7 @@ struct ReaderHome: View {
                 }
                 ToolbarItem(placement: .principal) {
                     if model.showingEntry {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 4) {
                             entryStepButton(-1)
                             entryTitleButton
                             entryStepButton(1)
@@ -1190,9 +1190,9 @@ struct ReaderHome: View {
         let enabled = index.map { count > 1 && (0..<count).contains($0 + step) } ?? false
         return Button { model.stepEntry(step) } label: {
             Image(systemName: step < 0 ? "chevron.left" : "chevron.right")
-                .font(.system(size: 13, weight: .bold))
+                .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(accent)
-                .frame(width: 30, height: 30)
+                .frame(width: 26, height: 30)
                 .sketchPill(style)
         }
         .buttonStyle(.plain)
@@ -1204,8 +1204,8 @@ struct ReaderHome: View {
 
     private var entryTitleButton: some View {
         Button { switchingDictionary = true } label: {
-            HStack(spacing: 8) {
-                HandSeal(text: "辞", style: style, size: 26)
+            HStack(spacing: 6) {
+                HandSeal(text: "辞", style: style, size: 22)
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 4) {
                         Text(model.entryDictionary)
@@ -1221,10 +1221,11 @@ struct ReaderHome: View {
                         Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold)).foregroundStyle(accent)
                     }
                 }
-                // Leaves room for the ‹ › arrows; long dictionary names truncate.
-                .frame(maxWidth: 170, alignment: .leading)
+                // Leaves room for the ‹ › arrows and the ☰ menu on the narrowest
+                // iPhones; long dictionary names truncate.
+                .frame(maxWidth: 124, alignment: .leading)
             }
-            .padding(.leading, 6).padding(.trailing, 12).padding(.vertical, 3)
+            .padding(.leading, 5).padding(.trailing, 9).padding(.vertical, 3)
             .sketchPill(style)
         }
         .buttonStyle(.plain)
