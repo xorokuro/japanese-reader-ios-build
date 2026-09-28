@@ -121,3 +121,35 @@ extension SelectionReopenTap {
         }
     }
 }
+
+/// Double-tap on a definition page: the right half steps to the same word in the
+/// next dictionary, the left half to the previous one (like the ‹ › arrows).
+/// It never blocks scrolling, selection or links on the page.
+final class PageDoubleTap: NSObject, UIGestureRecognizerDelegate {
+    /// -1 for the left half, +1 for the right half.
+    var step: ((Int) -> Void)?
+    private(set) lazy var tap: UITapGestureRecognizer = {
+        let tap = UITapGestureRecognizer(target: self, action: #selector(fired(_:)))
+        tap.numberOfTapsRequired = 2
+        tap.numberOfTouchesRequired = 1
+        tap.cancelsTouchesInView = false
+        tap.delaysTouchesBegan = false
+        tap.delaysTouchesEnded = false
+        tap.delegate = self
+        return tap
+    }()
+
+    func attach(to view: UIView) {
+        if tap.view !== view { view.addGestureRecognizer(tap) }
+    }
+
+    @objc private func fired(_ tap: UITapGestureRecognizer) {
+        guard tap.state == .ended, let view = tap.view else { return }
+        step?(tap.location(in: view).x < view.bounds.midX ? -1 : 1)
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool { step != nil }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRequireFailureOf other: UIGestureRecognizer) -> Bool { false }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool { false }
+}

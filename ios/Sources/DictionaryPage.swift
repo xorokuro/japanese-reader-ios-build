@@ -76,6 +76,8 @@ struct DictionaryPage: UIViewRepresentable {
     var margins: PageMargins = .compact
     var saveOffset: ((CGPoint) -> Void)? = nil
     var followLink: ((String) -> Void)? = nil
+    /// Double-tap: -1 on the left half of the page, +1 on the right half.
+    var doubleTapStep: ((Int) -> Void)? = nil
     let lookup: (String) -> Void
     static func audioLinks(_ source: String) -> String {
         guard let pattern = try? NSRegularExpression(pattern: "(?is)<a\\b[^>]*href=[\"']sound://([^\"']+)[\"'][^>]*>.*?</a>") else { return source }
@@ -316,11 +318,13 @@ struct DictionaryPage: UIViewRepresentable {
         view.loadHTMLString(html, baseURL: URL(string: "jpread://dictionary/"))
         coordinator.sizeSwipe.attach(to: view, scrollView: view.scrollView)
         coordinator.reopenTap.attach(to: view)
+        coordinator.pageDoubleTap.attach(to: view)
         SelectionBridge.shared.dictionaryView = view
         return view
     }
     func makeUIView(context: Context) -> WKWebView {
         context.coordinator.reopenTap.enabled = quietMenu
+        context.coordinator.pageDoubleTap.step = doubleTapStep
         return Self.makeWebView(html: html, coordinator: context.coordinator)
     }
     // Search results update the surrounding SwiftUI view. Never reload the document
@@ -330,6 +334,7 @@ struct DictionaryPage: UIViewRepresentable {
         context.coordinator.followLink = followLink
         (view as? ReaderWebView)?.quietMenu = quietMenu
         context.coordinator.reopenTap.enabled = quietMenu
+        context.coordinator.pageDoubleTap.step = doubleTapStep
         context.coordinator.sizeSwipe.resize = resize
         context.coordinator.sizeSwipe.claimTwoFingers()
         // Size changes restyle the open page in place (no reload, scroll kept).
@@ -371,6 +376,7 @@ struct DictionaryPage: UIViewRepresentable {
         var margins: PageMargins = .compact
         let sizeSwipe = TextSizeSwipe()
         let reopenTap = SelectionReopenTap()
+        let pageDoubleTap = PageDoubleTap()
         var sansFont = false
         var initialOffset: CGPoint = .zero
         var saveOffset: ((CGPoint) -> Void)?

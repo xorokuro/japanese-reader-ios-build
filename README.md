@@ -6,6 +6,12 @@ Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuse
 
 Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.6, build 23).
 
+## 2.6.3 — double-tap to switch dictionaries, pull to clear search
+
+- **Double-tap a definition** on its right half to go to the same word in the next dictionary, or on its left half for the previous one (same as the ‹ › arrows). A chevron flashes on that side; at the first / last dictionary the phone just buzzes.
+- **Pull down to clear the search box**: on the Search tab, pull the results (or the "Nothing found" page) down past the top and the search text is cleared, with the keyboard ready for a new word. No need to hit the small ✕.
+- The top-bar ‹ › arrows no longer overlap the ☰ menu.
+
 ## 2.6.2 — per-dictionary text size, ‹ › dictionary arrows, selection card, Takoboto layout
 
 - **Each dictionary keeps its own text size**: two fingers (or pinch) on a definition now resizes only that dictionary, and ☰ → *Text size for this dictionary* has Larger / Smaller / Use default. Appearance → *Default definition size* is used by dictionaries you have not resized, with a button to put every dictionary back on the default.

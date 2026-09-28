@@ -484,6 +484,7 @@ struct LookupSnapshot {
     func stepEntry(_ step: Int) {
         let matches = orderedEntryMatches
         guard let index = entryMatchIndex, matches.indices.contains(index + step) else { return }
+        closePeek()
         open(matches[index + step], replacingCurrent: true)
     }
     /// The title switcher spans all enabled dictionaries, even if Search was scoped
@@ -667,6 +668,11 @@ struct ReaderHome: View {
     private var pageMargins: PageMargins { PageMargins.resolve(pageMarginsRaw) }
     // Search header: hides while scrolling down through results, returns on scroll up.
     @State private var headerCollapsed = false
+    /// Side of the last double-tap dictionary step, shown briefly as a chevron.
+    @State private var entryStepFlash: Int?
+    /// How far the results are pulled down past the top (pull to clear).
+    @State private var searchPull: CGFloat = 0
+    @State private var searchPullCleared = false
     @State private var headerHeight: CGFloat = 104
     @State private var scrollTracker = ScrollTracker()
     private var readerTypeface: ReaderTypeface { ReaderTypeface.resolve(readerTypefaceRaw) }
@@ -1183,6 +1189,50 @@ struct ReaderHome: View {
         .tabItem { Label("Search", systemImage: "magnifyingglass") }.tag(1)
     }
 
+    /// Double-tap on the right / left half of a definition = › / ‹.
+    private func doubleTapStep(_ step: Int) {
+        guard selectedTab == 1, model.showingEntry else { return }
+        guard let index = model.entryMatchIndex, model.orderedEntryMatches.indices.contains(index + step) else {
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            return
+        }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        withAnimation(.easeOut(duration: 0.12)) { entryStepFlash = step }
+        model.stepEntry(step)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            withAnimation(.easeIn(duration: 0.2)) { if entryStepFlash == step { entryStepFlash = nil } }
+        }
+    }
+
+    /// Pulling the results (or the empty page) down past the top clears the
+    /// search text, like pull to refresh, so a typo needs no tap on the small ✕.
+    private static let searchPullThreshold: CGFloat = 72
+    private func searchPulled(_ minY: CGFloat) {
+        let pull = max(0, minY)
+        if searchPull != pull { searchPull = pull }
+        if pull < 8 { searchPullCleared = false; return }
+        guard pull >= Self.searchPullThreshold, !searchPullCleared, !model.word.isEmpty else { return }
+        searchPullCleared = true
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        model.typedSearch("", clearSelection: true)
+        // After the drag ends, so the scroll view does not dismiss the keyboard again.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            if selectedTab == 1, !model.showingEntry { requestSearchFocus() }
+        }
+    }
+    private var searchPullHint: some View {
+        let progress = min(searchPull / Self.searchPullThreshold, 1)
+        return Label(searchPullCleared ? "Cleared" : "Pull to clear",
+                     systemImage: searchPullCleared ? "checkmark.circle.fill" : "xmark.circle")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(accent)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(style.surface, in: Capsule())
+            .opacity(Double(progress))
+            .scaleEffect(0.85 + 0.15 * progress)
+            .allowsHitTesting(false)
+    }
+
     /// ‹ / › : the same word in the previous / next dictionary.
     private func entryStepButton(_ step: Int) -> some View {
         let count = model.orderedEntryMatches.count
@@ -1248,7 +1298,8 @@ struct ReaderHome: View {
                                               ended: hideSizeHUD),
                            margins: pageMargins,
                            saveOffset: { model.entryOffsets[visitID] = $0 },
-                           followLink: { model.followEntryLink($0) }) { word in
+                           followLink: { model.followEntryLink($0) },
+                           doubleTapStep: { doubleTapStep($0) }) { word in
                 guard selectedTab == 1, model.showingEntry else { return }
                 model.select(word, inDictionary: true)
             }
@@ -1269,6 +1320,18 @@ struct ReaderHome: View {
             }
         }
         .animation(.spring(response: 0.34, dampingFraction: 0.86), value: entryPeekVisible)
+        .overlay(alignment: entryStepFlash == -1 ? .leading : .trailing) {
+            if let flash = entryStepFlash {
+                Image(systemName: flash < 0 ? "chevron.left" : "chevron.right")
+                    .font(.system(size: 26, weight: .bold))
+                    .foregroundStyle(style.onAccent)
+                    .frame(width: 52, height: 52)
+                    .background(accent.opacity(0.85), in: Circle())
+                    .padding(.horizontal, 22)
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                    .allowsHitTesting(false)
+            }
+        }
         .overlay(alignment: .top) {
             if model.lookupBusy {
                 ProgressView().controlSize(.small).padding(8)
@@ -1286,6 +1349,7 @@ struct ReaderHome: View {
         ZStack(alignment: .top) {
             Group {
                 if model.hits.isEmpty {
+                    ScrollView {
                     VStack(spacing: 0) {
                         Color.clear.frame(height: headerHeight)
                         EmptyHint(symbol: model.word.isEmpty ? "character.book.closed" : "magnifyingglass",
@@ -1297,9 +1361,21 @@ struct ReaderHome: View {
                             .padding(.top, 36)
                         Spacer(minLength: 0)
                     }
+                    .background(GeometryReader { proxy in
+                        Color.clear.preference(key: ResultsScrollOffsetKey.self,
+                                               value: proxy.frame(in: .named("emptySearch")).minY)
+                    })
+                    }
+                    .coordinateSpace(name: "emptySearch")
+                    .scrollBounceBehavior(.always, axes: .vertical)
+                    .scrollDismissesKeyboard(.immediately)
+                    .onPreferenceChange(ResultsScrollOffsetKey.self) { searchPulled($0) }
                 } else {
                     resultGroups(model.hits, topInset: headerHeight)
                 }
+            }
+            if searchPull > 4 && (!model.word.isEmpty || searchPullCleared) {
+                searchPullHint.padding(.top, headerHeight + 6)
             }
             searchHeader(focusSearch: focusSearch)
                 .background(GeometryReader { proxy in
@@ -1522,7 +1598,7 @@ struct ReaderHome: View {
         }
         .coordinateSpace(name: switching ? "switcherResults" : "searchResults")
         .onPreferenceChange(ResultsScrollOffsetKey.self) { minY in
-            if !switching { resultsScrolled(to: minY) }
+            if !switching { resultsScrolled(to: minY); searchPulled(minY) }
         }
         .scrollDismissesKeyboard(.immediately)
     }
