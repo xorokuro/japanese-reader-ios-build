@@ -111,9 +111,11 @@ enum PageRules {
                 const lineHeight = parseFloat(cs.lineHeight) || size * 1.2;
                 for (let i = 0; i < lines.length; i++) {
                     const line = lines[i], next = lines[i + 1];
-                    // Halfway to the next line's furigana or text; under the last line,
+                    // Halfway to the next line's furigana or text. When the furigana
+                    // touches this line (large text), that is the boundary itself: the
+                    // rule never crosses the reading. Under the last line of a block,
                     // the same half gap the line height leaves below the glyphs.
-                    let y = next && next.ink > line.bottom
+                    let y = next
                         ? (line.bottom + next.ink) / 2
                         : line.bottom + Math.max(2, (lineHeight - (line.bottom - line.top)) / 2);
                     y = Math.round(y * scale) / scale + 0.5 / scale;

@@ -119,8 +119,10 @@ import WebKit
         }
         for (index, text) in sorted.enumerated() {
             let y = ys[index]
-            let below = y > (text["bottom"] ?? 0)
-            let above = index + 1 >= sorted.count || y < (sorted[index + 1]["ink"] ?? .infinity)
+            // On the boundary is fine (large text: the next line's furigana touches
+            // this line); within 1pt for pixel snapping.
+            let below = y >= (text["bottom"] ?? 0) - 1
+            let above = index + 1 >= sorted.count || y <= (sorted[index + 1]["ink"] ?? .infinity) + 1
             if !below || !above {
                 XCTFail("Rule \(index) is not between its line and the next. " + dump, file: file, line: line)
                 return
