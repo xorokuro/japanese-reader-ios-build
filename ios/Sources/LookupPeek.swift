@@ -64,6 +64,8 @@ struct PeekState: Equatable {
     var matched = ""
     var hits: [DictionaryHit] = []
     var busy = true
+    /// Longer than the lookup limit: shown as text to copy, translate or share.
+    var long = false
 
     var characters: [String] { (before + text + after).map { String($0) } }
     var selected: ClosedRange<Int> {
@@ -81,6 +83,9 @@ final class SelectionBridge {
     weak var dictionaryView: WKWebView?
     var readerContext = SelectionContext()
     var dictionaryContext = SelectionContext()
+    /// Set when a tap on a still-selected passage asks for the card again, so the
+    /// next `select` of exactly this text reopens it (see `SelectionReopenTap`).
+    var reopenText: String?
 
     /// Moves the native selection. Returns false when the view is gone, in which
     /// case the caller looks the new text up directly.
@@ -146,42 +151,89 @@ struct LookupPeekCard: View {
     let close: () -> Void
     @State private var expanded = false
     @State private var translating = false
+    /// The selection that was last copied; the Copy button stays greyed out
+    /// ("Copied") until the selection changes.
+    @State private var copiedText: String?
+    @State private var showCopiedNote = false
+    @State private var hideNote: DispatchWorkItem?
+    /// The order of the icon buttons along the bottom, changed by dragging them.
+    @AppStorage(PeekAction.storageKey) private var actionOrder = PeekAction.standard
+    @State private var dropTarget: PeekAction?
+
+    private var copied: Bool { copiedText == peek.text }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
-            RefineStrip(characters: peek.characters, selection: peek.selected, style: style, commit: refine)
-            results
+            if peek.long {
+                passage
+            } else {
+                RefineStrip(characters: peek.characters, selection: peek.selected, style: style, commit: refine)
+                results
+            }
             footer
         }
         .padding(.horizontal, 14)
         .padding(.top, 16)
         .padding(.bottom, 12)
         .sketchCard(style, radius: 22, tape: .marker, tapeTrailing: true)
+        .overlay(alignment: .top) {
+            if showCopiedNote {
+                CopiedNote(style: style)
+                    .offset(y: -18)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.snappy(duration: 0.22), value: showCopiedNote)
+        .animation(.snappy(duration: 0.22), value: copied)
         .padding(.horizontal, 10)
         .padding(.bottom, 8)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("lookupPeek")
     }
 
+    private func doCopy() {
+        guard !copied else { return }
+        copy()
+        copiedText = peek.text
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        hideNote?.cancel()
+        showCopiedNote = true
+        let work = DispatchWorkItem { showCopiedNote = false }
+        hideNote = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6, execute: work)
+    }
+
     private var header: some View {
         HStack(alignment: .center, spacing: 10) {
-            HandSeal(text: "辞", style: style, size: 30)
+            HandSeal(text: peek.long ? "選" : "辞", style: style, size: 30)
             VStack(alignment: .leading, spacing: 1) {
-                Text("辞書 · Dictionary")
+                Text(peek.long ? "選取 · Selection" : "辞書 · Dictionary")
                     .font(HandFont.title(13))
                     .foregroundStyle(style.secondary)
                 HStack(spacing: 6) {
-                    Text("「\(peek.text)」")
-                        .font(HandFont.title(17))
-                        .foregroundStyle(style.accent)
-                        .lineLimit(1)
-                    if !peek.matched.isEmpty && peek.matched != peek.text.trimmingCharacters(in: .whitespacesAndNewlines) {
-                        Image(systemName: "arrow.right").font(.system(size: 11, weight: .bold)).foregroundStyle(style.faint)
-                        Text(peek.matched)
+                    if peek.long {
+                        Text("\(peek.text.count) 字")
                             .font(HandFont.title(17))
-                            .foregroundStyle(style.ink)
+                            .foregroundStyle(style.accent)
+                            .monospacedDigit()
+                        Text("too long to look up · copy or translate")
+                            .font(HandFont.body(12.5))
+                            .foregroundStyle(style.faint)
                             .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    } else {
+                        Text("「\(peek.text)」")
+                            .font(HandFont.title(17))
+                            .foregroundStyle(style.accent)
+                            .lineLimit(1)
+                        if !peek.matched.isEmpty && peek.matched != peek.text.trimmingCharacters(in: .whitespacesAndNewlines) {
+                            Image(systemName: "arrow.right").font(.system(size: 11, weight: .bold)).foregroundStyle(style.faint)
+                            Text(peek.matched)
+                                .font(HandFont.title(17))
+                                .foregroundStyle(style.ink)
+                                .lineLimit(1)
+                        }
                     }
                 }
             }
@@ -198,6 +250,24 @@ struct LookupPeekCard: View {
             .accessibilityLabel("Close dictionary card")
             .accessibilityIdentifier("closePeek")
         }
+    }
+
+    /// The whole long selection, so you can see what will be copied or translated.
+    private var passage: some View {
+        ScrollView {
+            Text(peek.text)
+                .font(HandFont.body(15.5))
+                .foregroundStyle(style.ink)
+                .lineSpacing(3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+        }
+        .frame(maxHeight: 150)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(style.raised.opacity(0.55), in: SketchShape(radius: 12, variant: 1))
+        .overlay(SketchShape(radius: 12, variant: 1).stroke(style.lineStrong.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+        .accessibilityIdentifier("peekPassage")
     }
 
     @ViewBuilder private var results: some View {
@@ -274,29 +344,149 @@ struct LookupPeekCard: View {
         .contentShape(Rectangle())
     }
 
-    private var footer: some View {
-        HStack(spacing: 8) {
+    private var copyButton: some View {
+        Button(action: doCopy) {
+            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+        }
+        .buttonStyle(PeekIconButtonStyle(style: style))
+        .disabled(copied)
+        .opacity(copied ? 0.5 : 1)
+        .saturation(copied ? 0 : 1)
+        .accessibilityLabel(copied ? "Copied" : "Copy")
+        .accessibilityIdentifier("peekCopy")
+    }
+
+    @ViewBuilder private func actionButton(_ action: PeekAction) -> some View {
+        switch action {
+        case .results:
             Button(action: showAll) {
-                Label(peek.hits.isEmpty ? String("Search") : String("Results · \(peek.hits.count)"), systemImage: "list.bullet")
+                Image(systemName: peek.hits.isEmpty ? "magnifyingglass" : "list.bullet")
             }
-            .buttonStyle(HandSoftButtonStyle(style: style, prominent: true))
+            .buttonStyle(PeekIconButtonStyle(style: style, prominent: true))
+            .accessibilityLabel(peek.hits.isEmpty ? "Search" : "All \(peek.hits.count) results")
             .accessibilityIdentifier("peekAllResults")
-            Button { translating = true } label: {
-                Label("Translate", systemImage: "character.bubble")
+        case .translate:
+            Button { translating = true } label: { Image(systemName: "character.bubble") }
+                .buttonStyle(PeekIconButtonStyle(style: style))
+                .accessibilityLabel("Translate")
+                .accessibilityIdentifier("peekTranslate")
+        case .copy:
+            copyButton
+        case .share:
+            ShareLink(item: peek.text) { Image(systemName: "square.and.arrow.up") }
+                .buttonStyle(PeekIconButtonStyle(style: style))
+                .accessibilityLabel("Share")
+                .accessibilityIdentifier("peekShare")
+        }
+    }
+
+    /// Icon buttons in the reader's own order. Touch and hold one, then drag it
+    /// onto another to swap places; the order is remembered.
+    private var footer: some View {
+        let shown = PeekAction.order(from: actionOrder).filter { $0.applies(long: peek.long) }
+        return HStack(spacing: 10) {
+            ForEach(shown) { action in
+                actionButton(action)
+                    .scaleEffect(dropTarget == action ? 1.12 : 1)
+                    .animation(.snappy(duration: 0.18), value: dropTarget)
+                    .draggable(action.rawValue) {
+                        Image(systemName: action.symbol)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(style.accent)
+                            .frame(width: 52, height: 40)
+                            .background(style.accentSoft, in: SketchShape(radius: 12))
+                    }
+                    .dropDestination(for: String.self) { items, _ in
+                        guard let raw = items.first, let dragged = PeekAction(rawValue: raw), dragged != action else { return false }
+                        withAnimation(.snappy(duration: 0.22)) {
+                            actionOrder = PeekAction.moving(dragged, to: action, in: PeekAction.order(from: actionOrder)).map(\.rawValue).joined(separator: ",")
+                        }
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        return true
+                    } isTargeted: { targeted in
+                        if targeted { dropTarget = action } else if dropTarget == action { dropTarget = nil }
+                    }
             }
-            .buttonStyle(HandSoftButtonStyle(style: style))
-            .accessibilityIdentifier("peekTranslate")
-            Button(action: copy) {
-                Label("Copy", systemImage: "doc.on.doc").labelStyle(.iconOnly)
-            }
-            .buttonStyle(HandSoftButtonStyle(style: style))
-            .accessibilityLabel("Copy")
-            .accessibilityIdentifier("peekCopy")
             Spacer(minLength: 0)
         }
-        .labelStyle(.titleAndIcon)
-        .lineLimit(1)
         .translationPresentation(isPresented: $translating, text: peek.text)
+    }
+}
+
+/// The dictionary card's action buttons, in an order the reader can change.
+enum PeekAction: String, CaseIterable, Identifiable {
+    case results, translate, copy, share
+    var id: String { rawValue }
+    static let storageKey = "peekActionOrder"
+    static let standard = "results,translate,copy,share"
+    var symbol: String {
+        switch self {
+        case .results: return "list.bullet"
+        case .translate: return "character.bubble"
+        case .copy: return "doc.on.doc"
+        case .share: return "square.and.arrow.up"
+        }
+    }
+    /// Results needs a word to look up; Share is for long selections only.
+    func applies(long: Bool) -> Bool {
+        switch self {
+        case .results: return !long
+        case .share: return long
+        case .translate, .copy: return true
+        }
+    }
+    /// The stored order, with unknown names dropped and any missing action appended.
+    static func order(from raw: String) -> [PeekAction] {
+        var result: [PeekAction] = []
+        for name in raw.split(separator: ",") {
+            if let action = PeekAction(rawValue: String(name)), !result.contains(action) { result.append(action) }
+        }
+        for action in allCases where !result.contains(action) { result.append(action) }
+        return result
+    }
+    /// Dropping one button on another puts it in that button's place.
+    static func moving(_ dragged: PeekAction, to target: PeekAction, in order: [PeekAction]) -> [PeekAction] {
+        guard let from = order.firstIndex(of: dragged), let to = order.firstIndex(of: target), from != to else { return order }
+        var result = order
+        result.remove(at: from)
+        result.insert(dragged, at: to)
+        return result
+    }
+}
+
+/// A square hand-drawn icon button for the dictionary card.
+struct PeekIconButtonStyle: ButtonStyle {
+    let style: ReaderStyle
+    var prominent = false
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 18, weight: .semibold))
+            .foregroundStyle(prominent ? style.accent : style.ink)
+            .frame(width: 52, height: 40)
+            .background(prominent ? style.accentSoft : style.surface, in: SketchShape(radius: 12))
+            .overlay(SketchShape(radius: 12).stroke(style.lineStrong, lineWidth: 1.3))
+            .background(SketchShape(radius: 12).fill(style.shade).offset(x: configuration.isPressed ? 1 : 2, y: configuration.isPressed ? 1 : 3))
+            .offset(x: configuration.isPressed ? 1 : 0, y: configuration.isPressed ? 2 : 0)
+            .contentShape(Rectangle())
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+/// A small "copied" note that floats above a card for a moment.
+struct CopiedNote: View {
+    let style: ReaderStyle
+    var text = "已複製 · Copied to clipboard"
+
+    var body: some View {
+        Label(text, systemImage: "checkmark.circle.fill")
+            .font(HandFont.title(14))
+            .foregroundStyle(style.onAccent)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .background(style.accent, in: Capsule())
+            .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
+            .allowsHitTesting(false)
+            .accessibilityIdentifier("copiedNote")
     }
 }
 

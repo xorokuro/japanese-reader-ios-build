@@ -18,13 +18,22 @@ struct InstalledDictionary: Identifiable {
 }
 
 struct EntryVisit {
-    let id = UUID()
+    var id = UUID()
     let hit: DictionaryHit
-    let html: String
+    /// Empty for a page restored from a previous launch until it is shown again.
+    var html: String
     let query: String
     let matches: [DictionaryHit]
     /// Filled in after the entry is on screen (it searches every dictionary).
     var alternatives: [DictionaryHit]
+}
+
+/// Cancels a background scan from the main thread.
+final class CancelFlag {
+    private let lock = NSLock()
+    private var cancelled = false
+    var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
+    func cancel() { lock.lock(); cancelled = true; lock.unlock() }
 }
 
 struct LookupSnapshot {
@@ -33,6 +42,8 @@ struct LookupSnapshot {
     let query: String
     let hits: [DictionaryHit]
     let showingLookup: Bool
+    /// On a results page: the result that was opened from it, scrolled back into view.
+    var anchor: DictionaryHit? = nil
 }
 
 @MainActor final class ReaderModel: ObservableObject {
@@ -83,19 +94,45 @@ struct LookupSnapshot {
     @Published private(set) var visits: [EntryVisit] = []
     private var lookupHistory: [LookupSnapshot] = []
     var canGoBack: Bool { !lookupHistory.isEmpty }
+    /// When Back returns to a results list, the result that was opened from it.
+    var resultsAnchor: DictionaryHit?
+    /// Set when a results list is about to be shown again (Back, or at launch).
+    var revealResultsAnchor = false
+    /// True while the Search tab is on screen. Lookups started anywhere else (Read,
+    /// 文法) begin a new Search stack instead of piling onto the one kept there.
+    var onSearchTab = true
     private func snapshot() -> LookupSnapshot {
         let visit = showingEntry ? visits.last : nil
-        return LookupSnapshot(visit: visit, visits: visits, query: visit?.query ?? word, hits: visit?.matches ?? hits, showingLookup: showingLookup)
+        return LookupSnapshot(visit: visit, visits: visits, query: visit?.query ?? word, hits: visit?.matches ?? hits,
+                              showingLookup: showingLookup, anchor: visit == nil ? resultsAnchor : nil)
     }
+    private func startFreshLookup() {
+        lookupHistory = []; visits = []; entryOffsets = [:]; resultsAnchor = nil
+    }
+    /// A lookup from this selection belongs to the page on the Search tab.
+    private func continuesSearch(inDictionary: Bool) -> Bool { inDictionary && onSearchTab }
     private func remember(_ page: LookupSnapshot) {
         lookupHistory.append(page)
         if lookupHistory.count > 30 { lookupHistory.removeFirst() }
+    }
+    /// Every definition page still reachable: the current stack and each Back step.
+    private var reachableVisits: [EntryVisit] {
+        var seen = Set<UUID>(), result: [EntryVisit] = []
+        for visit in lookupHistory.flatMap({ $0.visits + [$0.visit].compactMap { $0 } }) + visits where seen.insert(visit.id).inserted {
+            result.append(visit)
+        }
+        return result
+    }
+    private func pruneOffsets() {
+        let reachable = Set(reachableVisits.map(\.id))
+        entryOffsets = entryOffsets.filter { reachable.contains($0.key) }
     }
     var entryOffsets: [UUID: CGPoint] = [:]
     var readerOffset: CGPoint = .zero
     private var liveSearch: DispatchWorkItem?
     func typedSearch(_ query: String, clearSelection: Bool = false) {
         cancelPendingSearch()
+        resultsAnchor = nil
         if clearSelection { readerSelection = ""; dictionarySelection = "" }
         word = query
         hits = []
@@ -103,7 +140,8 @@ struct LookupSnapshot {
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let pending = DispatchWorkItem { [weak self] in self?.search(dismissKeyboard: false) }
         liveSearch = pending
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: pending)
+        // Full text reads every dictionary: wait until typing pauses.
+        DispatchQueue.main.asyncAfter(deadline: .now() + (searchMode == .fullText ? 0.6 : 0.18), execute: pending)
     }
     func followEntryLink(_ query: String) {
         word = query
@@ -113,10 +151,36 @@ struct LookupSnapshot {
         entryHTML = visit.html; entryRoot = visit.hit.root; entryCode = visit.hit.code
         entryTitle = visit.hit.word; entryDictionary = visit.hit.dictionary; entryHitIdentity = visit.hit.identity
         entryID = visit.id; entryMatches = visit.alternatives
+        entryHighlight = visit.hit.match
         word = visit.query; hits = visit.matches; dictionarySelection = ""
         closePeek()
         showingEntry = true; showingLookup = true; status = ""
         lookupNavigation = UUID()
+        if visit.html.isEmpty { loadPage(of: visit) }
+    }
+    /// Re-reads a definition that was restored from a previous launch.
+    private func loadPage(of visit: EntryVisit) {
+        let hit = visit.hit, visitID = visit.id, query = visit.query
+        queue.async {
+            let result = Result { () -> String in
+                let store = try DictionaryStore.shared(root: hit.root)
+                return DictionaryPage.make(body: try store.entry(hit), css: try store.stylesheet(code: hit.code), code: hit.code)
+            }
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let html):
+                    for index in self.visits.indices where self.visits[index].id == visitID { self.visits[index].html = html }
+                    guard self.entryID == visitID, self.showingEntry else { return }
+                    self.entryHTML = html
+                    let enabled = self.dictionaries.filter { !self.disabledDictionaries.contains($0.id) }
+                    if !enabled.isEmpty { self.loadAlternatives(for: visitID, hit: hit, query: query, enabled: enabled) }
+                case .failure:
+                    guard self.entryID == visitID, self.showingEntry else { return }
+                    self.showingEntry = false
+                    self.status = "「\(hit.word)」 couldn't be reopened. Its dictionary may have been moved or removed."
+                }
+            }
+        }
     }
     func backToPreviousEntry() {
         cancelPendingSearch()
@@ -125,6 +189,7 @@ struct LookupSnapshot {
         if let visit = previous.visit { display(visit) }
         else {
             word = previous.query; hits = previous.hits; dictionarySelection = ""
+            resultsAnchor = previous.anchor; revealResultsAnchor = previous.anchor != nil
             showingEntry = false; showingLookup = previous.showingLookup; status = ""
             // Already on Search: do not emit a new navigation event here, which
             // would override the Back action's request to focus the search field.
@@ -173,6 +238,12 @@ struct LookupSnapshot {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: action)
     }
     func select(_ text: String, inDictionary: Bool) {
+        let reopen = SelectionBridge.shared.reopenText
+        SelectionBridge.shared.reopenText = nil
+        if let reopen, !reopen.isEmpty, reopen == text {
+            reopenPeek(text, inDictionary: inDictionary)
+            return
+        }
         if !text.isEmpty { selectionFromDictionary = inDictionary }
         if inDictionary { dictionarySelection = text } else { readerSelection = text }
         cancelPendingSearch()
@@ -193,7 +264,18 @@ struct LookupSnapshot {
             return
         }
         word = text
-        search(dismissKeyboard: false, navigate: true, onlyIfMatched: true)
+        search(dismissKeyboard: false, navigate: true, onlyIfMatched: true, fresh: !continuesSearch(inDictionary: inDictionary))
+    }
+    /// A tap on a selection that has no card (the card was closed, or the page was
+    /// left and reopened) brings the card back: with the iPhone bar hidden it is
+    /// the only place to Copy or Translate the selection.
+    func reopenPeek(_ text: String, inDictionary: Bool) {
+        guard selectionPeek, !text.isEmpty else { return }
+        if let current = peek, current.inDictionary == inDictionary, current.text == text { return }
+        selectionFromDictionary = inDictionary
+        if inDictionary { dictionarySelection = text } else { readerSelection = text }
+        cancelPendingSearch()
+        peekLookup(text, inDictionary: inDictionary)
     }
     func searchSelected(inDictionary: Bool) {
         let selected = inDictionary ? dictionarySelection : readerSelection
@@ -203,7 +285,7 @@ struct LookupSnapshot {
             return
         }
         word = selected
-        search(dismissKeyboard: true, navigate: true)
+        search(dismissKeyboard: true, navigate: true, fresh: !continuesSearch(inDictionary: inDictionary))
     }
 
     // MARK: Selection peek
@@ -226,8 +308,16 @@ struct LookupSnapshot {
         let enabled = dictionaries.filter { !disabledDictionaries.contains($0.id) }
         var next = PeekState(text: text, before: context.before, after: context.after,
                              location: context.location, inDictionary: inDictionary)
+        // A sentence or paragraph is not looked up: the card shows the whole
+        // selection with Copy, Translate and Share instead.
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).count > SelectionLimit.current {
+            next.long = true
+            next.busy = false
+            peek = next
+            return
+        }
         // Keep the previous results on screen while a refined lookup runs.
-        if let current = peek, current.inDictionary == inDictionary {
+        if let current = peek, current.inDictionary == inDictionary, !current.long {
             next.hits = current.hits; next.matched = current.matched
         }
         peek = next
@@ -277,19 +367,22 @@ struct LookupSnapshot {
         hits = current.hits
         status = ""
         closePeek()
-        open(hit)
+        open(hit, fresh: !continuesSearch(inDictionary: current.inDictionary))
     }
     func showPeekResults() {
         guard let current = peek else { return }
-        let previousPage = showingEntry ? snapshot() : nil
+        let fresh = !continuesSearch(inDictionary: current.inDictionary)
+        let previousPage = showingEntry && !fresh ? snapshot() : nil
         word = current.matched.isEmpty ? current.text.trimmingCharacters(in: .whitespacesAndNewlines) : current.matched
         closePeek()
         guard !current.hits.isEmpty else {
-            search(dismissKeyboard: true, navigate: true)
+            search(dismissKeyboard: true, navigate: true, fresh: fresh)
             return
         }
         cancelPendingSearch()
+        if fresh { startFreshLookup() }
         if let previousPage { remember(previousPage) }
+        resultsAnchor = nil
         hits = current.hits
         status = ""
         recordSearch(word)
@@ -303,16 +396,40 @@ struct LookupSnapshot {
         showingLookup = false
         showingEntry = false
     }
-    private var searchGeneration = 0
+    /// Leaving the Search tab keeps its page, Back history and scroll positions.
+    func leaveLookup() {
+        closePeek()
+        cancelPendingSearch()
+    }
+    private var searchGeneration = 0 {
+        didSet { fullTextCancel?.cancel(); if !fullTextProgress.isEmpty { fullTextProgress = "" } }
+    }
     private var libraryWritable = true
     let queue = DispatchQueue(label: "JapaneseReader.dictionary", qos: .userInitiated)
+    /// Full-text scans read whole dictionaries; they get their own queue so card
+    /// lookups and opening entries never wait behind them.
+    private let fullTextQueue = DispatchQueue(label: "JapaneseReader.fullText", qos: .userInitiated)
+    private var fullTextCancel: CancelFlag?
+    /// "Searching 大辞泉… 3/11" while a full-text search runs.
+    @Published private(set) var fullTextProgress = ""
+    /// The searched text to mark on the open entry (full-text results only).
+    @Published private(set) var entryHighlight = ""
+    static let fullTextLimit = 300
+    static let fullTextPerDictionary = 80
     let documents: URL
     private let preferences: UserDefaults
     var dictionaryRoot: URL { documents.appendingPathComponent("dictionaries", isDirectory: true) }
     var libraryURL: URL { documents.appendingPathComponent("reading-library.json") }
-    init(documents: URL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0], preferences: UserDefaults = .standard) {
+    /// Where the reading position is kept between launches; nil keeps nothing.
+    let sessionURL: URL?
+    /// The tab that was open when the app was last put away.
+    private(set) var restoredTab = 0
+    /// The last saved state, for the 文法 tab to restore its own part from.
+    private(set) var restoredSession: SessionState?
+    init(documents: URL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0], preferences: UserDefaults = .standard, session: URL? = nil) {
         self.documents = documents
         self.preferences = preferences
+        self.sessionURL = session
         searchHistory = preferences.stringArray(forKey: "searchHistory") ?? []
         readerAutoSearch = (preferences.object(forKey: "readerAutoSearch") as? Bool) ?? true
         dictionaryAutoSearch = (preferences.object(forKey: "dictionaryAutoSearch") as? Bool) ?? true
@@ -328,7 +445,73 @@ struct LookupSnapshot {
             do { saved = try JSONDecoder().decode([SavedText].self, from: bytes) }
             catch { libraryWritable = false; status = "The saved library could not be read. Its file has been preserved." }
         }
+        if let session, let state = SessionState.load(from: session) { restore(state) }
         reload()
+    }
+
+    // MARK: Where you left off
+
+    /// Dictionary folders as the dictionary list names them (see `reload`).
+    private var dictionaryFolders: [URL] {
+        let extras = documents.appendingPathComponent("Dictionary Packs", isDirectory: true)
+        return [dictionaryRoot] + ((try? FileManager.default.contentsOfDirectory(at: extras, includingPropertiesForKeys: nil)) ?? [])
+    }
+    /// Reading and Search state; the 文法 tab adds its own part (`GrammarStore.fill`).
+    func sessionState(tab: Int) -> SessionState {
+        let docs = documents
+        func stored(_ hit: DictionaryHit) -> SessionHit { SessionHit(hit, documents: docs) }
+        var state = SessionState()
+        state.tab = tab
+        state.text = text
+        state.readerOffset = readerOffset
+        state.pages = reachableVisits.map { visit in
+            SessionPage(id: visit.id, hit: stored(visit.hit), query: visit.query,
+                        matches: visit.matches.map(stored), offset: entryOffsets[visit.id])
+        }
+        state.stack = visits.map(\.id)
+        state.showingEntry = showingEntry && !visits.isEmpty
+        state.showingLookup = showingLookup
+        state.word = word
+        state.hits = hits.map(stored)
+        state.anchor = resultsAnchor.map(stored)
+        state.history = lookupHistory.map { step in
+            SessionStep(stack: step.visits.map(\.id), page: step.visit?.id, query: step.query,
+                        hits: step.hits.map(stored), showingLookup: step.showingLookup, anchor: step.anchor.map(stored))
+        }
+        return state
+    }
+    func restore(_ state: SessionState) {
+        restoredSession = state
+        let roots = SessionRoots(documents: documents, candidates: dictionaryFolders)
+        var pages: [UUID: EntryVisit] = [:]
+        for page in state.pages {
+            let hit = page.hit.hit(roots)
+            pages[page.id] = EntryVisit(id: page.id, hit: hit, html: "", query: page.query,
+                                        matches: page.matches.map { $0.hit(roots) }, alternatives: [hit])
+            if let offset = page.offset { entryOffsets[page.id] = offset }
+        }
+        text = state.text
+        readerOffset = state.readerOffset
+        restoredTab = (0...3).contains(state.tab) ? state.tab : 0
+        lookupHistory = state.history.map { step in
+            LookupSnapshot(visit: step.page.flatMap { pages[$0] }, visits: step.stack.compactMap { pages[$0] },
+                           query: step.query, hits: step.hits.map { $0.hit(roots) },
+                           showingLookup: step.showingLookup, anchor: step.anchor.map { $0.hit(roots) })
+        }
+        visits = state.stack.compactMap { pages[$0] }
+        word = state.word
+        hits = state.hits.map { $0.hit(roots) }
+        resultsAnchor = state.anchor.map { $0.hit(roots) }
+        revealResultsAnchor = resultsAnchor != nil
+        showingLookup = state.showingLookup
+        if state.showingEntry, let visit = visits.last {
+            // Set directly: no navigation event at launch.
+            entryRoot = visit.hit.root; entryCode = visit.hit.code
+            entryTitle = visit.hit.word; entryDictionary = visit.hit.dictionary; entryHitIdentity = visit.hit.identity
+            entryID = visit.id; entryMatches = visit.alternatives; entryHighlight = visit.hit.match; entryHTML = ""
+            showingEntry = true
+            loadPage(of: visit)
+        }
     }
     func reload() {
         let root = dictionaryRoot
@@ -347,6 +530,11 @@ struct LookupSnapshot {
             DispatchQueue.main.async {
                 let order = self.dictionaryOrder
                 self.dictionaries = items.sorted { (order.firstIndex(of: $0.id) ?? Int.max) < (order.firstIndex(of: $1.id) ?? Int.max) }
+                // A page reopened at launch fills in its dictionary switcher now.
+                if self.showingEntry, let visit = self.visits.last, visit.id == self.entryID, self.entryMatches.count <= 1 {
+                    let enabled = self.dictionaries.filter { !self.disabledDictionaries.contains($0.id) }
+                    self.loadAlternatives(for: visit.id, hit: visit.hit, query: visit.query, enabled: enabled)
+                }
             }
         }
     }
@@ -365,17 +553,21 @@ struct LookupSnapshot {
         word = selected
         search(dismissKeyboard: false)
     }
-    func search(dismissKeyboard: Bool = true, navigate: Bool = false, onlyIfMatched: Bool = false, openBestMatch: Bool = false) {
+    func search(dismissKeyboard: Bool = true, navigate: Bool = false, onlyIfMatched: Bool = false, openBestMatch: Bool = false, fresh: Bool = false) {
         if dismissKeyboard { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
         liveSearch?.cancel(); liveSearch = nil
         searchGeneration += 1
         let generation = searchGeneration, query = word
-        let previousPage = showingEntry ? snapshot() : nil
+        let previousPage = showingEntry && !fresh ? snapshot() : nil
         let preferredRoot = entryRoot, preferredCode = entryCode
         let mode: DictionarySearchMode = openBestMatch ? .exact : (navigate ? .prefix : searchMode)
         let selected = dictionaries.filter { !disabledDictionaries.contains($0.id) && (navigate || searchScope.isEmpty || $0.id == searchScope) }
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { hits = []; lookupBusy = false; status = ""; return }
         if dismissKeyboard || navigate { recordSearch(query) }
+        if mode == .fullText {
+            fullTextSearch(query, in: selected, generation: generation)
+            return
+        }
         lookupBusy = true
         queue.async {
             let result = Result { () -> [DictionaryHit] in
@@ -387,11 +579,14 @@ struct LookupSnapshot {
                 self.lookupBusy = false
                 switch result {
                 case .success(let hits):
+                    if !navigate && !openBestMatch { self.resultsAnchor = nil }
                     self.hits = hits
                     self.status = hits.isEmpty ? "No match. Try the dictionary form of the word." : ""
                     if openBestMatch, let hit = hits.first(where: { $0.root == preferredRoot && $0.code == preferredCode }) ?? hits.first {
                         self.open(hit)
                     } else if navigate && (!onlyIfMatched || !hits.isEmpty) {
+                        if fresh { self.startFreshLookup() }
+                        self.resultsAnchor = nil
                         if let previousPage { self.remember(previousPage) }
                         self.showingEntry = false; self.showingLookup = true; self.lookupNavigation = UUID()
                     }
@@ -400,7 +595,55 @@ struct LookupSnapshot {
             }
         }
     }
-    func open(_ hit: DictionaryHit, replacingCurrent: Bool = false) {
+    /// 全文: every entry whose definition or example sentences contain the text.
+    /// Results appear dictionary by dictionary while the scan continues.
+    private func fullTextSearch(_ query: String, in selected: [InstalledDictionary], generation: Int) {
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        resultsAnchor = nil
+        guard !selected.isEmpty else {
+            hits = []; lookupBusy = false; status = "Enable a dictionary in Library first, or add the dictionaries folder."
+            return
+        }
+        let flag = CancelFlag()
+        fullTextCancel = flag
+        hits = []; status = ""; lookupBusy = true
+        fullTextProgress = "Searching \(selected[0].name)… 1/\(selected.count)"
+        let overall = Self.fullTextLimit, perDictionary = Self.fullTextPerDictionary
+        fullTextQueue.async {
+            var stores: [String: DictionaryStore] = [:]
+            var total = 0
+            for (index, dictionary) in selected.enumerated() {
+                if flag.isCancelled || total >= overall { break }
+                if index > 0 {
+                    let label = "Searching \(dictionary.name)… \(index + 1)/\(selected.count)"
+                    DispatchQueue.main.async { if generation == self.searchGeneration { self.fullTextProgress = label } }
+                }
+                // A private store: the scan must not hold the shared one's lock.
+                let key = dictionary.root.standardizedFileURL.path
+                guard let store = stores[key] ?? (try? DictionaryStore(root: dictionary.root)) else { continue }
+                stores[key] = store
+                let limit = min(perDictionary, overall - total)
+                let found = (try? store.searchText(text, code: dictionary.code, dictionary: dictionary.name,
+                                                   limit: limit, cancelled: { flag.isCancelled })) ?? []
+                total += found.count
+                if !found.isEmpty {
+                    DispatchQueue.main.async { if generation == self.searchGeneration { self.hits += found } }
+                }
+            }
+            let capped = total >= overall
+            DispatchQueue.main.async {
+                guard generation == self.searchGeneration else { return }
+                self.lookupBusy = false
+                self.fullTextProgress = ""
+                if self.hits.isEmpty {
+                    self.status = "No definition or example sentence contains “\(text)”."
+                } else if capped {
+                    self.status = "Showing the first \(overall) entries. Add more characters to narrow it down."
+                }
+            }
+        }
+    }
+    func open(_ hit: DictionaryHit, replacingCurrent: Bool = false, fresh: Bool = false) {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         liveSearch?.cancel(); liveSearch = nil
         searchGeneration += 1
@@ -409,7 +652,10 @@ struct LookupSnapshot {
         let query = replacingCurrent ? (visits.last?.query ?? word) : word
         let matches = replacingCurrent ? (visits.last?.matches ?? hits) : hits
         let wasEntry = showingEntry
-        let previousPage = snapshot()
+        var previousPage = snapshot()
+        if !wasEntry { previousPage.anchor = hit }
+        // From a card outside Search, Back leads to the card's result list only.
+        if fresh { previousPage = LookupSnapshot(visit: nil, visits: [], query: word, hits: hits, showingLookup: false, anchor: hit) }
         let enabled = dictionaries.filter { !disabledDictionaries.contains($0.id) }
         lookupBusy = true
         queue.async {
@@ -425,21 +671,45 @@ struct LookupSnapshot {
                     // Show the definition at once; the dictionary switcher fills in after.
                     let alternatives = [hit]
                     self.recordSearch(query)
+                    if fresh { self.startFreshLookup() }
                     if !replacingCurrent { self.remember(previousPage) }
+                    // Scroll positions stay while any Back step can still reach their page.
                     if replacingCurrent, !self.visits.isEmpty {
-                        let removed = self.visits.removeLast(); self.entryOffsets.removeValue(forKey: removed.id)
+                        self.visits.removeLast()
                     } else if !wasEntry && !self.showingLookup {
-                        self.visits = []; self.entryOffsets = [:]
+                        self.visits = []
                     }
                     let visit = EntryVisit(hit: hit, html: html, query: query, matches: matches, alternatives: alternatives)
                     self.visits.append(visit)
-                    if self.visits.count > 30 { let removed = self.visits.removeFirst(); self.entryOffsets.removeValue(forKey: removed.id) }
+                    if self.visits.count > 30 { self.visits.removeFirst() }
+                    self.pruneOffsets()
                     self.display(visit)
                     self.loadAlternatives(for: visit.id, hit: hit, query: query, enabled: enabled)
                 case .failure(let error): self.status = error.localizedDescription
                 }
             }
         }
+    }
+    /// The same word in every enabled dictionary, in the switcher list's order
+    /// (dictionary order first, then each dictionary's own order).
+    var orderedEntryMatches: [DictionaryHit] {
+        let rank = Dictionary(dictionaries.enumerated().map { ($0.element.root.path + "/" + $0.element.code, $0.offset) },
+                              uniquingKeysWith: { first, _ in first })
+        return entryMatches.enumerated().sorted { a, b in
+            let x = rank[a.element.root.path + "/" + a.element.code] ?? Int.max
+            let y = rank[b.element.root.path + "/" + b.element.code] ?? Int.max
+            return x != y ? x < y : a.offset < b.offset
+        }.map(\.element)
+    }
+    /// Position of the open definition among `orderedEntryMatches`.
+    var entryMatchIndex: Int? { orderedEntryMatches.firstIndex { $0.identity == entryHitIdentity } }
+    /// The ‹ › arrows beside the title: the previous / next dictionary's entry for
+    /// the same word, without opening the switcher list.
+    func stepEntry(_ step: Int) {
+        let matches = orderedEntryMatches
+        guard let index = entryMatchIndex, matches.indices.contains(index + step) else { return }
+        closePeek()
+        open(matches[index + step], replacingCurrent: true)
     }
     /// The title switcher spans all enabled dictionaries, even if Search was scoped
     /// to one dictionary. It is loaded after the definition is already visible.
@@ -538,6 +808,7 @@ struct LookupSnapshot {
 
 @main struct JapaneseReaderApp: App {
     @StateObject private var model: ReaderModel
+    @StateObject private var grammar: GrammarStore
     init() {
         HandFont.register()
         #if DEBUG
@@ -551,17 +822,38 @@ struct LookupSnapshot {
         if ProcessInfo.processInfo.arguments.contains("--ui-dictionary-fixture") {
             UserDefaults.standard.set(false, forKey: "savePassagesOnRead")
             UserDefaults.standard.set(true, forKey: "readerAutoSearch")
-            _model = StateObject(wrappedValue: ReaderModel(documents: UITestFixture.documents()))
-        } else { _model = StateObject(wrappedValue: ReaderModel()) }
+            UserDefaults.standard.removeObject(forKey: GrammarStore.learnedKey)
+            UserDefaults.standard.removeObject(forKey: "grammarLevel")
+            let documents = UITestFixture.documents()
+            // Relaunch tests keep the saved place between launches.
+            let keep = ProcessInfo.processInfo.arguments.contains("--ui-keep-session")
+            if ProcessInfo.processInfo.arguments.contains("--ui-clear-session") { try? FileManager.default.removeItem(at: SessionState.defaultURL) }
+            _model = StateObject(wrappedValue: ReaderModel(documents: documents, session: keep ? SessionState.defaultURL : nil))
+            _grammar = StateObject(wrappedValue: GrammarStore(documents: documents, bundled: nil))
+        } else if ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--ui-") }) {
+            // Interface tests start from a clean screen every launch.
+            _model = StateObject(wrappedValue: ReaderModel())
+            _grammar = StateObject(wrappedValue: GrammarStore())
+        } else {
+            _model = StateObject(wrappedValue: ReaderModel(session: SessionState.defaultURL))
+            _grammar = StateObject(wrappedValue: GrammarStore())
+        }
         #else
-        _model = StateObject(wrappedValue: ReaderModel())
+        _model = StateObject(wrappedValue: ReaderModel(session: SessionState.defaultURL))
+        _grammar = StateObject(wrappedValue: GrammarStore())
         #endif
     }
-    var body: some Scene { WindowGroup { ReaderHome().environmentObject(model).tint(Palette.color(0x1F7A73)) } }
+    var body: some Scene {
+        WindowGroup { ReaderHome().environmentObject(model).environmentObject(grammar).tint(Palette.color(0x1F7A73)) }
+    }
 }
 
 struct ReaderHome: View {
     @EnvironmentObject var model: ReaderModel
+    @EnvironmentObject var grammar: GrammarStore
+    @Environment(\.scenePhase) private var scenePhase
+    /// The last session's tab is reopened once, at launch.
+    @State private var restoredTab = false
     @State private var importing = false
     @State private var keyboardVisible = false
     @State private var clearedPassage: String?
@@ -604,12 +896,19 @@ struct ReaderHome: View {
     @AppStorage("washiRedesignApplied") private var washiRedesignApplied = false
     @AppStorage("readerTextSize") private var readerTextSize = 23.0
     @AppStorage("readerLineSpacing") private var readerLineSpacing = 1.35
+    /// Ruled notebook lines behind the passage (desktop look).
+    @AppStorage("ruledPaper") private var ruledPaper = true
     @AppStorage("dictionaryTextSize") private var dictionaryTextSize = 19.0
+    @AppStorage(DictionaryTextSizes.key) private var dictionaryTextSizes = ""
     @AppStorage("dictionarySans") private var dictionarySans = false
     @AppStorage("pageMargins") private var pageMarginsRaw = PageMargins.compact.rawValue
     private var pageMargins: PageMargins { PageMargins.resolve(pageMarginsRaw) }
     // Search header: hides while scrolling down through results, returns on scroll up.
     @State private var headerCollapsed = false
+    /// Side of the last double-tap dictionary step, shown briefly as a chevron.
+    @State private var entryStepFlash: Int?
+    /// How far the results are pulled down past the top (pull to clear).
+    @State private var searchPull: CGFloat = 0
     @State private var headerHeight: CGFloat = 104
     @State private var scrollTracker = ScrollTracker()
     private var readerTypeface: ReaderTypeface { ReaderTypeface.resolve(readerTypefaceRaw) }
@@ -659,14 +958,15 @@ struct ReaderHome: View {
     }
     var body: some View {
         TabView(selection: Binding(get: { selectedTab }, set: { tab in
-            if tab == 1 { activateSearchTab() } else { selectedTab = tab }
+            if tab == 1 { openSearchTab() } else { selectedTab = tab }
         })) {
             readerTab
             searchTab
             libraryTab
+            grammarTab
         }
         .sheet(isPresented: $showingHistory) { historySheet }
-        .background(SelectionTouchObserver(enabled: selectedTab == 0 || (selectedTab == 1 && model.showingEntry)) { down, cancelled in
+        .background(SelectionTouchObserver(enabled: selectedTab == 0 || selectedTab == 3 || (selectedTab == 1 && model.showingEntry)) { down, cancelled in
             model.selectionTouchChanged(down: down, cancelled: cancelled)
         })
         .background(KeyboardDismissArea(enabled: keyboardVisible && selectedTab != 2, dismiss: dismissKeyboard))
@@ -682,6 +982,12 @@ struct ReaderHome: View {
         .environment(\.readerStyle, style)
         .overlay(alignment: .top) { sizeBadge }
         .onAppear {
+            if !restoredTab {
+                restoredTab = true
+                if let state = model.restoredSession { grammar.restore(state) }
+                selectedTab = model.restoredTab
+                model.onSearchTab = selectedTab == 1
+            }
             applyRedesignOnce()
             // Start WebKit once the first screen is up, so the first definition opens fast.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { DictionaryPage.prewarm() }
@@ -689,12 +995,19 @@ struct ReaderHome: View {
         .onChange(of: selectedTab) { _, tab in
             // Programmatic lookup navigation must keep the keyboard hidden.
             // User tab taps are handled separately, including reselection.
+            model.onSearchTab = tab == 1
             if tab != 1 {
-                wantsSearchFocus = false; model.closeLookup()
+                // The Search page, its Back history and scroll positions stay put.
+                wantsSearchFocus = false; model.leaveLookup()
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             }
         }
         .onChange(of: model.lookupNavigation) { _, _ in wantsSearchFocus = false; selectedTab = 1 }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { saveSession() } }
+        // Also straight from UIKit, in case the scene phase reaches this view late.
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in saveSession() }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in saveSession() }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willTerminateNotification)) { _ in saveSession() }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.folder]) { result in
             switch result {
             case .success(let folder): model.importFolder(folder)
@@ -703,14 +1016,24 @@ struct ReaderHome: View {
         }
     }
 
+    /// Saved whenever the app is put away, so a closed app reopens where it was.
+    private func saveSession() {
+        guard let url = model.sessionURL else { return }
+        var state = model.sessionState(tab: selectedTab)
+        grammar.fill(&state)
+        state.write(to: url)
+    }
+
     // Stays reachable above the keyboard on every screen.
     private var keyboardBar: some View {
         HStack {
             Button("Read") { dismissKeyboard(); selectedTab = 0 }.accessibilityIdentifier("keyboardReadTab")
             Spacer()
-            Button("Search") { activateSearchTab() }.accessibilityIdentifier("keyboardSearchTab")
+            Button("Search") { openSearchTab() }.accessibilityIdentifier("keyboardSearchTab")
             Spacer()
             Button("Library") { dismissKeyboard(); selectedTab = 2 }.accessibilityIdentifier("keyboardLibraryTab")
+            Spacer()
+            Button("Grammar") { dismissKeyboard(); selectedTab = 3 }.accessibilityIdentifier("keyboardGrammarTab")
             Spacer()
             Button("Done") { dismissKeyboard() }.accessibilityIdentifier("dismissKeyboard").fontWeight(.semibold)
         }
@@ -721,6 +1044,17 @@ struct ReaderHome: View {
         .background(paper)
         .background(KeyboardControlArea())
         .overlay(alignment: .top) { Rectangle().fill(style.separator).frame(height: 1) }
+    }
+
+    // MARK: - Grammar
+
+    private var grammarTab: some View {
+        GrammarTab(style: style, margins: pageMargins, quietMenu: quietMenu, active: selectedTab == 3,
+                   typeface: readerTypeface,
+                   showSize: { sizeHUD = $0 }, hideSize: hideSizeHUD)
+            .toolbarBackground(paper, for: .tabBar, .navigationBar)
+            .toolbarBackground(.visible, for: .tabBar, .navigationBar)
+            .tabItem { Label("Grammar", systemImage: "text.book.closed") }.tag(3)
     }
 
     // MARK: - Read
@@ -828,6 +1162,14 @@ struct ReaderHome: View {
         .accessibilityIdentifier("readerOptions")
     }
 
+    /// The open dictionary's own definition size, or the default one.
+    private var entryTextSize: Double {
+        DictionaryTextSizes.size(for: model.entryCode, in: dictionaryTextSizes, fallback: dictionaryTextSize)
+    }
+    private var entryHasOwnSize: Bool { DictionaryTextSizes.decode(dictionaryTextSizes)[model.entryCode] != nil }
+    private func setEntryTextSize(_ value: Double) {
+        dictionaryTextSizes = DictionaryTextSizes.setting(value, for: model.entryCode, in: dictionaryTextSizes)
+    }
     private func hideSizeHUD() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { withAnimation(.easeOut(duration: 0.25)) { sizeHUD = nil } }
     }
@@ -921,11 +1263,14 @@ struct ReaderHome: View {
                                translations: translationReady ? translatedLines : [],
                                quietMenu: quietMenu,
                                sideInset: pageMargins.readerInset,
+                               ruled: ruledPaper,
+                               ruleColor: UIColor(style.tape).withAlphaComponent(style.isDark ? 0.30 : 0.26),
+                               marginColor: UIColor(accent).withAlphaComponent(0.38),
                                resize: TextResize(value: readerTextSize, range: 16...38,
                                                   set: { readerTextSize = $0; sizeHUD = Int($0) },
                                                   ended: hideSizeHUD),
                                saveOffset: { model.readerOffset = $0 }) { word in
-                guard !model.showingLookup, selectedTab == 0 else { return }
+                guard selectedTab == 0 else { return }
                 model.select(word, inDictionary: false)
             }
             .clipShape(SketchShape(radius: 20))
@@ -1030,7 +1375,9 @@ struct ReaderHome: View {
     private var searchTab: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if model.showingEntry { entryView } else { lookup(focusSearch: wantsSearchFocus) }
+                if model.showingEntry {
+                    if model.entryHTML.isEmpty { reopeningEntry } else { entryView }
+                } else { lookup(focusSearch: wantsSearchFocus) }
                 if !model.status.isEmpty {
                     StatusNote(text: model.status, style: style, symbol: "book.closed")
                         .padding(.horizontal, 12).padding(.bottom, 8)
@@ -1052,7 +1399,13 @@ struct ReaderHome: View {
                     }
                 }
                 ToolbarItem(placement: .principal) {
-                    if model.showingEntry { entryTitleButton }
+                    if model.showingEntry {
+                        HStack(spacing: 4) {
+                            entryStepButton(-1)
+                            entryTitleButton
+                            entryStepButton(1)
+                        }
+                    }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     if model.showingEntry {
@@ -1062,6 +1415,19 @@ struct ReaderHome: View {
                                 ForEach(PageMargins.allCases) { margin in Text(margin.title).tag(margin.rawValue) }
                             }
                             .pickerStyle(.menu)
+                            Menu {
+                                Button { setEntryTextSize(entryTextSize + 1) } label: { Label("Larger", systemImage: "textformat.size.larger") }
+                                    .disabled(entryTextSize >= DictionaryTextSizes.range.upperBound)
+                                Button { setEntryTextSize(entryTextSize - 1) } label: { Label("Smaller", systemImage: "textformat.size.smaller") }
+                                    .disabled(entryTextSize <= DictionaryTextSizes.range.lowerBound)
+                                if entryHasOwnSize {
+                                    Button("Use default size (\(Int(dictionaryTextSize)) pt)") {
+                                        dictionaryTextSizes = DictionaryTextSizes.removing(model.entryCode, in: dictionaryTextSizes)
+                                    }
+                                }
+                            } label: {
+                                Label("Text size for this dictionary · \(Int(entryTextSize)) pt", systemImage: "textformat.size")
+                            }
                             Button("Copy learning prompt") { UIPasteboard.general.string = model.prompt(inDictionary: true); model.status = "Learning prompt copied." }
                             Button("Back to Main Page") { selectedTab = 0 }
                         } label: { Image(systemName: "line.3.horizontal") }.accessibilityLabel("Dictionary navigation")
@@ -1081,24 +1447,139 @@ struct ReaderHome: View {
         }
         .toolbarBackground(paper, for: .tabBar, .navigationBar)
         .toolbarBackground(.visible, for: .tabBar, .navigationBar)
-        .background(SearchTabObserver { activateSearchTab() })
+        .background(SearchTabObserver { reselected in if reselected { activateSearchTab() } })
         .tabItem { Label("Search", systemImage: "magnifyingglass") }.tag(1)
     }
 
-    private var entryTitleButton: some View {
-        Button { switchingDictionary = true } label: {
+    /// Double-tap on the right / left half of a definition = › / ‹.
+    private func doubleTapStep(_ step: Int) {
+        guard selectedTab == 1, model.showingEntry else { return }
+        guard let index = model.entryMatchIndex, model.orderedEntryMatches.indices.contains(index + step) else {
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            return
+        }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        withAnimation(.easeOut(duration: 0.12)) { entryStepFlash = step }
+        model.stepEntry(step)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            withAnimation(.easeIn(duration: 0.2)) { if entryStepFlash == step { entryStepFlash = nil } }
+        }
+    }
+
+    /// Progress (and the final note) of a full-text search, above the tab bar.
+    private var fullTextStatus: AnyView { AnyView(fullTextStatusContent) }
+    @ViewBuilder private var fullTextStatusContent: some View {
+        let text = !model.fullTextProgress.isEmpty ? model.fullTextProgress
+            : (model.searchMode == .fullText && !model.word.isEmpty ? model.status : "")
+        if !text.isEmpty && !model.showingEntry {
             HStack(spacing: 8) {
-                HandSeal(text: "辞", style: style, size: 26)
+                if !model.fullTextProgress.isEmpty { ProgressView().controlSize(.small) }
+                Text(text).font(.system(size: 12.5, weight: .medium)).foregroundStyle(style.secondary)
+                    .lineLimit(2).multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .background(style.surface, in: Capsule())
+            .overlay(Capsule().stroke(style.separator, lineWidth: 1))
+            .padding(.horizontal, 16).padding(.bottom, 12)
+            .allowsHitTesting(false)
+            .accessibilityIdentifier("fullTextStatus")
+        }
+    }
+
+    /// Pull the results (or the empty page) down and let go: with text in the box
+    /// it is cleared; with an empty box the keyboard comes up. Like pull to
+    /// refresh, so a typo needs no tap on the small ✕.
+    private static let searchPullThreshold: CGFloat = 70
+    private var searchPullRelease: PullRelease {
+        PullRelease(threshold: Self.searchPullThreshold,
+                    pulled: { pull in
+                        if abs(pull - searchPull) > 0.5 || pull == 0 {
+                            let crossed = (pull >= Self.searchPullThreshold) != (searchPull >= Self.searchPullThreshold)
+                            searchPull = pull
+                            if crossed && pull >= Self.searchPullThreshold { UISelectionFeedbackGenerator().selectionChanged() }
+                        }
+                    },
+                    released: { searchPullReleased() })
+    }
+    private func searchPullReleased() {
+        guard selectedTab == 1, !model.showingEntry else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        // Clearing can swap the result list for the empty page mid-bounce.
+        searchPull = 0
+        if !model.word.isEmpty { model.typedSearch("", clearSelection: true) }
+        // After the list springs back, so the drag does not dismiss the keyboard again.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            if selectedTab == 1, !model.showingEntry { requestSearchFocus() }
+        }
+    }
+    /// "↑ Release to clear", shown in the gap above the pulled-down list.
+    private var searchPullHint: AnyView { AnyView(searchPullHintContent) }
+    private var searchPullHintContent: some View {
+        let progress = min(searchPull / Self.searchPullThreshold, 1)
+        let ready = progress >= 1
+        let text = model.word.isEmpty
+            ? (ready ? "Release to show keyboard" : "Pull down to show keyboard")
+            : (ready ? "Release to clear" : "Pull down to clear")
+        return HStack(spacing: 8) {
+            Image(systemName: "arrow.up")
+                .font(.system(size: 20, weight: .light))
+                .rotationEffect(.degrees(ready ? 0 : 180))
+                .animation(.snappy(duration: 0.18), value: ready)
+            Text(text).font(.system(size: 13, weight: .medium))
+        }
+        .foregroundStyle(style.secondary)
+        .frame(maxWidth: .infinity)
+        .frame(height: max(searchPull, 0))
+        .opacity(Double(min(1, searchPull / 30)))
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    /// ‹ / › : the same word in the previous / next dictionary.
+    private func entryStepButton(_ step: Int) -> AnyView { AnyView(entryStepButtonContent(step)) }
+    private func entryStepButtonContent(_ step: Int) -> some View {
+        let count = model.orderedEntryMatches.count
+        let index = model.entryMatchIndex
+        let enabled = index.map { count > 1 && (0..<count).contains($0 + step) } ?? false
+        return Button { model.stepEntry(step) } label: {
+            Image(systemName: step < 0 ? "chevron.left" : "chevron.right")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(accent)
+                .frame(width: 26, height: 30)
+                .sketchPill(style)
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.3)
+        .accessibilityLabel(step < 0 ? "Previous dictionary" : "Next dictionary")
+        .accessibilityIdentifier(step < 0 ? "previousDictionaryEntry" : "nextDictionaryEntry")
+    }
+
+    private var entryTitleButton: AnyView { AnyView(entryTitleButtonContent) }
+    private var entryTitleButtonContent: some View {
+        Button { switchingDictionary = true } label: {
+            HStack(spacing: 6) {
+                HandSeal(text: "辞", style: style, size: 22)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(model.entryDictionary)
-                        .font(.system(size: 10.5, weight: .semibold)).lineLimit(1).foregroundStyle(style.secondary)
+                    HStack(spacing: 4) {
+                        Text(model.entryDictionary)
+                            .font(.system(size: 10.5, weight: .semibold)).lineLimit(1).foregroundStyle(style.secondary)
+                        if let index = model.entryMatchIndex, model.orderedEntryMatches.count > 1 {
+                            Text("\(index + 1)/\(model.orderedEntryMatches.count)")
+                                .font(.system(size: 10, weight: .bold).monospacedDigit()).foregroundStyle(accent)
+                                .fixedSize()
+                        }
+                    }
                     HStack(spacing: 4) {
                         Text(model.entryTitle).font(HandFont.title(17)).lineLimit(1).foregroundStyle(style.ink)
                         Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold)).foregroundStyle(accent)
                     }
                 }
+                // Leaves room for the ‹ › arrows and the ☰ menu on the narrowest
+                // iPhones; long dictionary names truncate.
+                .frame(maxWidth: 124, alignment: .leading)
             }
-            .padding(.leading, 6).padding(.trailing, 12).padding(.vertical, 3)
+            .padding(.leading, 5).padding(.trailing, 9).padding(.vertical, 3)
             .sketchPill(style)
         }
         .buttonStyle(.plain)
@@ -1107,21 +1588,31 @@ struct ReaderHome: View {
 
     private var entryPeekVisible: Bool { model.peek?.inDictionary ?? false }
 
-    private var entryView: some View {
+    /// Shown for a moment while a page from the last session is read again.
+    private var reopeningEntry: some View {
+        ProgressView()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier("reopeningEntry")
+    }
+
+    private var entryView: AnyView { AnyView(entryViewContent) }
+    private var entryViewContent: some View {
         let visitID = model.entryID
         return ZStack(alignment: .bottom) {
             DictionaryPage(html: model.entryHTML, root: model.entryRoot ?? model.dictionaryRoot, code: model.entryCode,
                            paperRGB: style.surfaceRGB, accentRGB: style.accentRGB,
-                           textSize: dictionaryTextSize, sansFont: dictionarySans,
+                           textSize: entryTextSize, sansFont: dictionarySans,
                            initialOffset: model.entryOffsets[visitID] ?? .zero,
                            bottomInset: entryPeekVisible ? 300 : 0,
                            quietMenu: quietMenu,
-                           resize: TextResize(value: dictionaryTextSize, range: 14...28,
-                                              set: { dictionaryTextSize = $0; sizeHUD = Int($0) },
+                           resize: TextResize(value: entryTextSize, range: DictionaryTextSizes.range,
+                                              set: { setEntryTextSize($0); sizeHUD = Int($0) },
                                               ended: hideSizeHUD),
                            margins: pageMargins,
                            saveOffset: { model.entryOffsets[visitID] = $0 },
-                           followLink: { model.followEntryLink($0) }) { word in
+                           followLink: { model.followEntryLink($0) },
+                           doubleTapStep: { doubleTapStep($0) },
+                           highlight: model.entryHighlight) { word in
                 guard selectedTab == 1, model.showingEntry else { return }
                 model.select(word, inDictionary: true)
             }
@@ -1142,6 +1633,18 @@ struct ReaderHome: View {
             }
         }
         .animation(.spring(response: 0.34, dampingFraction: 0.86), value: entryPeekVisible)
+        .overlay(alignment: entryStepFlash == -1 ? .leading : .trailing) {
+            if let flash = entryStepFlash {
+                Image(systemName: flash < 0 ? "chevron.left" : "chevron.right")
+                    .font(.system(size: 26, weight: .bold))
+                    .foregroundStyle(style.onAccent)
+                    .frame(width: 52, height: 52)
+                    .background(accent.opacity(0.85), in: Circle())
+                    .padding(.horizontal, 22)
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                    .allowsHitTesting(false)
+            }
+        }
         .overlay(alignment: .top) {
             if model.lookupBusy {
                 ProgressView().controlSize(.small).padding(8)
@@ -1155,24 +1658,38 @@ struct ReaderHome: View {
         headerCollapsed && !model.showingEntry && !keyboardVisible && !model.hits.isEmpty
     }
 
-    private func lookup(focusSearch: Bool) -> some View {
+    private func lookup(focusSearch: Bool) -> AnyView { AnyView(lookupContent(focusSearch: focusSearch)) }
+    private func lookupContent(focusSearch: Bool) -> some View {
         ZStack(alignment: .top) {
             Group {
                 if model.hits.isEmpty {
+                    ScrollView {
                     VStack(spacing: 0) {
                         Color.clear.frame(height: headerHeight)
                         EmptyHint(symbol: model.word.isEmpty ? "character.book.closed" : "magnifyingglass",
-                                  title: model.word.isEmpty ? "Look up any Japanese word" : "Nothing found yet",
+                                  title: model.word.isEmpty ? "Look up any Japanese word"
+                                    : (model.fullTextProgress.isEmpty ? "Nothing found yet" : "Searching…"),
                                   detail: model.word.isEmpty
-                                    ? "Type above, or highlight a word while reading. Enabled dictionaries are searched in your chosen order."
-                                    : "Exact matches appear first, then words that start with your text. Try the dictionary form.",
+                                    ? (model.searchMode == .fullText
+                                       ? "Full text: type a word or phrase to find it anywhere in the definitions and example sentences of every enabled dictionary."
+                                       : "Type above, or highlight a word while reading. Enabled dictionaries are searched in your chosen order.")
+                                    : (model.searchMode == .fullText
+                                       ? "Full text searches every definition and example sentence; results appear dictionary by dictionary."
+                                       : "Exact matches appear first, then words that start with your text. Try the dictionary form."),
                                   style: style)
                             .padding(.top, 36)
                         Spacer(minLength: 0)
                     }
+                    .background(searchPullRelease)
+                    }
+                    .scrollBounceBehavior(.always, axes: .vertical)
+                    .scrollDismissesKeyboard(.immediately)
                 } else {
                     resultGroups(model.hits, topInset: headerHeight)
                 }
+            }
+            if searchPull > 4 && !searchChromeHidden {
+                searchPullHint.padding(.top, headerHeight + 4)
             }
             searchHeader(focusSearch: focusSearch)
                 .background(GeometryReader { proxy in
@@ -1186,6 +1703,7 @@ struct ReaderHome: View {
             }
         }
         .clipped()
+        .overlay(alignment: .bottom) { fullTextStatus }
         .onPreferenceChange(SearchHeaderHeightKey.self) { height in
             if height > 0 && abs(height - headerHeight) > 0.5 { headerHeight = height }
         }
@@ -1224,8 +1742,23 @@ struct ReaderHome: View {
         }
     }
 
+    // The search bar is built from separately type-erased rows. As one nested
+    // view, its type got so deep that decoding it at launch overflowed the main
+    // thread's stack in the optimized device build (2.7 build 29 crash).
     private func searchHeader(focusSearch: Bool) -> some View {
         VStack(spacing: 10) {
+            searchFieldRow(focusSearch: focusSearch)
+            searchChipsRow
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 6)
+        .padding(.bottom, 10)
+        .background(paper.opacity(0.94))
+        .overlay(alignment: .bottom) { HandRule(style: style).offset(y: 4) }
+    }
+
+    private func searchFieldRow(focusSearch: Bool) -> AnyView {
+        AnyView(
             HStack(spacing: 6) {
                 Button { goBackInSearch() } label: {
                     Image(systemName: "chevron.left")
@@ -1284,6 +1817,11 @@ struct ReaderHome: View {
                 .accessibilityIdentifier("searchOptions")
                 .background(KeyboardControlArea())
             }
+        )
+    }
+
+    private var searchChipsRow: AnyView {
+        AnyView(
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 7) {
                     matchModeChip
@@ -1298,12 +1836,7 @@ struct ReaderHome: View {
                 .padding(.bottom, 4)
             }
             .padding(.horizontal, -12)
-        }
-        .padding(.horizontal, 12)
-        .padding(.top, 6)
-        .padding(.bottom, 10)
-        .background(paper.opacity(0.94))
-        .overlay(alignment: .bottom) { HandRule(style: style).offset(y: 4) }
+        )
     }
 
     /// While the header is away, a small pill keeps the query in view; tap to return.
@@ -1322,17 +1855,33 @@ struct ReaderHome: View {
         .accessibilityIdentifier("showSearchHeader")
     }
 
-    private var matchModeChip: some View {
-        Menu {
+    private var matchModeSymbol: String {
+        switch model.searchMode {
+        case .prefix: return "text.line.first.and.arrowtriangle.forward"
+        case .exact: return "equal"
+        case .fullText: return "text.magnifyingglass"
+        }
+    }
+    private var matchModeTitle: String {
+        switch model.searchMode {
+        case .prefix: return "Starts with"
+        case .exact: return "Exact word"
+        case .fullText: return "Full text"
+        }
+    }
+
+    private var matchModeChip: AnyView {
+        AnyView(Menu {
             Picker("Match", selection: $model.searchMode) {
-                Text("Starts with").tag(DictionarySearchMode.prefix)
-                Text("Exact word").tag(DictionarySearchMode.exact)
+                Label("Starts with", systemImage: "text.line.first.and.arrowtriangle.forward").tag(DictionarySearchMode.prefix)
+                Label("Exact word", systemImage: "equal").tag(DictionarySearchMode.exact)
+                Label("Full text · 全文 (definitions & examples)", systemImage: "text.magnifyingglass").tag(DictionarySearchMode.fullText)
             }
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: model.searchMode == .prefix ? "text.line.first.and.arrowtriangle.forward" : "equal")
+                Image(systemName: matchModeSymbol)
                     .font(.system(size: 11, weight: .bold))
-                Text(model.searchMode == .prefix ? "Starts with" : "Exact word")
+                Text(matchModeTitle)
                     .font(.system(size: 13, weight: .semibold))
                 Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .bold))
             }
@@ -1342,7 +1891,7 @@ struct ReaderHome: View {
             .overlay(SketchShape(radius: 12).stroke(accent.opacity(0.35), lineWidth: 1.2))
         }
         .background(KeyboardControlArea())
-        .accessibilityLabel("Match")
+        .accessibilityLabel("Match"))
     }
 
     private func scopeChip(_ name: String, id: String) -> some View {
@@ -1360,7 +1909,11 @@ struct ReaderHome: View {
         .accessibilityIdentifier("searchScope_" + id)
     }
 
-    private func resultGroups(_ hits: [DictionaryHit], switching: Bool = false, topInset: CGFloat = 0) -> some View {
+    private func resultGroups(_ hits: [DictionaryHit], switching: Bool = false, topInset: CGFloat = 0) -> AnyView {
+        AnyView(resultGroupsContent(hits, switching: switching, topInset: topInset))
+    }
+    private func resultGroupsContent(_ hits: [DictionaryHit], switching: Bool, topInset: CGFloat) -> some View {
+        ScrollViewReader { reader in
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 6) {
                 ForEach(model.dictionaries) { dictionary in
@@ -1380,6 +1933,7 @@ struct ReaderHome: View {
                                 }
                                 .buttonStyle(.plain)
                                 .padding(.horizontal, 12)
+                                .id(hit.identity)
                                 .accessibilityIdentifier("dictionaryResult_" + hit.word)
                             }
                         }
@@ -1392,12 +1946,21 @@ struct ReaderHome: View {
                 Color.clear.preference(key: ResultsScrollOffsetKey.self,
                                        value: proxy.frame(in: .named(switching ? "switcherResults" : "searchResults")).minY - topInset - 4)
             })
+            .background { if !switching { searchPullRelease } }
         }
         .coordinateSpace(name: switching ? "switcherResults" : "searchResults")
         .onPreferenceChange(ResultsScrollOffsetKey.self) { minY in
             if !switching { resultsScrolled(to: minY) }
         }
         .scrollDismissesKeyboard(.immediately)
+        .onAppear {
+            // Back to a result list (or reopened at launch): show the result opened from it.
+            guard !switching, model.revealResultsAnchor, let anchor = model.resultsAnchor,
+                  hits.contains(where: { $0.identity == anchor.identity }) else { return }
+            model.revealResultsAnchor = false
+            DispatchQueue.main.async { reader.scrollTo(anchor.identity, anchor: .center) }
+        }
+        }
     }
 
     private func resultGroupHeader(_ dictionary: InstalledDictionary, count: Int, groupID: String, collapsed: Bool) -> some View {
@@ -1440,12 +2003,26 @@ struct ReaderHome: View {
         .accessibilityHint(collapsed ? "Expand dictionary results" : "Collapse dictionary results")
     }
 
+    /// The full-text match in bold accent colour inside its preview line.
+    private func highlighted(_ text: String, _ match: String) -> AttributedString {
+        var value = AttributedString(text)
+        guard !match.isEmpty else { return value }
+        var cursor = value.startIndex
+        while cursor < value.endIndex, let range = value[cursor...].range(of: match) {
+            value[range].foregroundColor = accent
+            value[range].inlinePresentationIntent = .stronglyEmphasized
+            cursor = range.upperBound
+        }
+        return value
+    }
+
     private func resultRow(_ hit: DictionaryHit, switching: Bool) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(hit.word).font(HandFont.title(20)).foregroundStyle(ink)
                 if !hit.preview.isEmpty {
-                    Text(hit.preview).font(.subheadline).foregroundStyle(style.secondary).lineLimit(2)
+                    Text(highlighted(hit.preview, hit.match)).font(.subheadline).foregroundStyle(style.secondary)
+                        .lineLimit(hit.match.isEmpty ? 2 : 3)
                 }
             }
             Spacer(minLength: 0)
@@ -1482,6 +2059,16 @@ struct ReaderHome: View {
         if automaticallyShowSearchKeyboard { requestSearchFocus() }
         else { dismissKeyboard() }
     }
+    /// Tapping Search from another tab returns to the open definition, if any.
+    private func openSearchTab() {
+        if selectedTab != 1 && model.showingEntry {
+            dismissKeyboard()
+            selectedTab = 1
+            return
+        }
+        activateSearchTab()
+    }
+    /// Tapping Search again while on it (or with no open definition) goes to the search field.
     private func activateSearchTab() {
         model.showResults()
         selectedTab = 1
@@ -1553,8 +2140,8 @@ struct ReaderHome: View {
                             }
                         }
                         .accessibilityIdentifier("selectionLookupLimit")
-                        Text("Selecting this many characters or fewer opens the dictionary card (and hides the iPhone bar below). Longer selections get the normal iPhone menu, e.g. to copy a paragraph. New dictionary pages use the new limit.").font(.caption).foregroundStyle(style.secondary)
-                        Toggle("Hide the iPhone Copy / Look Up bar for short selections", isOn: $quietSystemTextMenu)
+                        Text("Selections up to this length are looked up in the dictionary card. Longer selections (a sentence or a paragraph) open the same card with the whole text and Copy, Translate and Share.").font(.caption).foregroundStyle(style.secondary)
+                        Toggle("Hide the iPhone Copy / Look Up bar", isOn: $quietSystemTextMenu)
                             .disabled(!model.selectionPeek)
                             .accessibilityIdentifier("quietSystemTextMenu")
                         Text("On: selecting text opens a dictionary card on the same page. Drag the selection handles, or drag across the characters on the card, to look up just part of a phrase. Off: selecting jumps straight to the results page.").font(.caption).foregroundStyle(style.secondary)
@@ -1570,6 +2157,11 @@ struct ReaderHome: View {
                     }
                     if model.busy { ProgressView("Working…") }
                     if !model.status.isEmpty { Text(model.status).font(.footnote).foregroundStyle(style.secondary) }
+                    Section {
+                        Text("Japanese Reader \(ReaderHome.appVersion)")
+                            .font(.footnote).foregroundStyle(style.secondary)
+                            .accessibilityIdentifier("appVersion")
+                    }
                 }
                 .listRowBackground(style.surface)
             }
@@ -1586,6 +2178,14 @@ struct ReaderHome: View {
         .toolbarBackground(paper, for: .tabBar, .navigationBar)
         .toolbarBackground(.visible, for: .tabBar, .navigationBar)
         .tabItem { Label("Library", systemImage: "books.vertical") }.tag(2)
+    }
+
+    /// "2.7.3 (32)": shown at the bottom of Library, so it is easy to tell which build is installed.
+    static var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(version) (\(build))"
     }
 
     private var savedSection: some View {
@@ -1734,6 +2334,7 @@ struct ReaderHome: View {
                         }
                         Slider(value: $readerLineSpacing, in: 1.05...2.0, step: 0.05)
                     }
+                    Toggle("Ruled notebook lines · 罫線", isOn: $ruledPaper).accessibilityIdentifier("ruledPaper")
                 } header: { Text("Reading text · 本文") }
                 Section {
                     Picker("Page margins", selection: $pageMarginsRaw) {
@@ -1748,11 +2349,20 @@ struct ReaderHome: View {
                     .pickerStyle(.segmented)
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text("Definition size")
+                            Text("Default definition size")
                             Spacer()
                             Text("\(Int(dictionaryTextSize)) pt").foregroundStyle(style.secondary).monospacedDigit()
                         }
-                        Slider(value: $dictionaryTextSize, in: 14...28, step: 1)
+                        Slider(value: $dictionaryTextSize, in: DictionaryTextSizes.range, step: 1)
+                    }
+                    let ownSizes = DictionaryTextSizes.decode(dictionaryTextSizes).count
+                    Text(ownSizes == 0
+                         ? "Each dictionary keeps its own size: swipe up or down with two fingers (or pinch) on a definition, or use ☰ → Text size. Dictionaries you have not resized use this default."
+                         : (ownSizes == 1 ? "1 dictionary has its own size" : "\(ownSizes) dictionaries have their own size") + " (set with two fingers on a definition, or ☰ → Text size). The others use this default.")
+                        .font(.caption).foregroundStyle(style.secondary)
+                    if ownSizes > 0 {
+                        Button("Use the default size for every dictionary") { dictionaryTextSizes = "" }
+                            .accessibilityIdentifier("resetDictionarySizes")
                     }
                     Text("Dictionary pages keep each publisher's layout and use your theme: large headwords, muted labels, and examples as an indented phrase with the translation underneath.")
                         .font(.caption).foregroundStyle(style.secondary)
@@ -1761,8 +2371,8 @@ struct ReaderHome: View {
                     Button("Reset appearance", role: .destructive) {
                         themeID = "hand-washi"; accentRGB = 0x1F7A73; paperRGB = 0xFFFFFF; customPaper = false
                         readerTypefaceRaw = ReaderTypeface.kyokasho.rawValue; readerTextSize = 23; readerLineSpacing = 1.35
-                        handDrawnPaper = true
-                        dictionaryTextSize = 19; dictionarySans = false
+                        handDrawnPaper = true; ruledPaper = true
+                        dictionaryTextSize = 19; dictionaryTextSizes = ""; dictionarySans = false
                     }
                 }
             }
@@ -1833,6 +2443,10 @@ struct SelectableJapanese: UIViewRepresentable {
     var quietMenu = false
     /// Left and right space inside the reading card.
     var sideInset: CGFloat = 20
+    /// Ruled notebook lines and a margin line behind the text, like the desktop.
+    var ruled = false
+    var ruleColor: UIColor = .clear
+    var marginColor: UIColor = .clear
     /// Two-finger swipe up / down to change the text size.
     var resize: TextResize? = nil
     var saveOffset: ((CGPoint) -> Void)? = nil
@@ -1840,10 +2454,11 @@ struct SelectableJapanese: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(selected) }
     static let translationKey = NSAttributedString.Key("JapaneseReaderTranslation")
     // Reading typography: comfortable line height and page margins for Japanese.
-    static func styled(_ text: String, ink: UIColor, font: UIFont = .systemFont(ofSize: 23), lineSpacing: CGFloat = 1.3) -> NSAttributedString {
+    static func styled(_ text: String, ink: UIColor, font: UIFont = .systemFont(ofSize: 23), lineSpacing: CGFloat = 1.3, ruled: Bool = false) -> NSAttributedString {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineHeightMultiple = lineSpacing
         paragraph.paragraphSpacing = font.pointSize * 0.5
+        if ruled { paragraph.setParagraphStyle(RuledTextView.paragraph(font: font, lineSpacing: lineSpacing)) }
         return NSAttributedString(string: text, attributes: [
             .font: font,
             .foregroundColor: ink,
@@ -1851,10 +2466,10 @@ struct SelectableJapanese: UIViewRepresentable {
         ])
     }
     /// The passage with each sentence followed by its translation in small print.
-    static func interlinear(_ text: String, translations: [String], ink: UIColor, font: UIFont, lineSpacing: CGFloat) -> NSAttributedString {
+    static func interlinear(_ text: String, translations: [String], ink: UIColor, font: UIFont, lineSpacing: CGFloat, ruled: Bool = false) -> NSAttributedString {
         let pieces = PassageSegments.split(text)
         guard !translations.isEmpty, translations.count == pieces.count else {
-            return styled(text, ink: ink, font: font, lineSpacing: lineSpacing)
+            return styled(text, ink: ink, font: font, lineSpacing: lineSpacing, ruled: ruled)
         }
         let original = NSMutableParagraphStyle()
         original.lineHeightMultiple = lineSpacing
@@ -1862,6 +2477,11 @@ struct SelectableJapanese: UIViewRepresentable {
         let translated = NSMutableParagraphStyle()
         translated.lineHeightMultiple = 1.15
         translated.paragraphSpacing = font.pointSize * 0.75
+        if ruled {
+            // On ruled paper each translation line takes one ruled line too.
+            original.setParagraphStyle(RuledTextView.paragraph(font: font, lineSpacing: lineSpacing))
+            translated.setParagraphStyle(original)
+        }
         let small = UIFont.systemFont(ofSize: max(13, font.pointSize * 0.62))
         let result = NSMutableAttributedString()
         for (index, piece) in pieces.enumerated() {
@@ -1881,39 +2501,68 @@ struct SelectableJapanese: UIViewRepresentable {
         return result
     }
     func makeUIView(context: Context) -> UITextView {
-        let view = UITextView(); view.isEditable = false; view.isSelectable = true
+        let view = RuledTextView(); view.isEditable = false; view.isSelectable = true
         view.accessibilityIdentifier = "selectablePassage"
         view.font = .systemFont(ofSize: 23); view.backgroundColor = .clear; view.delegate = context.coordinator
         view.textContainerInset = UIEdgeInsets(top: 24, left: 20, bottom: 40, right: 20)
         view.alwaysBounceVertical = true
         if #available(iOS 18.0, *) { view.writingToolsBehavior = UIWritingToolsBehavior.none }
         context.coordinator.sizeSwipe.attach(to: view, scrollView: view)
+        let coordinator = context.coordinator
+        coordinator.reopenTap.enabled = quietMenu
+        coordinator.reopenTap.attach(to: view)
+        coordinator.reopenTap.tapped = { [weak view, weak coordinator] point in
+            guard let view, let coordinator else { return }
+            coordinator.reopen(in: view, at: point)
+        }
         SelectionBridge.shared.readerView = view
         return view
     }
+    /// Left inset of the text: ruled paper leaves room for the margin line.
+    private var leftInset: CGFloat { ruled ? sideInset + 16 : sideInset }
     func updateUIView(_ view: UITextView, context: Context) {
         let coordinator = context.coordinator
+        if let paper = view as? RuledTextView {
+            paper.ruled = ruled
+            paper.ruleColor = ruleColor
+            paper.marginColor = marginColor
+            paper.marginX = ruled ? max(6, sideInset - 2) : nil
+        }
         coordinator.selected = selected
         coordinator.saveOffset = saveOffset
         coordinator.quietMenu = quietMenu
+        coordinator.reopenTap.enabled = quietMenu
         coordinator.sizeSwipe.resize = resize
-        if view.textContainerInset.left != sideInset {
-            view.textContainerInset = UIEdgeInsets(top: 24, left: sideInset, bottom: 40, right: sideInset)
+        if view.textContainerInset.left != leftInset || view.textContainerInset.right != sideInset {
+            view.textContainerInset = UIEdgeInsets(top: 24, left: leftInset, bottom: 40, right: sideInset)
         }
         // Rebuilding the attributed text clears the selection, so only do it when
         // the passage, its translations or the theme's ink actually changed.
         let textChanged = coordinator.appliedText != text
         let content = translations.joined(separator: "\u{1}")
-        let typography = "\(font.fontName)-\(font.pointSize)-\(lineSpacing)"
+        let typography = "\(font.fontName)-\(font.pointSize)-\(lineSpacing)-\(ruled)"
         if textChanged || coordinator.appliedTranslations != content
             || coordinator.appliedInk != ink || coordinator.appliedTypography != typography {
-            view.attributedText = Self.interlinear(text, translations: translations, ink: ink, font: font, lineSpacing: lineSpacing)
+            view.attributedText = Self.interlinear(text, translations: translations, ink: ink, font: font, lineSpacing: lineSpacing, ruled: ruled)
             coordinator.appliedText = text
             coordinator.appliedTranslations = content
             coordinator.appliedInk = ink
             coordinator.appliedTypography = typography
         }
-        if textChanged { DispatchQueue.main.async { view.setContentOffset(initialOffset, animated: false) } }
+        if textChanged {
+            // The passage (possibly reopened at launch) may still be laying out, so
+            // re-apply its saved place a few times unless the reader has scrolled.
+            let target = initialOffset
+            for delay in [0.0, 0.15, 0.4, 0.9] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak view] in
+                    guard let view, !view.isTracking, !view.isDecelerating,
+                          context.coordinator.appliedText == text,
+                          delay == 0 || !context.coordinator.userScrolled else { return }
+                    view.setContentOffset(target, animated: false)
+                }
+            }
+            context.coordinator.userScrolled = false
+        }
         // The attributed text above already carries the ink color; assigning
         // textColor here would re-apply attributes and drop a live selection.
         if view.backgroundColor != paper { view.backgroundColor = paper }
@@ -1941,20 +2590,35 @@ struct SelectableJapanese: UIViewRepresentable {
         var appliedTranslations = ""
         var quietMenu = false
         let sizeSwipe = TextSizeSwipe()
-        /// Short selections go to the dictionary card, so the iPhone's own
-        /// Copy / Look Up bar would only cover it. Long selections keep it.
+        let reopenTap = SelectionReopenTap()
+        /// A tap on the text that is still selected reopens the card for it.
+        func reopen(in textView: UITextView, at point: CGPoint) {
+            guard let range = textView.selectedTextRange, !range.isEmpty,
+                  let word = textView.text(in: range), !word.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            let hit = textView.selectionRects(for: range).contains { $0.rect.width > 0 && $0.rect.insetBy(dx: -12, dy: -12).contains(point) }
+            guard hit else { return }
+            let selectedRange = textView.selectedRange
+            if selectedRange.location < textView.attributedText.length,
+               textView.attributedText.attribute(SelectableJapanese.translationKey, at: selectedRange.location, effectiveRange: nil) != nil { return }
+            pending?.cancel()
+            SelectionBridge.shared.readerContext = Self.context(in: textView.text ?? "", range: selectedRange, word: word)
+            SelectionBridge.shared.reopenText = word
+            selected(word)
+        }
+        /// Every selection goes to the card (short ones are looked up, long ones get
+        /// Copy / Translate / Share), so the iPhone's own bar would only cover it.
         func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
-            guard quietMenu, range.length > 0,
-                  let text = textView.text, range.location + range.length <= (text as NSString).length,
-                  (text as NSString).substring(with: range).count <= SelectionLimit.current else { return nil }
+            guard quietMenu, range.length > 0 else { return nil }
             return UIMenu(children: [])
         }
         func scrollViewDidScroll(_ scrollView: UIScrollView) { saveOffset?(scrollView.contentOffset) }
+        var userScrolled = false
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { userScrolled = true }
         var pending: DispatchWorkItem?
         init(_ selected: @escaping (String) -> Void) { self.selected = selected }
         func textViewDidChangeSelection(_ textView: UITextView) {
             pending?.cancel()
-            guard let range = textView.selectedTextRange, let word = textView.text(in: range), !word.isEmpty, word.count <= SelectionLimit.current else {
+            guard let range = textView.selectedTextRange, let word = textView.text(in: range), !word.isEmpty else {
                 // UIKit can clear selection inside updateUIView; publish after that update.
                 let action = DispatchWorkItem { [weak self] in self?.selected("") }
                 pending = action

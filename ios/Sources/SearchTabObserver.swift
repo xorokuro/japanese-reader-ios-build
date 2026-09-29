@@ -2,7 +2,8 @@ import SwiftUI
 
 // Intercept tab reselection and forward all other delegate behavior to SwiftUI.
 struct SearchTabObserver: UIViewControllerRepresentable {
-    let selected: () -> Void
+    /// Called with true when Search is tapped while already open.
+    let selected: (Bool) -> Void
     func makeUIViewController(context: Context) -> ObserverController { ObserverController() }
     func updateUIViewController(_ controller: ObserverController, context: Context) {
         controller.selected = selected
@@ -12,7 +13,7 @@ struct SearchTabObserver: UIViewControllerRepresentable {
         controller.detach()
     }
     final class ObserverController: UIViewController, UITabBarControllerDelegate {
-        var selected: (() -> Void)?
+        var selected: ((Bool) -> Void)?
         private weak var tabs: UITabBarController?
         private weak var original: UITabBarControllerDelegate?
         override func viewDidAppear(_ animated: Bool) { super.viewDidAppear(animated); install() }
@@ -29,7 +30,8 @@ struct SearchTabObserver: UIViewControllerRepresentable {
         func tabBarController(_ tabBarController: UITabBarController, shouldSelect viewController: UIViewController) -> Bool {
             let allowed = original?.tabBarController?(tabBarController, shouldSelect: viewController) ?? true
             if allowed, tabBarController.viewControllers?.firstIndex(of: viewController) == 1 {
-                DispatchQueue.main.async { [weak self] in self?.selected?() }
+                let reselected = tabBarController.selectedIndex == 1
+                DispatchQueue.main.async { [weak self] in self?.selected?(reselected) }
             }
             return allowed
         }

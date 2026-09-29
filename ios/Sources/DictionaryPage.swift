@@ -19,6 +19,45 @@ final class ReaderWebView: WKWebView {
     }
 }
 
+/// Each dictionary remembers its own definition size (two-finger swipe or pinch on
+/// its page). Dictionaries without one use the default size from Appearance.
+/// Stored as JSON `{code: size}` in one preference.
+enum DictionaryTextSizes {
+    static let key = "dictionaryTextSizes"
+    static let range: ClosedRange<Double> = 14...28
+
+    static func decode(_ raw: String) -> [String: Double] {
+        guard let data = raw.data(using: .utf8),
+              let map = try? JSONDecoder().decode([String: Double].self, from: data) else { return [:] }
+        return map
+    }
+
+    static func encode(_ map: [String: Double]) -> String {
+        guard !map.isEmpty, let data = try? JSONEncoder().encode(map) else { return "" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    static func size(for code: String, in raw: String, fallback: Double) -> Double {
+        guard !code.isEmpty, let value = decode(raw)[code] else { return fallback }
+        return min(max(value, range.lowerBound), range.upperBound)
+    }
+
+    /// Returns the new stored value after giving `code` its own size.
+    static func setting(_ value: Double, for code: String, in raw: String) -> String {
+        guard !code.isEmpty else { return raw }
+        var map = decode(raw)
+        map[code] = min(max(value.rounded(), range.lowerBound), range.upperBound)
+        return encode(map)
+    }
+
+    /// Returns the new stored value after `code` goes back to the default size.
+    static func removing(_ code: String, in raw: String) -> String {
+        var map = decode(raw)
+        map[code] = nil
+        return encode(map)
+    }
+}
+
 struct DictionaryPage: UIViewRepresentable {
     let html: String
     let root: URL
@@ -37,6 +76,10 @@ struct DictionaryPage: UIViewRepresentable {
     var margins: PageMargins = .compact
     var saveOffset: ((CGPoint) -> Void)? = nil
     var followLink: ((String) -> Void)? = nil
+    /// Double-tap: -1 on the left half of the page, +1 on the right half.
+    var doubleTapStep: ((Int) -> Void)? = nil
+    /// Text to mark and scroll to once the page loads (a full-text result).
+    var highlight: String = ""
     let lookup: (String) -> Void
     static func audioLinks(_ source: String) -> String {
         guard let pattern = try? NSRegularExpression(pattern: "(?is)<a\\b[^>]*href=[\"']sound://([^\"']+)[\"'][^>]*>.*?</a>") else { return source }
@@ -110,20 +153,42 @@ struct DictionaryPage: UIViewRepresentable {
         document.addEventListener("selectionchange", () => {
             clearTimeout(pending);
             const text = window.getSelection()?.toString().trim() || "";
-            if (!text || Array.from(text).length > (window.__jpLimit || 40)) { previous = ""; post(""); return; }
+            // Long selections are posted too: the card shows them with Copy / Translate.
+            if (!text) { previous = ""; post(""); return; }
             pending = setTimeout(() => {
                 const selection = window.getSelection();
                 const raw = selection ? selection.toString() : "";
                 const current = raw.trim();
                 if (current !== text || current === previous) return;
-                previous = current;
-                const range = selection.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
-                window.__jpLast = range;
-                const around = range ? context(range) : { before: "", after: "" };
-                const lead = raw.length - raw.trimStart().length, trail = raw.length - raw.trimEnd().length;
-                post({ text: current, before: around.before + raw.slice(0, lead), after: raw.slice(raw.length - trail) + around.after });
+                send(selection, raw, false);
             }, 250);
         });
+        const send = (selection, raw, again) => {
+            const current = raw.trim();
+            previous = current;
+            const range = selection.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
+            window.__jpLast = range;
+            const around = range ? context(range) : { before: "", after: "" };
+            const lead = raw.length - raw.trimStart().length, trail = raw.length - raw.trimEnd().length;
+            const value = { text: current, before: around.before + raw.slice(0, lead), after: raw.slice(raw.length - trail) + around.after };
+            if (again) value.again = true;
+            post(value);
+        };
+        // A tap on text that is still selected (after leaving the page and coming
+        // back, or after closing the card) posts it again so the card reopens.
+        // x / y are page coordinates of the tap.
+        window.__jpRepost = (x, y) => {
+            const selection = window.getSelection();
+            if (!selection || selection.isCollapsed || !selection.rangeCount) return false;
+            const raw = selection.toString();
+            if (!raw.trim()) return false;
+            const pad = 12, sx = window.scrollX || 0, sy = window.scrollY || 0;
+            const rects = Array.from(selection.getRangeAt(0).getClientRects());
+            const hit = rects.some((r) => r.width > 0 && x >= r.left + sx - pad && x <= r.right + sx + pad && y >= r.top + sy - pad && y <= r.bottom + sy + pad);
+            if (!hit) return false;
+            send(selection, raw, true);
+            return true;
+        };
         const textNodes = () => {
             const nodes = [], walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
             let node;
@@ -148,20 +213,81 @@ struct DictionaryPage: UIViewRepresentable {
         };
         // Publishers indent senses and examples generously; scale those indents
         // (kept relative to the text size) so large text does not waste width.
+        // Hanging indents (a negative text-indent paired with a left padding, as in
+        // Takoboto's senses) are scaled with them, and no first line may start left
+        // of the page's own padding, so nothing is cut off at the left edge.
         window.__jpIndent = (scale) => {
-            for (const element of document.body.querySelectorAll("*")) {
+            const all = Array.from(document.body.querySelectorAll("*"));
+            const hanging = [];
+            for (const element of all) {
                 let base = element.__jpBase;
                 if (!base) {
                     const style = getComputedStyle(element), size = parseFloat(style.fontSize) || 16;
-                    base = { margin: (parseFloat(style.marginLeft) || 0) / size, padding: (parseFloat(style.paddingLeft) || 0) / size };
+                    base = { margin: (parseFloat(style.marginLeft) || 0) / size, padding: (parseFloat(style.paddingLeft) || 0) / size,
+                             indent: (parseFloat(style.textIndent) || 0) / size };
                     element.__jpBase = base;
                 }
                 if (base.margin > 0.3) element.style.setProperty("margin-left", (base.margin * scale).toFixed(3) + "em", "important");
                 if (base.padding > 0.3) element.style.setProperty("padding-left", (base.padding * scale).toFixed(3) + "em", "important");
+                if (base.indent < -0.05) {
+                    element.style.setProperty("text-indent", (base.indent * scale).toFixed(3) + "em", "important");
+                    hanging.push(element);
+                }
+            }
+            if (!hanging.length) return true;
+            const bodyStyle = getComputedStyle(document.body);
+            const edge = document.body.getBoundingClientRect().left + (parseFloat(bodyStyle.paddingLeft) || 0);
+            for (const element of hanging) {
+                const style = getComputedStyle(element);
+                if (style.display.startsWith("inline")) continue;
+                const size = parseFloat(style.fontSize) || 16, indent = parseFloat(style.textIndent) || 0;
+                const left = element.getBoundingClientRect().left + (parseFloat(style.borderLeftWidth) || 0) + (parseFloat(style.paddingLeft) || 0);
+                if (left + indent < edge - 0.5) {
+                    element.style.setProperty("text-indent", (Math.min(0, edge - left) / size).toFixed(3) + "em", "important");
+                }
             }
             return true;
         };
         if (typeof window.__jpIndentScale === "number") setTimeout(() => window.__jpIndent(window.__jpIndentScale), 0);
+        // Marks each occurrence of a full-text search in the visible text (furigana
+        // skipped, matches may cross <b> and other inline tags) and scrolls to the first.
+        window.__jpMark = (needle, scroll) => {
+            if (!needle) return 0;
+            const nodes = [], starts = [];
+            let text = "";
+            const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+                acceptNode: (node) => node.parentElement && node.parentElement.closest("rt,rp,style,script") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT
+            });
+            let node;
+            while ((node = walker.nextNode())) { starts.push(text.length); nodes.push(node); text += node.data; }
+            const found = [];
+            let from = 0;
+            while (found.length < 60) {
+                const at = text.indexOf(needle, from);
+                if (at < 0) break;
+                found.push(at);
+                from = at + needle.length;
+            }
+            // Wrap from the end so earlier offsets stay valid.
+            for (let k = found.length - 1; k >= 0; k--) {
+                const s = found[k], e = s + needle.length;
+                for (let i = nodes.length - 1; i >= 0; i--) {
+                    const ns = starts[i], ne = ns + nodes[i].data.length;
+                    if (ne <= s || ns >= e) continue;
+                    try {
+                        const range = document.createRange();
+                        range.setStart(nodes[i], Math.max(s, ns) - ns);
+                        range.setEnd(nodes[i], Math.min(e, ne) - ns);
+                        const mark = document.createElement("mark");
+                        mark.className = "jp-hit";
+                        range.surroundContents(mark);
+                    } catch (error) {}
+                }
+            }
+            const first = document.querySelector("mark.jp-hit");
+            if (first && scroll) first.scrollIntoView({ block: "center" });
+            return found.length;
+        };
         window.__jpRefine = (startDelta, endDelta) => {
             const base = window.__jpLast;
             if (!base) return false;
@@ -191,6 +317,7 @@ struct DictionaryPage: UIViewRepresentable {
         coordinator.sansFont = sansFont
         coordinator.initialOffset = initialOffset
         coordinator.saveOffset = saveOffset
+        coordinator.highlight = highlight
         return coordinator
     }
     /// One private, in-memory data store for every entry page, so WebKit can reuse
@@ -232,16 +359,24 @@ struct DictionaryPage: UIViewRepresentable {
         view.isOpaque = false
         view.loadHTMLString(html, baseURL: URL(string: "jpread://dictionary/"))
         coordinator.sizeSwipe.attach(to: view, scrollView: view.scrollView)
+        coordinator.reopenTap.attach(to: view)
+        coordinator.pageDoubleTap.attach(to: view)
         SelectionBridge.shared.dictionaryView = view
         return view
     }
-    func makeUIView(context: Context) -> WKWebView { Self.makeWebView(html: html, coordinator: context.coordinator) }
+    func makeUIView(context: Context) -> WKWebView {
+        context.coordinator.reopenTap.enabled = quietMenu
+        context.coordinator.pageDoubleTap.step = doubleTapStep
+        return Self.makeWebView(html: html, coordinator: context.coordinator)
+    }
     // Search results update the surrounding SwiftUI view. Never reload the document
     // here: that would discard the native selection handles and scroll position.
     func updateUIView(_ view: WKWebView, context: Context) {
         context.coordinator.lookup = lookup
         context.coordinator.followLink = followLink
         (view as? ReaderWebView)?.quietMenu = quietMenu
+        context.coordinator.reopenTap.enabled = quietMenu
+        context.coordinator.pageDoubleTap.step = doubleTapStep
         context.coordinator.sizeSwipe.resize = resize
         context.coordinator.sizeSwipe.claimTwoFingers()
         // Size changes restyle the open page in place (no reload, scroll kept).
@@ -282,15 +417,33 @@ struct DictionaryPage: UIViewRepresentable {
         var textSize: Double = 19
         var margins: PageMargins = .compact
         let sizeSwipe = TextSizeSwipe()
+        let reopenTap = SelectionReopenTap()
+        let pageDoubleTap = PageDoubleTap()
         var sansFont = false
-        var initialOffset: CGPoint = .zero
-        var saveOffset: ((CGPoint) -> Void)?
-        private var loaded = false
-        func scrollViewDidScroll(_ scrollView: UIScrollView) { if loaded { saveOffset?(scrollView.contentOffset) } }
+        let scrollKeeper = ScrollKeeper()
+        var initialOffset: CGPoint {
+            get { scrollKeeper.target }
+            set { scrollKeeper.target = newValue }
+        }
+        var saveOffset: ((CGPoint) -> Void)? {
+            get { scrollKeeper.save }
+            set { scrollKeeper.save = newValue }
+        }
+        func scrollViewDidScroll(_ scrollView: UIScrollView) { scrollKeeper.didScroll(scrollView) }
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { scrollKeeper.willBeginDragging() }
+        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { scrollKeeper.settled(scrollView) } }
+        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { scrollKeeper.settled(scrollView) }
+        func scrollViewDidScrollToTop(_ scrollView: UIScrollView) { scrollKeeper.settled(scrollView) }
+        var highlight = ""
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            webView.scrollView.setContentOffset(initialOffset, animated: false)
             sizeSwipe.claimTwoFingers()
-            loaded = true
+            scrollKeeper.pageLoaded(webView.scrollView)
+            // A full-text result: mark every occurrence; jump to the first one only
+            // on a fresh visit (going back keeps the old scroll position).
+            if !highlight.isEmpty, let data = try? JSONEncoder().encode(highlight), let text = String(data: data, encoding: .utf8) {
+                let scroll = initialOffset == .zero ? "true" : "false"
+                DictionaryPage.evaluateSelectionScript("window.__jpMark ? window.__jpMark(\(text), \(scroll)) : 0", in: webView) { _, _ in }
+            }
         }
         let queue = DispatchQueue(label: "JapaneseReader.media")
         var cancelled = Set<ObjectIdentifier>()
@@ -304,9 +457,9 @@ struct DictionaryPage: UIViewRepresentable {
                 context.text = text
                 context.before = body["before"] as? String ?? ""
                 context.after = body["after"] as? String ?? ""
+                if body["again"] as? Bool == true { SelectionBridge.shared.reopenText = text.trimmingCharacters(in: .whitespacesAndNewlines) }
             } else { return }
             let word = context.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard word.count <= SelectionLimit.current else { return }
             context.text = word
             SelectionBridge.shared.dictionaryContext = context
             lookup(word)

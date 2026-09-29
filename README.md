@@ -4,7 +4,61 @@ Source-only snapshot for a user-authorized public iOS build. No personal passage
 
 Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuses to run build jobs when this repository is private.
 
-Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.5, build 22).
+Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.4, build 33).
+
+## 2.7.4 — ruled notebook lines (with 文法 kept)
+
+- The Read page passage sits on **ruled notebook paper** like the desktop reader: a faint rule between every line and a double margin line on the left. The rules are placed from where each line of text actually lands, so the text always sits between two rules at any text size (two-finger swipe / pinch), line spacing, typeface, page margin or rotation; translation lines get their own ruled line too. Library → Appearance → Reading text → *Ruled notebook lines · 罫線* turns it off.
+- The dictionary card's Results, Translate and Copy buttons are icons only; touch and hold one and drop it on another to change their order (remembered).
+- Library shows the installed version at the bottom.
+- The ruled lines were first built on an older copy without the 文法 tab (branch `ruled-lines`); this build has both.
+
+## 2.7.2 — picks up where you left off
+
+- **Reopens where you left off**: closing and reopening the app returns to the same tab and the same place in it:
+  - **文法**: the lesson that was open, at the same scroll position (Back still returns through the lessons you came from), and the list at the same pattern.
+  - **Search**: the same definition at the same position, with Back walking through the earlier pages and the result list.
+  - **Read**: the same passage at the same place.
+- **Each 文法 level keeps its place in the list**: switching N5 → N2 → N5 returns each level's list to where you were instead of the top.
+- **Switching tabs keeps your place in Search**: going to another tab and tapping Search again returns to the page you were on, with its Back history. Tapping Search while already on it still goes to the search field. A lookup started from Read or a 文法 lesson begins a fresh Search history, as before.
+- **Long pages keep their position**: going back to a long lesson or definition used to land short or at the top, because the position was applied before the page finished laying out. It is now re-applied until the page is ready, and only positions you scrolled to are remembered. Back to a result list shows the result you opened.
+
+## 2.7.1 — launch crash fix
+
+- 2.7 (build 29) closed at once on iPhone: in the optimized device build the search bar was one very deeply nested SwiftUI type, and decoding it at launch overflowed the main thread's stack. The search bar, result list, entry page and title are now built from separately type-erased parts. CI also launches the optimized build in the simulator before packaging.
+
+## 2.7 — Full-text search (全文)
+
+- **New match mode "Full text · 全文"** (Search → the *Starts with* chip): finds your text anywhere in the definitions and **example sentences** of every enabled dictionary, not just in headwords. Matches may cross bold words and ignore furigana, so 「間際に」 finds 「大引け**間際**に急落した」.
+- Results appear dictionary by dictionary while the rest are still being searched (a small "Searching 大辞泉… 3/11" note shows progress). Each row shows the sentence around the match with the match in bold.
+- Opening a result marks every occurrence on the page and scrolls to the first one.
+- The first 300 entries (80 per dictionary) are listed; add more characters to narrow it down. Full text waits until you pause typing, and a new search stops the old one at once.
+
+## 2.6.3 — double-tap to switch dictionaries, pull to clear search
+
+- **Double-tap a definition** on its right half to go to the same word in the next dictionary, or on its left half for the previous one (same as the ‹ › arrows). A chevron flashes on that side; at the first / last dictionary the phone just buzzes.
+- **Pull down and release to clear the search box** (build 28): on the Search tab, pull the results (or the "Nothing found" page) down; *↑ Release to clear* appears, and letting go clears the text with the keyboard ready for a new word. With the box already empty, pull and release brings up the keyboard. No need to hit the small ✕.
+- The top-bar ‹ › arrows no longer overlap the ☰ menu.
+
+## 2.6.2 — per-dictionary text size, ‹ › dictionary arrows, selection card, Takoboto layout
+
+- **Each dictionary keeps its own text size**: two fingers (or pinch) on a definition now resizes only that dictionary, and ☰ → *Text size for this dictionary* has Larger / Smaller / Use default. Appearance → *Default definition size* is used by dictionaries you have not resized, with a button to put every dictionary back on the default.
+- **‹ › beside the dictionary title**: on a definition page, jump to the same word in the previous / next dictionary (same order as the ▾ list) without opening the list. The title shows where you are, e.g. *2/5*.
+- **Tapping a leftover selection works again**: if text is still selected after you switch tabs and come back (or after closing the card), tapping the selection reopens the card with Copy, Translate and the dictionary results. Before, nothing happened because the iPhone bar is hidden. Works in lessons, dictionary pages and the Read tab.
+- **Takoboto no longer runs off the left edge**: hanging indents (negative text-indent) are now scaled with the page margins, and no line may start left of the page padding, in any dictionary.
+
+## 2.6.1 — grammar list, long selections, Copy feedback
+
+- **文法 list scrolls properly**: it no longer repeats the first two or three patterns while scrolling; every pattern of the level appears in order.
+- **Long selections open the card too**: select a sentence or a whole paragraph (longer than the lookup limit) in a lesson, a dictionary page or the Read tab, and the card shows the full selection with **Copy**, **Translate** and **Share** (no dictionary lookup for long text).
+- **Copy shows that it worked**: the Copy button turns grey and reads *Copied* until you select something else, and a small 已複製 note appears. *Copy pattern* in a lesson's ↔ menu shows the note too.
+
+## 2.6 — 文法 (Grammar) tab
+
+- New **Grammar** tab with the JLPT grammar collection (N5–N1): level chips, categories, search by pattern or Chinese meaning, 已讀 check marks with progress, and 修正版 marks taken from the desktop index.
+- Lessons (詳解) open in the reader's hand-drawn look and follow the chosen theme, typeface and page margins; two-finger swipe changes their text size. Furigana never gets into a selection, so selecting a word opens the dictionary card like on the Read page. Lesson links (→ 該句型詳解) and ↔ related patterns open the other lesson; 前／次 step through a level.
+- The grammar folder is read as-is (「JLPT文法總目錄N5-N1.html」 + `lessons/`): ⋯ → *Update lessons from Files…* copies a newer folder onto the phone (older versions such as 修正前版本 are skipped). Progress export/import uses the same JSON as the desktop page's 匯出／匯入進度.
+- No lesson content is part of this repository; personal builds add the folder to the app as `Grammar`.
 
 ## 2.5 — page margins
 

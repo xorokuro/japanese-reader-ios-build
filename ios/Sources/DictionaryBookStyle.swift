@@ -113,6 +113,9 @@ body .mjrhsjcd-entry .def2{display:inline}
 body .tkbt-entry .phrases{margin-top:.6em}
 body .tkbt-entry .dfen{margin:.3em 0!important}
 body .tkbt-entry .dfen .dfcn{display:block;color:var(--e-muted)!important}
+body .tkbt-entry :is(.dfcn,.excn,.exen,.exjp){text-indent:0!important}
+body .tkbt-entry{max-width:100%;overflow-wrap:anywhere}
+body .tkbt-entry :is(.kanji01,.kanji02,.kanji03){display:inline-block;max-width:100%}
 body section.description p[data-orgtag="meaning"]{margin:.3em 0!important}
 body :is(.ref,.ref_item,.sansyou_g,.dc-xref,.canzhao){color:var(--e-link)!important}
 body :is(.SubItem,.ComplexG){margin-top:1.1em!important}
@@ -146,6 +149,7 @@ body span.mean_yorei *{color:inherit!important}
 }
 body con_table>accent,body accent_text{white-space:nowrap}body con_table>accent{display:flex;justify-content:space-between;width:100%}
 body,body *{-webkit-user-select:text;user-select:text}
+body mark.jp-hit{background:color-mix(in srgb,var(--e-strong) 24%,transparent)!important;color:inherit!important;border-radius:3px;padding:0 1px;box-shadow:0 0 0 1px color-mix(in srgb,var(--e-strong) 35%,transparent)!important}
 :root[data-font="sans"]{--e-font:var(--e-sans)}
 """#
 

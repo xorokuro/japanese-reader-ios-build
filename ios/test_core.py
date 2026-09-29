@@ -11,8 +11,9 @@ with tempfile.TemporaryDirectory() as directory:
         CREATE TABLE dictionaries(code TEXT PRIMARY KEY,name TEXT,root TEXT,css TEXT);
     ''')
     db.execute('INSERT INTO dictionaries VALUES(?,?,?,?)', ('TEST', 'Synthetic test dictionary', '.', ''))
-    texts = ['<p>日本語 test definition</p>', '@@@LINK=日本語', '@@@LINK=loop', '<p>second</p>']
-    words = ['日本語', 'alias', 'loop', '日本語学']
+    texts = ['<p>日本語 test definition</p>', '@@@LINK=日本語', '@@@LINK=loop', '<p>second</p>',
+             '<div class="ex">日経指数は大引け<b>間際</b>に急落した。<ruby>来<rt>き</rt></ruby>た</div>']
+    words = ['日本語', 'alias', 'loop', '日本語学', '例文']
     records = [t.encode() for t in texts]
     data = b''.join(records)
     # Split through the middle of a multibyte Japanese character.
@@ -69,6 +70,30 @@ assert(prefix.count == 2)
 let loops = try store.search("loop", codes: ["TEST"])
 do { _ = try store.entry(loops[0]); fatalError("Circular alias accepted") } catch {}
 do { _ = try store.media(code: "TEST", name: "../secret"); fatalError("Traversal accepted") } catch {}
+// Full text (全文): visible text only, across blocks and inline tags, no furigana.
+let scanner = try DictionaryStore(root: root)
+let spanning = try scanner.searchText("日本語 test", code: "TEST", dictionary: "Synthetic", limit: 50)
+assert(spanning.map { $0.id } == [1], "match split between two blocks")
+assert(spanning[0].match == "日本語 test" && spanning[0].preview.contains("日本語 test definition"))
+let bolded = try scanner.searchText("間際に急落", code: "TEST", dictionary: "Synthetic", limit: 50)
+assert(bolded.map { $0.word } == ["例文"], "match across <b>")
+assert(bolded[0].preview.contains("大引け間際に急落した"))
+let ruby = try scanner.searchText("来た", code: "TEST", dictionary: "Synthetic", limit: 50)
+assert(ruby.map { $0.word } == ["例文"], "furigana is skipped")
+let furigana = try scanner.searchText("き", code: "TEST", dictionary: "Synthetic", limit: 50)
+assert(furigana.isEmpty, "furigana is not searched")
+let tagged = try scanner.searchText("class", code: "TEST", dictionary: "Synthetic", limit: 50)
+assert(tagged.isEmpty, "tags are not searched")
+let linked = try scanner.searchText("loop", code: "TEST", dictionary: "Synthetic", limit: 50)
+assert(linked.isEmpty, "links are not results")
+let other = try scanner.searchText("second", code: "OTHER", dictionary: "Second", limit: 50)
+assert(other.map { $0.id } == [14] && other[0].code == "OTHER")
+let limited = try scanner.searchText("e", code: "TEST", dictionary: "Synthetic", limit: 1)
+assert(limited.count == 1, "limit")
+var stopped = 0
+let cancelledHits = try scanner.searchText("second", code: "TEST", dictionary: "Synthetic", limit: 50, cancelled: { stopped += 1; return true })
+assert(cancelledHits.isEmpty && stopped == 1)
+assert(DictionaryStore.snippet(String(repeating: "あ", count: 40) + "間際" + "い", around: "間際").hasPrefix("…"))
 let known = try store.contains(" 日本語 ", code: "TEST")
 let partial = try store.contains("日本", code: "TEST")
 let missing = try store.contains("日本語", code: "MISSING")
@@ -91,8 +116,18 @@ try damaged.write(to: file)
 // A damaged file is caught the next time it is opened.
 let reopened = try DictionaryStore(root: root)
 do { _ = try reopened.entry(hits[0]); fatalError("Checksum damage accepted") } catch {}
-print("PASS: real Swift dictionary engine: Japanese, split blocks, exact/prefix search, aliases, circular links, traversal, corruption, caching, de-inflection")
+print("PASS: real Swift dictionary engine: Japanese, split blocks, exact/prefix/full-text search, aliases, circular links, traversal, corruption, caching, de-inflection")
 ''', encoding='utf-8')
     deinflector = source.parent / 'Deinflector.swift'
-    subprocess.run(['swiftc', str(source), str(deinflector), str(root / 'main.swift'), '-o', str(root / 'test')], check=True)
-    subprocess.run([str(root / 'test'), str(root)], check=True)
+    def run(command, title):
+        result = subprocess.run(command, capture_output=True, text=True)
+        print(result.stdout, end='')
+        print(result.stderr, end='')
+        if result.returncode != 0:
+            # Surface the failure as annotations so it is readable without the log.
+            lines = [line for line in (result.stderr + result.stdout).splitlines() if 'error' in line.lower() or 'assert' in line.lower() or 'fatal' in line.lower()]
+            for line in (lines or (result.stderr + result.stdout).splitlines()[-10:])[:20]:
+                print(f'::error title={title}::{line[:900]}')
+            raise SystemExit(1)
+    run(['swiftc', str(source), str(deinflector), str(root / 'main.swift'), '-o', str(root / 'test')], 'Engine test compile error')
+    run([str(root / 'test'), str(root)], 'Engine test failed')

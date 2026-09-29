@@ -21,6 +21,28 @@ import SQLite3
         XCTAssertTrue(field.isFirstResponder)
         XCTAssertEqual(field.selectedTextRange.flatMap { field.text(in: $0) }, "日本語")
     }
+    /// A selection that outlived its card (tab switch, card closed) reopens the
+    /// card when tapped, even with automatic lookup off, and only for that text.
+    func testTapOnLeftoverSelectionReopensTheCard() throws {
+        let (model, root, suite) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
+        model.selectionPeek = true
+        model.dictionaryAutoSearch = false
+        let passage = String(repeating: "容疑者は密輸品を受け渡している", count: 4)
+        model.select(passage, inDictionary: true)
+        XCTAssertNil(model.peek)
+        SelectionBridge.shared.reopenText = passage
+        model.select(passage, inDictionary: true)
+        XCTAssertEqual(model.peek?.text, passage)
+        XCTAssertEqual(model.peek?.inDictionary, true)
+        XCTAssertNil(SelectionBridge.shared.reopenText)
+        model.closePeek()
+        // A stale request never reopens the card for different text.
+        SelectionBridge.shared.reopenText = passage
+        model.select(passage + "。", inDictionary: true)
+        XCTAssertNil(model.peek)
+        XCTAssertNil(SelectionBridge.shared.reopenText)
+    }
     func testSearchHistoryPersistsDeduplicatesAndDeletes() throws {
         let (model, root, suite) = try fixture()
         defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
@@ -56,6 +78,23 @@ import SQLite3
         // The switcher list is filled in right after the definition appears.
         try await settle(model); try await settle(model)
         XCTAssertEqual(Set(model.entryMatches.map(\.code)), Set(["DEMO_A", "DEMO_B"]))
+        // The ‹ › arrows step through the same list without opening the switcher.
+        let ordered = model.orderedEntryMatches
+        let start = try XCTUnwrap(model.entryMatchIndex)
+        let step = start + 1 < ordered.count ? 1 : -1
+        let target = ordered[start + step]
+        model.stepEntry(step)
+        try await settle(model); try await settle(model)
+        XCTAssertEqual(model.entryHitIdentity, target.identity)
+        XCTAssertEqual(model.entryMatchIndex, start + step)
+        model.stepEntry(-step)
+        try await settle(model); try await settle(model)
+        XCTAssertEqual(model.entryMatchIndex, start)
+        // Past either end nothing happens.
+        let edge = model.entryHitIdentity
+        model.stepEntry(step < 0 ? 1 : -1 * ordered.count)
+        try await settle(model)
+        XCTAssertEqual(model.entryHitIdentity, edge)
     }
     func testSelectionCardFindsDictionaryFormWithoutLeavingThePage() async throws {
         let (model, root, suite) = try fixture()
@@ -317,5 +356,110 @@ import SQLite3
         model.readerAutoSearch = false
         try await settle(model)
         XCTAssertFalse(model.showingLookup)
+    }
+    func testSessionReopensPageBackStackResultsAndPassage() async throws {
+        let (model, root, suite) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
+        let session = root.appendingPathComponent("session.json")
+        try await settle(model)
+        model.text = "原因を調べる。"
+        model.readerOffset = CGPoint(x: 0, y: 44)
+        model.word = "原因"; model.search(dismissKeyboard: false)
+        try await settle(model)
+        let first = try XCTUnwrap(model.hits.first)
+        model.open(first)
+        try await settle(model)
+        let firstPage = model.entryID
+        model.entryOffsets[firstPage] = CGPoint(x: 0, y: 120)
+        model.followEntryLink("原因論")
+        try await settle(model); try await settle(model)
+        model.entryOffsets[model.entryID] = CGPoint(x: 0, y: 900)
+        let secondPage = model.entryID
+        model.sessionState(tab: 1).write(to: session)
+
+        let restored = ReaderModel(documents: root, preferences: UserDefaults(suiteName: suite)!, session: session)
+        XCTAssertEqual(restored.restoredTab, 1)
+        XCTAssertEqual(restored.text, "原因を調べる。")
+        XCTAssertEqual(restored.readerOffset.y, 44)
+        XCTAssertTrue(restored.showingEntry)
+        XCTAssertEqual(restored.entryID, secondPage)
+        XCTAssertEqual(restored.entryTitle, "原因論")
+        XCTAssertEqual(restored.entryOffsets[secondPage]?.y, 900)
+        try await settle(restored); try await settle(restored)
+        XCTAssertFalse(restored.entryHTML.isEmpty, "The open page is read again at launch")
+        XCTAssertTrue(restored.canGoBack)
+        restored.backToPreviousEntry()
+        XCTAssertEqual(restored.entryID, firstPage)
+        XCTAssertEqual(restored.entryTitle, "原因")
+        XCTAssertEqual(restored.entryOffsets[firstPage]?.y, 120, "Scroll positions of earlier pages survive a relaunch")
+        try await settle(restored)
+        XCTAssertFalse(restored.entryHTML.isEmpty)
+        restored.backToPreviousEntry()
+        XCTAssertFalse(restored.showingEntry)
+        XCTAssertEqual(restored.hits.map(\.word), ["原因", "原因論"])
+        XCTAssertEqual(restored.resultsAnchor?.identity, restored.hits.first?.identity, "Back to results shows the result that was opened")
+        XCTAssertTrue(restored.revealResultsAnchor)
+        XCTAssertEqual(restored.hits.first?.root, restored.dictionaries.first?.root, "Restored results match the dictionary list")
+    }
+    func testOpeningAnotherResultKeepsEarlierScrollPositions() async throws {
+        let (model, root, suite) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
+        try await settle(model)
+        model.word = "原因"; model.search(dismissKeyboard: false)
+        try await settle(model)
+        model.open(try XCTUnwrap(model.hits.first))
+        try await settle(model)
+        let firstPage = model.entryID
+        model.entryOffsets[firstPage] = CGPoint(x: 0, y: 300)
+        // Tap the Search tab and look up something else from the search field.
+        model.showResults()
+        model.word = "原因論"; model.search(dismissKeyboard: false)
+        try await settle(model)
+        model.open(try XCTUnwrap(model.hits.first))
+        try await settle(model)
+        model.backToPreviousEntry()
+        model.backToPreviousEntry()
+        XCTAssertEqual(model.entryID, firstPage)
+        XCTAssertEqual(model.entryOffsets[firstPage]?.y, 300)
+    }
+    func testLeavingSearchKeepsThePageButReaderLookupsStartFresh() async throws {
+        let (model, root, suite) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
+        try await settle(model)
+        model.word = "原因"; model.search(dismissKeyboard: false)
+        try await settle(model)
+        model.open(try XCTUnwrap(model.hits.first))
+        try await settle(model)
+        let page = model.entryID
+        model.leaveLookup()
+        XCTAssertTrue(model.showingEntry)
+        XCTAssertEqual(model.entryID, page)
+        XCTAssertTrue(model.canGoBack)
+        model.select("原因論", inDictionary: false)
+        try await settle(model)
+        XCTAssertTrue(model.showingLookup)
+        XCTAssertFalse(model.showingEntry)
+        XCTAssertFalse(model.canGoBack, "A lookup from the Read page is a new Search stack")
+    }
+    func testLookupFromAGrammarLessonStartsFreshButOneInSearchContinues() async throws {
+        let (model, root, suite) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
+        try await settle(model)
+        model.word = "原因"; model.search(dismissKeyboard: false)
+        try await settle(model)
+        model.open(try XCTUnwrap(model.hits.first))
+        try await settle(model)
+        // A selection inside the open definition continues its Back history.
+        model.select("原因論", inDictionary: true)
+        try await settle(model)
+        XCTAssertTrue(model.canGoBack)
+        model.backToPreviousEntry()
+        XCTAssertTrue(model.showingEntry)
+        // The same kind of selection made in a 文法 lesson starts over.
+        model.onSearchTab = false
+        model.select("原因論", inDictionary: true)
+        try await settle(model)
+        XCTAssertTrue(model.showingLookup)
+        XCTAssertFalse(model.canGoBack)
     }
 }

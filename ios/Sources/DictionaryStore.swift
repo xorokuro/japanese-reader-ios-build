@@ -7,7 +7,11 @@ struct ReaderError: LocalizedError {
     var errorDescription: String? { message }
     init(_ message: String) { self.message = message }
 }
-enum DictionarySearchMode: String { case prefix, exact }
+enum DictionarySearchMode: String {
+    case prefix, exact
+    /// Anywhere in the definitions and example sentences (全文).
+    case fullText
+}
 
 struct DictionaryHit: Identifiable, Equatable {
     let id: Int64
@@ -17,6 +21,8 @@ struct DictionaryHit: Identifiable, Equatable {
     let dictionary: String
     let word: String
     var preview: String = ""
+    /// For full-text hits: the searched text, highlighted in the preview and page.
+    var match: String = ""
 }
 
 // One open connection per dictionary folder, shared by every lookup. Opening the
@@ -185,7 +191,23 @@ final class DictionaryStore {
         return value
     }
     static func preview(_ html: String) -> String {
-        let clean = html.replacingOccurrences(of: "(?is)<(script|style|rt)\\b[^>]*>.*?</\\1>", with: "", options: .regularExpression)
+        String(plainText(html).prefix(160))
+    }
+    /// The text as the full-text scanner sees it: tags removed without adding
+    /// spaces (「大引け<b>間際</b>に」 reads 「大引け間際に」), furigana dropped.
+    static func visibleText(_ html: String) -> String {
+        html.replacingOccurrences(of: "(?is)<(script|style|rt|rp)\\b[^>]*>.*?</\\1\\s*>", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "<[^>]*>", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    /// An entry's visible text: no tags, furigana (rt / rp), scripts or styles.
+    static func plainText(_ html: String) -> String {
+        html.replacingOccurrences(of: "(?is)<(script|style|rt|rp)\\b[^>]*>.*?</\\1>", with: "", options: .regularExpression)
             .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
             .replacingOccurrences(of: "&nbsp;", with: " ")
             .replacingOccurrences(of: "&amp;", with: "&")
@@ -193,7 +215,6 @@ final class DictionaryStore {
             .replacingOccurrences(of: "&gt;", with: ">")
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return String(clean.prefix(160))
     }
     private func path(_ relative: String) throws -> URL {
         guard !relative.contains(":"), !relative.hasPrefix("/"), !relative.split(separator: "/").contains("..") else { throw ReaderError("Unsafe dictionary path.") }
@@ -218,7 +239,7 @@ final class DictionaryStore {
         handles[relative] = handle
         return handle
     }
-    private func decodedBlock(_ block: [String: String], fileID: String, handle: FileHandle) throws -> Data {
+    private func decodedBlock(_ block: [String: String], fileID: String, handle: FileHandle, cache: Bool = true) throws -> Data {
         let blockStart = Int64(block["start"]!)!, blockEnd = Int64(block["end"]!)!
         let key = fileID + ":" + String(blockStart)
         if let cached = blockCache[key] { return cached }
@@ -244,6 +265,9 @@ final class DictionaryStore {
         } else { throw ReaderError("Unsupported dictionary compression.") }
         let actual = decoded.withUnsafeBytes { adler32(1, $0.bindMemory(to: Bytef.self).baseAddress, uInt(decoded.count)) }
         guard decoded.count == expected, UInt32(actual) == checksum else { throw ReaderError("Dictionary block failed its integrity check.") }
+        // A full-text scan reads every block once; caching them would only evict
+        // the blocks that normal lookups keep reusing.
+        guard cache else { return decoded }
         blockCache[key] = decoded
         blockOrder.append(key)
         blockBytes += decoded.count
@@ -286,5 +310,185 @@ final class DictionaryStore {
             rows = try query("SELECT * FROM records WHERE file=? AND norm=? LIMIT 1", [file, key])
         }
         throw ReaderError("Dictionary link is too deep.")
+    }
+}
+
+// MARK: - Full-text search (全文)
+
+/// Visible text of an HTML stream, one code unit at a time: tags, furigana
+/// (<rt>, <rp>) and <script>/<style> contents are skipped, and every kept unit
+/// remembers its byte offset in the dictionary's record data. State carries over
+/// from block to block, so a tag or a match split between two blocks still works.
+struct VisibleTextScanner<Unit: FixedWidthInteger & UnsignedInteger> {
+    let needle: [Unit]
+    private(set) var text: [Unit] = []
+    private(set) var offsets: [Int64] = []
+    private var inTag = false
+    private var tagName: [Unit] = []
+    private var tagNameDone = false
+    private var hidden: [Unit]? = nil
+
+    /// Elements whose text is not shown: furigana and code.
+    private let hiddenNames: [[Unit]]
+
+    init(needle: [Unit]) {
+        self.needle = needle
+        hiddenNames = ["rt", "rp", "script", "style"].map(Self.name)
+    }
+
+    private static func unit(_ ascii: Character) -> Unit { Unit(ascii.asciiValue!) }
+    private static func lower(_ value: Unit) -> Unit {
+        value >= unit("A") && value <= unit("Z") ? value + 32 : value
+    }
+    private static func name(_ string: String) -> [Unit] { string.unicodeScalars.map { Unit($0.value) } }
+
+    /// Adds one decoded block; `base` is the block's byte offset, `width` the unit size.
+    mutating func append(_ units: UnsafeBufferPointer<Unit>, base: Int64, width: Int64) {
+        let open = Self.unit("<"), close = Self.unit(">"), slash = Self.unit("/")
+        text.reserveCapacity(text.count + units.count)
+        offsets.reserveCapacity(offsets.count + units.count)
+        for (index, value) in units.enumerated() {
+            if inTag {
+                if value == close {
+                    inTag = false
+                    let closing = tagName.first == slash
+                    let bare = Array(closing ? tagName.dropFirst() : tagName[...])
+                    if let current = hidden {
+                        if closing && bare == current { hidden = nil }
+                    } else if !closing, hiddenNames.contains(bare) {
+                        hidden = bare
+                    }
+                } else if !tagNameDone {
+                    if value == 32 || value == 9 || value == 10 || value == 13 || (value == slash && !tagName.isEmpty) {
+                        tagNameDone = true
+                    } else if tagName.count < 8 {
+                        tagName.append(Self.lower(value))
+                    }
+                }
+                continue
+            }
+            if value == open { inTag = true; tagName.removeAll(keepingCapacity: true); tagNameDone = false; continue }
+            if hidden != nil { continue }
+            text.append(value)
+            offsets.append(base + Int64(index) * width)
+        }
+    }
+
+    /// Byte offsets where the needle starts in the text gathered so far. Keeps the
+    /// last few units so a match that continues in the next block is found then.
+    mutating func takeMatches() -> [Int64] {
+        let count = needle.count
+        guard count > 0, text.count >= count else { return [] }
+        var found: [Int64] = []
+        let first = needle[0]
+        text.withUnsafeBufferPointer { hay in
+            needle.withUnsafeBufferPointer { pin in
+                var index = 0
+                let last = hay.count - count
+                while index <= last {
+                    if hay[index] == first {
+                        var same = true
+                        var k = 1
+                        while k < count { if hay[index + k] != pin[k] { same = false; break }; k += 1 }
+                        if same { found.append(offsets[index]); index += count; continue }
+                    }
+                    index += 1
+                }
+            }
+        }
+        let keep = count - 1
+        text.removeFirst(text.count - keep)
+        offsets.removeFirst(offsets.count - keep)
+        return found
+    }
+}
+
+extension DictionaryStore {
+    /// Every entry whose visible text (definitions and example sentences, without
+    /// furigana) contains `text`. Reads the whole dictionary block by block, so run
+    /// it on a store of its own (not `shared`) and off the main thread.
+    func searchText(_ text: String, code: String, dictionary name: String, limit: Int,
+                    cancelled: () -> Bool = { false }) throws -> [DictionaryHit] {
+        lock.lock(); defer { lock.unlock() }
+        let needleText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needleText.isEmpty, limit > 0, let fileID = try mdxFile(code) else { return [] }
+        let file = try fileRow(fileID)
+        let handle = try openHandle(for: file)
+        let blocks = try query("SELECT * FROM blocks WHERE file=? ORDER BY start", [fileID])
+        let bounds = try query("SELECT min(id) AS lo, max(id) AS hi FROM records WHERE file=?", [fileID]).first
+        let low = Int64(bounds?["lo"] ?? "") ?? 0, high = Int64(bounds?["hi"] ?? "") ?? -1
+        var hits: [DictionaryHit] = []
+        var seenEnd: Int64 = -1
+        var seen = Set<String>()
+
+        func record(at offset: Int64) throws -> [String: String]? {
+            // Records are stored in the order of their data, so a binary search over
+            // ids is enough; the slow scan is only a fallback for unusual indexes.
+            var lo = low, hi = high, steps = 0
+            while lo <= hi, steps < 64 {
+                steps += 1
+                let mid = lo + (hi - lo) / 2
+                guard let row = try query("SELECT * FROM records WHERE id=?", [String(mid)]).first, row["file"] == fileID,
+                      let start = Int64(row["start"] ?? ""), let end = Int64(row["end"] ?? "") else { break }
+                if offset < start { hi = mid - 1 } else if offset >= end { lo = mid + 1 } else { return row }
+            }
+            return try query("SELECT * FROM records WHERE file=? AND start<=? AND end>? LIMIT 1", [fileID, String(offset), String(offset)]).first
+        }
+        func consider(_ offsets: [Int64]) throws -> Bool {
+            for offset in offsets where offset >= seenEnd {
+                guard let row = try record(at: offset), let id = row["id"], let recordID = Int64(id) else { continue }
+                seenEnd = Int64(row["end"] ?? "") ?? offset + 1
+                guard let headword = row["word"], seen.insert(id).inserted else { continue }
+                let (data, encoding) = try read(row)
+                let decoder: String.Encoding = encoding.lowercased().contains("utf-16") ? .utf16LittleEndian : .utf8
+                guard let html = String(data: data, encoding: decoder), !html.hasPrefix("@@@LINK=") else { continue }
+                let plain = Self.visibleText(html)
+                // The raw text can run from one entry into the next; keep real matches only.
+                guard plain.contains(needleText) else { continue }
+                var hit = DictionaryHit(id: recordID, root: root, code: code, dictionary: name, word: headword)
+                hit.preview = Self.snippet(plain, around: needleText)
+                hit.match = needleText
+                hits.append(hit)
+                if hits.count >= limit { return true }
+            }
+            return false
+        }
+
+        let utf16 = (file["encoding"] ?? "").lowercased().contains("utf-16")
+        if utf16 {
+            var scanner = VisibleTextScanner<UInt16>(needle: Array(needleText.utf16))
+            for block in blocks {
+                if cancelled() { break }
+                let data = try decodedBlock(block, fileID: fileID, handle: handle, cache: false)
+                let base = Int64(block["start"] ?? "") ?? 0
+                data.withUnsafeBytes { raw in
+                    let units = raw.bindMemory(to: UInt16.self)
+                    scanner.append(UnsafeBufferPointer(start: units.baseAddress, count: data.count / 2), base: base, width: 2)
+                }
+                if try consider(scanner.takeMatches()) { break }
+            }
+        } else {
+            var scanner = VisibleTextScanner<UInt8>(needle: Array(needleText.utf8))
+            for block in blocks {
+                if cancelled() { break }
+                let data = try decodedBlock(block, fileID: fileID, handle: handle, cache: false)
+                let base = Int64(block["start"] ?? "") ?? 0
+                data.withUnsafeBytes { raw in
+                    scanner.append(raw.bindMemory(to: UInt8.self), base: base, width: 1)
+                }
+                if try consider(scanner.takeMatches()) { break }
+            }
+        }
+        return hits
+    }
+
+    /// A line of the entry around the first match: 「…before match after…」.
+    static func snippet(_ plain: String, around needle: String) -> String {
+        guard let range = plain.range(of: needle) else { return String(plain.prefix(120)) }
+        let head = plain[..<range.lowerBound], tail = plain[range.upperBound...]
+        let before = String(head.suffix(26)), after = String(tail.prefix(60))
+        let lead = before.count < head.count ? "…" : ""
+        let trail = after.count < tail.count ? "…" : ""
+        return lead + before + needle + after + trail
     }
 }

@@ -311,3 +311,86 @@ enum ReaderText {
         return short.count >= 2 ? short : base
     }
 }
+
+/// Pull-down-and-release on a SwiftUI ScrollView, measured on the real UIKit
+/// scroll view: how far the list is pulled past its top, and whether the finger
+/// was lifted past the threshold (like pull to refresh). Put it in the scroll
+/// view's content, e.g. `.background(PullRelease(...))`.
+struct PullRelease: UIViewRepresentable {
+    var threshold: CGFloat = 70
+    /// Current pull distance (0 when not pulled); called while dragging.
+    var pulled: (CGFloat) -> Void
+    /// Finger lifted after pulling at least `threshold`.
+    var released: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeUIView(context: Context) -> ProbeView {
+        let view = ProbeView()
+        view.isUserInteractionEnabled = false
+        view.coordinator = context.coordinator
+        return view
+    }
+    func updateUIView(_ view: ProbeView, context: Context) {
+        context.coordinator.threshold = threshold
+        context.coordinator.pulled = pulled
+        context.coordinator.released = released
+        DispatchQueue.main.async { view.attach() }
+    }
+    static func dismantleUIView(_ view: ProbeView, coordinator: Coordinator) { coordinator.detach() }
+
+    final class ProbeView: UIView {
+        weak var coordinator: Coordinator?
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            DispatchQueue.main.async { [weak self] in self?.attach() }
+        }
+        func attach() {
+            var node = superview
+            while let current = node, !(current is UIScrollView) { node = current.superview }
+            if let scroll = node as? UIScrollView { coordinator?.attach(scroll) }
+        }
+    }
+
+    final class Coordinator: NSObject {
+        var threshold: CGFloat = 70
+        var pulled: ((CGFloat) -> Void)?
+        var released: (() -> Void)?
+        private weak var scrollView: UIScrollView?
+        private var observation: NSKeyValueObservation?
+        private var lastPull: CGFloat = 0
+
+        func attach(_ scroll: UIScrollView) {
+            guard scrollView !== scroll else { return }
+            detach()
+            scrollView = scroll
+            scroll.alwaysBounceVertical = true
+            scroll.panGestureRecognizer.addTarget(self, action: #selector(panned(_:)))
+            observation = scroll.observe(\.contentOffset, options: [.new]) { [weak self] scroll, _ in
+                DispatchQueue.main.async { self?.report(scroll) }
+            }
+        }
+        func detach() {
+            scrollView?.panGestureRecognizer.removeTarget(self, action: #selector(panned(_:)))
+            observation?.invalidate(); observation = nil
+            scrollView = nil
+        }
+        private func pull(of scroll: UIScrollView) -> CGFloat {
+            max(0, -(scroll.contentOffset.y + scroll.adjustedContentInset.top))
+        }
+        private func report(_ scroll: UIScrollView) {
+            // While the finger is down, or while the list springs back.
+            let value = pull(of: scroll)
+            guard abs(value - lastPull) > 0.5 || (value == 0 && lastPull != 0) else { return }
+            lastPull = value
+            pulled?(value)
+        }
+        @objc private func panned(_ pan: UIPanGestureRecognizer) {
+            guard let scroll = scrollView else { return }
+            switch pan.state {
+            case .ended:
+                if pull(of: scroll) >= threshold { released?() }
+            default: break
+            }
+        }
+    }
+}
