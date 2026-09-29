@@ -110,17 +110,20 @@ import WebKit
         let lines = try XCTUnwrap(object["lines"] as? [[String: Double]], file: file, line: line)
         let ys = try XCTUnwrap(object["ys"] as? [Double], file: file, line: line).sorted()
         XCTAssertGreaterThan(lines.count, 3, "The long paragraph must wrap", file: file, line: line)
-        if ys.count != lines.count {
-            let boxes = lines.map { "\(Int($0["top"] ?? 0))-\(Int($0["bottom"] ?? 0))/\(Int($0["ink"] ?? 0))" }.joined(separator: " ")
-            XCTFail("One rule per line expected. RAW \(object["raw"] as? String ?? "") LINES \(boxes) YS \(ys.map { Int($0) })", file: file, line: line)
+        let sorted = lines.sorted { ($0["top"] ?? 0) < ($1["top"] ?? 0) }
+        let boxes = sorted.map { "\(Int($0["top"] ?? 0))-\(Int($0["bottom"] ?? 0))/\(Int($0["ink"] ?? 0))" }.joined(separator: " ")
+        let dump = "RAW \(object["raw"] as? String ?? "") LINES \(boxes) YS \(ys.map { ($0 * 10).rounded() / 10 })"
+        guard ys.count == lines.count else {
+            XCTFail("One rule per line expected. " + dump, file: file, line: line)
             return
         }
-        let sorted = lines.sorted { ($0["top"] ?? 0) < ($1["top"] ?? 0) }
-        for (index, text) in sorted.enumerated() where index < ys.count {
+        for (index, text) in sorted.enumerated() {
             let y = ys[index]
-            XCTAssertGreaterThan(y, text["bottom"] ?? 0, "Rule \(index) must be below its line", file: file, line: line)
-            if index + 1 < sorted.count {
-                XCTAssertLessThan(y, sorted[index + 1]["ink"] ?? .infinity, "Rule \(index) must be above the next line and its furigana", file: file, line: line)
+            let below = y > (text["bottom"] ?? 0)
+            let above = index + 1 >= sorted.count || y < (sorted[index + 1]["ink"] ?? .infinity)
+            if !below || !above {
+                XCTFail("Rule \(index) is not between its line and the next. " + dump, file: file, line: line)
+                return
             }
         }
     }
