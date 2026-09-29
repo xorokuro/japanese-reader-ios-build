@@ -156,6 +156,9 @@ struct LookupPeekCard: View {
     @State private var copiedText: String?
     @State private var showCopiedNote = false
     @State private var hideNote: DispatchWorkItem?
+    /// The order of the icon buttons along the bottom, changed by dragging them.
+    @AppStorage(PeekAction.storageKey) private var actionOrder = PeekAction.standard
+    @State private var dropTarget: PeekAction?
 
     private var copied: Bool { copiedText == peek.text }
 
@@ -343,15 +346,9 @@ struct LookupPeekCard: View {
 
     private var copyButton: some View {
         Button(action: doCopy) {
-            if copied {
-                Label("Copied", systemImage: "checkmark").labelStyle(.titleAndIcon)
-            } else if peek.long {
-                Label("Copy", systemImage: "doc.on.doc").labelStyle(.titleAndIcon)
-            } else {
-                Label("Copy", systemImage: "doc.on.doc").labelStyle(.iconOnly)
-            }
+            Image(systemName: copied ? "checkmark" : "doc.on.doc")
         }
-        .buttonStyle(HandSoftButtonStyle(style: style, prominent: peek.long && !copied))
+        .buttonStyle(PeekIconButtonStyle(style: style))
         .disabled(copied)
         .opacity(copied ? 0.5 : 1)
         .saturation(copied ? 0 : 1)
@@ -359,37 +356,119 @@ struct LookupPeekCard: View {
         .accessibilityIdentifier("peekCopy")
     }
 
-    private var footer: some View {
-        HStack(spacing: 8) {
-            if peek.long {
-                copyButton
-            } else {
-                Button(action: showAll) {
-                    Label(peek.hits.isEmpty ? String("Search") : String("Results · \(peek.hits.count)"), systemImage: "list.bullet")
-                }
-                .buttonStyle(HandSoftButtonStyle(style: style, prominent: true))
-                .accessibilityIdentifier("peekAllResults")
+    @ViewBuilder private func actionButton(_ action: PeekAction) -> some View {
+        switch action {
+        case .results:
+            Button(action: showAll) {
+                Image(systemName: peek.hits.isEmpty ? "magnifyingglass" : "list.bullet")
             }
-            Button { translating = true } label: {
-                Label("Translate", systemImage: "character.bubble")
-            }
-            .buttonStyle(HandSoftButtonStyle(style: style))
-            .accessibilityIdentifier("peekTranslate")
-            if peek.long {
-                ShareLink(item: peek.text) {
-                    Label("Share", systemImage: "square.and.arrow.up").labelStyle(.iconOnly)
-                }
-                .buttonStyle(HandSoftButtonStyle(style: style))
+            .buttonStyle(PeekIconButtonStyle(style: style, prominent: true))
+            .accessibilityLabel(peek.hits.isEmpty ? "Search" : "All \(peek.hits.count) results")
+            .accessibilityIdentifier("peekAllResults")
+        case .translate:
+            Button { translating = true } label: { Image(systemName: "character.bubble") }
+                .buttonStyle(PeekIconButtonStyle(style: style))
+                .accessibilityLabel("Translate")
+                .accessibilityIdentifier("peekTranslate")
+        case .copy:
+            copyButton
+        case .share:
+            ShareLink(item: peek.text) { Image(systemName: "square.and.arrow.up") }
+                .buttonStyle(PeekIconButtonStyle(style: style))
                 .accessibilityLabel("Share")
                 .accessibilityIdentifier("peekShare")
-            } else {
-                copyButton
+        }
+    }
+
+    /// Icon buttons in the reader's own order. Touch and hold one, then drag it
+    /// onto another to swap places; the order is remembered.
+    private var footer: some View {
+        let shown = PeekAction.order(from: actionOrder).filter { $0.applies(long: peek.long) }
+        return HStack(spacing: 10) {
+            ForEach(shown) { action in
+                actionButton(action)
+                    .scaleEffect(dropTarget == action ? 1.12 : 1)
+                    .animation(.snappy(duration: 0.18), value: dropTarget)
+                    .draggable(action.rawValue) {
+                        Image(systemName: action.symbol)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(style.accent)
+                            .frame(width: 52, height: 40)
+                            .background(style.accentSoft, in: SketchShape(radius: 12))
+                    }
+                    .dropDestination(for: String.self) { items, _ in
+                        guard let raw = items.first, let dragged = PeekAction(rawValue: raw), dragged != action else { return false }
+                        withAnimation(.snappy(duration: 0.22)) {
+                            actionOrder = PeekAction.moving(dragged, to: action, in: PeekAction.order(from: actionOrder)).map(\.rawValue).joined(separator: ",")
+                        }
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        return true
+                    } isTargeted: { targeted in
+                        if targeted { dropTarget = action } else if dropTarget == action { dropTarget = nil }
+                    }
             }
             Spacer(minLength: 0)
         }
-        .labelStyle(.titleAndIcon)
-        .lineLimit(1)
         .translationPresentation(isPresented: $translating, text: peek.text)
+    }
+}
+
+/// The dictionary card's action buttons, in an order the reader can change.
+enum PeekAction: String, CaseIterable, Identifiable {
+    case results, translate, copy, share
+    var id: String { rawValue }
+    static let storageKey = "peekActionOrder"
+    static let standard = "results,translate,copy,share"
+    var symbol: String {
+        switch self {
+        case .results: return "list.bullet"
+        case .translate: return "character.bubble"
+        case .copy: return "doc.on.doc"
+        case .share: return "square.and.arrow.up"
+        }
+    }
+    /// Results needs a word to look up; Share is for long selections only.
+    func applies(long: Bool) -> Bool {
+        switch self {
+        case .results: return !long
+        case .share: return long
+        case .translate, .copy: return true
+        }
+    }
+    /// The stored order, with unknown names dropped and any missing action appended.
+    static func order(from raw: String) -> [PeekAction] {
+        var result: [PeekAction] = []
+        for name in raw.split(separator: ",") {
+            if let action = PeekAction(rawValue: String(name)), !result.contains(action) { result.append(action) }
+        }
+        for action in allCases where !result.contains(action) { result.append(action) }
+        return result
+    }
+    /// Dropping one button on another puts it in that button's place.
+    static func moving(_ dragged: PeekAction, to target: PeekAction, in order: [PeekAction]) -> [PeekAction] {
+        guard let from = order.firstIndex(of: dragged), let to = order.firstIndex(of: target), from != to else { return order }
+        var result = order
+        result.remove(at: from)
+        result.insert(dragged, at: to)
+        return result
+    }
+}
+
+/// A square hand-drawn icon button for the dictionary card.
+struct PeekIconButtonStyle: ButtonStyle {
+    let style: ReaderStyle
+    var prominent = false
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 18, weight: .semibold))
+            .foregroundStyle(prominent ? style.accent : style.ink)
+            .frame(width: 52, height: 40)
+            .background(prominent ? style.accentSoft : style.surface, in: SketchShape(radius: 12))
+            .overlay(SketchShape(radius: 12).stroke(style.lineStrong, lineWidth: 1.3))
+            .background(SketchShape(radius: 12).fill(style.shade).offset(x: configuration.isPressed ? 1 : 2, y: configuration.isPressed ? 1 : 3))
+            .offset(x: configuration.isPressed ? 1 : 0, y: configuration.isPressed ? 2 : 0)
+            .contentShape(Rectangle())
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 

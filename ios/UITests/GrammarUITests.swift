@@ -58,6 +58,56 @@ final class GrammarUITests: XCTestCase {
         shot(app, "Grammar search")
     }
 
+    /// Open a lesson, scroll down, put the app away, quit it and launch it again:
+    /// the lesson must come back at the same place, and opening it again from the
+    /// list must land there too.
+    func testGrammarLessonReopensWhereItWasLeftAfterRelaunch() {
+        var app = XCUIApplication()
+        app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard", "--ui-keep-session", "--ui-clear-session"]
+        app.launch()
+        app.tabBars.buttons["Grammar"].tap()
+        XCTAssertTrue(app.buttons["grammarLevel_N2"].waitForExistence(timeout: 15))
+        app.buttons["grammarLevel_N2"].tap()
+        let nuku = app.buttons["grammarEntry_N2|〜ぬく"]
+        XCTAssertTrue(nuku.waitForExistence(timeout: 5))
+        nuku.tap()
+        let page = app.webViews["grammarLessonPage"]
+        let heading = page.staticTexts["意思"]
+        XCTAssertTrue(heading.waitForExistence(timeout: 20))
+        sleep(1)
+        let top = heading.frame.minY
+        page.swipeUp()
+        page.swipeUp()
+        sleep(2)
+        let scrolled = heading.frame.minY
+        XCTAssertLessThan(scrolled, top - 80, "The lesson must scroll for this test to mean anything")
+        shot(app, "Lesson scrolled before quitting")
+
+        XCUIDevice.shared.press(.home)
+        sleep(2)
+        app.terminate()
+
+        app = XCUIApplication()
+        app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard", "--ui-keep-session"]
+        app.launch()
+        let reopened = app.webViews["grammarLessonPage"]
+        XCTAssertTrue(reopened.waitForExistence(timeout: 20), "The lesson that was open comes back at launch")
+        let again = reopened.staticTexts["意思"]
+        XCTAssertTrue(again.waitForExistence(timeout: 20))
+        sleep(3)
+        shot(app, "Lesson after relaunch")
+        XCTAssertEqual(again.frame.minY, scrolled, accuracy: 60, "Same scroll position after relaunch")
+
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let row = app.buttons["grammarEntry_N2|〜ぬく"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        row.tap()
+        let third = app.webViews["grammarLessonPage"].staticTexts["意思"]
+        XCTAssertTrue(third.waitForExistence(timeout: 20))
+        sleep(3)
+        XCTAssertEqual(third.frame.minY, scrolled, accuracy: 60, "Opening it again from the list lands at the same place")
+    }
+
     func testGrammarLessonInDarkTheme() {
         let app = launch(theme: "hand-engawa")
         app.tabBars.buttons["Grammar"].tap()

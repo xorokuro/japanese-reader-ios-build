@@ -161,4 +161,15 @@ final class GrammarTests: XCTestCase {
         XCTAssertEqual(GrammarTab.listRow(for: "N1|〜や", in: items), items[2].id)
         XCTAssertNil(GrammarTab.listRow(for: "N1|missing", in: items))
     }
+
+    func testCardButtonOrderIsKeptAndRepaired() {
+        XCTAssertEqual(PeekAction.order(from: PeekAction.standard), [.results, .translate, .copy, .share])
+        XCTAssertEqual(PeekAction.order(from: "copy,bogus,copy,results"), [.copy, .results, .translate, .share],
+                       "Unknown or repeated names are dropped and missing buttons come back")
+        let order = PeekAction.order(from: PeekAction.standard)
+        XCTAssertEqual(PeekAction.moving(.copy, to: .results, in: order), [.copy, .results, .translate, .share])
+        XCTAssertEqual(PeekAction.moving(.results, to: .copy, in: order), [.translate, .copy, .results, .share])
+        XCTAssertEqual(order.filter { $0.applies(long: false) }, [.results, .translate, .copy])
+        XCTAssertEqual(order.filter { $0.applies(long: true) }, [.translate, .copy, .share])
+    }
 }

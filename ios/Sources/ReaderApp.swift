@@ -825,7 +825,10 @@ struct LookupSnapshot {
             UserDefaults.standard.removeObject(forKey: GrammarStore.learnedKey)
             UserDefaults.standard.removeObject(forKey: "grammarLevel")
             let documents = UITestFixture.documents()
-            _model = StateObject(wrappedValue: ReaderModel(documents: documents))
+            // Relaunch tests keep the saved place between launches.
+            let keep = ProcessInfo.processInfo.arguments.contains("--ui-keep-session")
+            if ProcessInfo.processInfo.arguments.contains("--ui-clear-session") { try? FileManager.default.removeItem(at: SessionState.defaultURL) }
+            _model = StateObject(wrappedValue: ReaderModel(documents: documents, session: keep ? SessionState.defaultURL : nil))
             _grammar = StateObject(wrappedValue: GrammarStore(documents: documents, bundled: nil))
         } else if ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--ui-") }) {
             // Interface tests start from a clean screen every launch.
@@ -998,19 +1001,25 @@ struct ReaderHome: View {
             }
         }
         .onChange(of: model.lookupNavigation) { _, _ in wantsSearchFocus = false; selectedTab = 1 }
-        .onChange(of: scenePhase) { _, phase in
-            // Saved whenever the app is put away, so a closed app reopens here.
-            guard phase != .active, let url = model.sessionURL else { return }
-            var state = model.sessionState(tab: selectedTab)
-            grammar.fill(&state)
-            state.write(to: url)
-        }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { saveSession() } }
+        // Also straight from UIKit, in case the scene phase reaches this view late.
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in saveSession() }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in saveSession() }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willTerminateNotification)) { _ in saveSession() }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.folder]) { result in
             switch result {
             case .success(let folder): model.importFolder(folder)
             case .failure(let error): model.status = error.localizedDescription
             }
         }
+    }
+
+    /// Saved whenever the app is put away, so a closed app reopens where it was.
+    private func saveSession() {
+        guard let url = model.sessionURL else { return }
+        var state = model.sessionState(tab: selectedTab)
+        grammar.fill(&state)
+        state.write(to: url)
     }
 
     // Stays reachable above the keyboard on every screen.
