@@ -318,4 +318,88 @@ import SQLite3
         try await settle(model)
         XCTAssertFalse(model.showingLookup)
     }
+    func testSessionReopensPageBackStackResultsAndPassage() async throws {
+        let (model, root, suite) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
+        let session = root.appendingPathComponent("session.json")
+        try await settle(model)
+        model.text = "原因を調べる。"
+        model.readerOffset = CGPoint(x: 0, y: 44)
+        model.word = "原因"; model.search(dismissKeyboard: false)
+        try await settle(model)
+        let first = try XCTUnwrap(model.hits.first)
+        model.open(first)
+        try await settle(model)
+        let firstPage = model.entryID
+        model.entryOffsets[firstPage] = CGPoint(x: 0, y: 120)
+        model.followEntryLink("原因論")
+        try await settle(model); try await settle(model)
+        model.entryOffsets[model.entryID] = CGPoint(x: 0, y: 900)
+        let secondPage = model.entryID
+        model.sessionState(tab: 1).write(to: session)
+
+        let restored = ReaderModel(documents: root, preferences: UserDefaults(suiteName: suite)!, session: session)
+        XCTAssertEqual(restored.restoredTab, 1)
+        XCTAssertEqual(restored.text, "原因を調べる。")
+        XCTAssertEqual(restored.readerOffset.y, 44)
+        XCTAssertTrue(restored.showingEntry)
+        XCTAssertEqual(restored.entryID, secondPage)
+        XCTAssertEqual(restored.entryTitle, "原因論")
+        XCTAssertEqual(restored.entryOffsets[secondPage]?.y, 900)
+        try await settle(restored); try await settle(restored)
+        XCTAssertFalse(restored.entryHTML.isEmpty, "The open page is read again at launch")
+        XCTAssertTrue(restored.canGoBack)
+        restored.backToPreviousEntry()
+        XCTAssertEqual(restored.entryID, firstPage)
+        XCTAssertEqual(restored.entryTitle, "原因")
+        XCTAssertEqual(restored.entryOffsets[firstPage]?.y, 120, "Scroll positions of earlier pages survive a relaunch")
+        try await settle(restored)
+        XCTAssertFalse(restored.entryHTML.isEmpty)
+        restored.backToPreviousEntry()
+        XCTAssertFalse(restored.showingEntry)
+        XCTAssertEqual(restored.hits.map(\.word), ["原因", "原因論"])
+        XCTAssertEqual(restored.resultsAnchor?.identity, restored.hits.first?.identity, "Back to results shows the result that was opened")
+        XCTAssertTrue(restored.revealResultsAnchor)
+        XCTAssertEqual(restored.hits.first?.root, restored.dictionaries.first?.root, "Restored results match the dictionary list")
+    }
+    func testOpeningAnotherResultKeepsEarlierScrollPositions() async throws {
+        let (model, root, suite) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
+        try await settle(model)
+        model.word = "原因"; model.search(dismissKeyboard: false)
+        try await settle(model)
+        model.open(try XCTUnwrap(model.hits.first))
+        try await settle(model)
+        let firstPage = model.entryID
+        model.entryOffsets[firstPage] = CGPoint(x: 0, y: 300)
+        // Tap the Search tab and look up something else from the search field.
+        model.showResults()
+        model.word = "原因論"; model.search(dismissKeyboard: false)
+        try await settle(model)
+        model.open(try XCTUnwrap(model.hits.first))
+        try await settle(model)
+        model.backToPreviousEntry()
+        model.backToPreviousEntry()
+        XCTAssertEqual(model.entryID, firstPage)
+        XCTAssertEqual(model.entryOffsets[firstPage]?.y, 300)
+    }
+    func testLeavingSearchKeepsThePageButReaderLookupsStartFresh() async throws {
+        let (model, root, suite) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
+        try await settle(model)
+        model.word = "原因"; model.search(dismissKeyboard: false)
+        try await settle(model)
+        model.open(try XCTUnwrap(model.hits.first))
+        try await settle(model)
+        let page = model.entryID
+        model.leaveLookup()
+        XCTAssertTrue(model.showingEntry)
+        XCTAssertEqual(model.entryID, page)
+        XCTAssertTrue(model.canGoBack)
+        model.select("原因論", inDictionary: false)
+        try await settle(model)
+        XCTAssertTrue(model.showingLookup)
+        XCTAssertFalse(model.showingEntry)
+        XCTAssertFalse(model.canGoBack, "A lookup from the Read page is a new Search stack")
+    }
 }

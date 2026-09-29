@@ -18,9 +18,10 @@ struct InstalledDictionary: Identifiable {
 }
 
 struct EntryVisit {
-    let id = UUID()
+    var id = UUID()
     let hit: DictionaryHit
-    let html: String
+    /// Empty for a page restored from a previous launch until it is shown again.
+    var html: String
     let query: String
     let matches: [DictionaryHit]
     /// Filled in after the entry is on screen (it searches every dictionary).
@@ -33,6 +34,8 @@ struct LookupSnapshot {
     let query: String
     let hits: [DictionaryHit]
     let showingLookup: Bool
+    /// On a results page: the result that was opened from it, scrolled back into view.
+    var anchor: DictionaryHit? = nil
 }
 
 @MainActor final class ReaderModel: ObservableObject {
@@ -83,19 +86,42 @@ struct LookupSnapshot {
     @Published private(set) var visits: [EntryVisit] = []
     private var lookupHistory: [LookupSnapshot] = []
     var canGoBack: Bool { !lookupHistory.isEmpty }
+    /// When Back returns to a results list, the result that was opened from it.
+    var resultsAnchor: DictionaryHit?
+    /// Set when a results list is about to be shown again (Back, or at launch).
+    var revealResultsAnchor = false
     private func snapshot() -> LookupSnapshot {
         let visit = showingEntry ? visits.last : nil
-        return LookupSnapshot(visit: visit, visits: visits, query: visit?.query ?? word, hits: visit?.matches ?? hits, showingLookup: showingLookup)
+        return LookupSnapshot(visit: visit, visits: visits, query: visit?.query ?? word, hits: visit?.matches ?? hits,
+                              showingLookup: showingLookup, anchor: visit == nil ? resultsAnchor : nil)
+    }
+    /// A lookup started from the Read page begins a new Search stack, as it did
+    /// when leaving the Search tab still cleared it.
+    private func startFreshLookup() {
+        lookupHistory = []; visits = []; entryOffsets = [:]; resultsAnchor = nil
     }
     private func remember(_ page: LookupSnapshot) {
         lookupHistory.append(page)
         if lookupHistory.count > 30 { lookupHistory.removeFirst() }
+    }
+    /// Every definition page still reachable: the current stack and each Back step.
+    private var reachableVisits: [EntryVisit] {
+        var seen = Set<UUID>(), result: [EntryVisit] = []
+        for visit in lookupHistory.flatMap({ $0.visits + [$0.visit].compactMap { $0 } }) + visits where seen.insert(visit.id).inserted {
+            result.append(visit)
+        }
+        return result
+    }
+    private func pruneOffsets() {
+        let reachable = Set(reachableVisits.map(\.id))
+        entryOffsets = entryOffsets.filter { reachable.contains($0.key) }
     }
     var entryOffsets: [UUID: CGPoint] = [:]
     var readerOffset: CGPoint = .zero
     private var liveSearch: DispatchWorkItem?
     func typedSearch(_ query: String, clearSelection: Bool = false) {
         cancelPendingSearch()
+        resultsAnchor = nil
         if clearSelection { readerSelection = ""; dictionarySelection = "" }
         word = query
         hits = []
@@ -117,6 +143,31 @@ struct LookupSnapshot {
         closePeek()
         showingEntry = true; showingLookup = true; status = ""
         lookupNavigation = UUID()
+        if visit.html.isEmpty { loadPage(of: visit) }
+    }
+    /// Re-reads a definition that was restored from a previous launch.
+    private func loadPage(of visit: EntryVisit) {
+        let hit = visit.hit, visitID = visit.id, query = visit.query
+        queue.async {
+            let result = Result { () -> String in
+                let store = try DictionaryStore.shared(root: hit.root)
+                return DictionaryPage.make(body: try store.entry(hit), css: try store.stylesheet(code: hit.code), code: hit.code)
+            }
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let html):
+                    for index in self.visits.indices where self.visits[index].id == visitID { self.visits[index].html = html }
+                    guard self.entryID == visitID, self.showingEntry else { return }
+                    self.entryHTML = html
+                    let enabled = self.dictionaries.filter { !self.disabledDictionaries.contains($0.id) }
+                    if !enabled.isEmpty { self.loadAlternatives(for: visitID, hit: hit, query: query, enabled: enabled) }
+                case .failure:
+                    guard self.entryID == visitID, self.showingEntry else { return }
+                    self.showingEntry = false
+                    self.status = "「\(hit.word)」 couldn't be reopened. Its dictionary may have been moved or removed."
+                }
+            }
+        }
     }
     func backToPreviousEntry() {
         cancelPendingSearch()
@@ -124,7 +175,8 @@ struct LookupSnapshot {
         visits = previous.visits
         if let visit = previous.visit { display(visit) }
         else {
-            word = previous.query; hits = previous.hits; dictionarySelection = ""
+            word = previous.query; hits = previous.hits; dictionarySelection = ""; resultsAnchor = previous.anchor
+            revealResultsAnchor = previous.anchor != nil
             showingEntry = false; showingLookup = previous.showingLookup; status = ""
             // Already on Search: do not emit a new navigation event here, which
             // would override the Back action's request to focus the search field.
@@ -193,7 +245,7 @@ struct LookupSnapshot {
             return
         }
         word = text
-        search(dismissKeyboard: false, navigate: true, onlyIfMatched: true)
+        search(dismissKeyboard: false, navigate: true, onlyIfMatched: true, fromReader: !inDictionary)
     }
     func searchSelected(inDictionary: Bool) {
         let selected = inDictionary ? dictionarySelection : readerSelection
@@ -203,7 +255,7 @@ struct LookupSnapshot {
             return
         }
         word = selected
-        search(dismissKeyboard: true, navigate: true)
+        search(dismissKeyboard: true, navigate: true, fromReader: !inDictionary)
     }
 
     // MARK: Selection peek
@@ -277,19 +329,21 @@ struct LookupSnapshot {
         hits = current.hits
         status = ""
         closePeek()
-        open(hit)
+        open(hit, fresh: !current.inDictionary)
     }
     func showPeekResults() {
         guard let current = peek else { return }
-        let previousPage = showingEntry ? snapshot() : nil
+        let previousPage = showingEntry && current.inDictionary ? snapshot() : nil
         word = current.matched.isEmpty ? current.text.trimmingCharacters(in: .whitespacesAndNewlines) : current.matched
         closePeek()
         guard !current.hits.isEmpty else {
-            search(dismissKeyboard: true, navigate: true)
+            search(dismissKeyboard: true, navigate: true, fromReader: !current.inDictionary)
             return
         }
         cancelPendingSearch()
+        if !current.inDictionary { startFreshLookup() }
         if let previousPage { remember(previousPage) }
+        resultsAnchor = nil
         hits = current.hits
         status = ""
         recordSearch(word)
@@ -303,6 +357,11 @@ struct LookupSnapshot {
         showingLookup = false
         showingEntry = false
     }
+    /// Leaving the Search tab keeps its page, Back history and scroll positions.
+    func leaveLookup() {
+        closePeek()
+        cancelPendingSearch()
+    }
     private var searchGeneration = 0
     private var libraryWritable = true
     let queue = DispatchQueue(label: "JapaneseReader.dictionary", qos: .userInitiated)
@@ -310,9 +369,14 @@ struct LookupSnapshot {
     private let preferences: UserDefaults
     var dictionaryRoot: URL { documents.appendingPathComponent("dictionaries", isDirectory: true) }
     var libraryURL: URL { documents.appendingPathComponent("reading-library.json") }
-    init(documents: URL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0], preferences: UserDefaults = .standard) {
+    /// Where the reading position is kept between launches; nil keeps nothing.
+    let sessionURL: URL?
+    /// The tab that was open when the app was last put away.
+    private(set) var restoredTab = 0
+    init(documents: URL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0], preferences: UserDefaults = .standard, session: URL? = nil) {
         self.documents = documents
         self.preferences = preferences
+        self.sessionURL = session
         searchHistory = preferences.stringArray(forKey: "searchHistory") ?? []
         readerAutoSearch = (preferences.object(forKey: "readerAutoSearch") as? Bool) ?? true
         dictionaryAutoSearch = (preferences.object(forKey: "dictionaryAutoSearch") as? Bool) ?? true
@@ -328,7 +392,75 @@ struct LookupSnapshot {
             do { saved = try JSONDecoder().decode([SavedText].self, from: bytes) }
             catch { libraryWritable = false; status = "The saved library could not be read. Its file has been preserved." }
         }
+        if let session, let state = SessionState.load(from: session) { restore(state) }
         reload()
+    }
+
+    // MARK: Where you left off
+
+    /// Dictionary folders as the dictionary list names them (see `reload`).
+    private var dictionaryFolders: [URL] {
+        let extras = documents.appendingPathComponent("Dictionary Packs", isDirectory: true)
+        return [dictionaryRoot] + ((try? FileManager.default.contentsOfDirectory(at: extras, includingPropertiesForKeys: nil)) ?? [])
+    }
+    func sessionState(tab: Int) -> SessionState {
+        let docs = documents
+        func stored(_ hit: DictionaryHit) -> SessionHit { SessionHit(hit, documents: docs) }
+        var state = SessionState()
+        state.tab = tab
+        state.text = text
+        state.readerOffset = readerOffset
+        state.pages = reachableVisits.map { visit in
+            SessionPage(id: visit.id, hit: stored(visit.hit), query: visit.query,
+                        matches: visit.matches.map(stored), offset: entryOffsets[visit.id])
+        }
+        state.stack = visits.map(\.id)
+        state.showingEntry = showingEntry && !visits.isEmpty
+        state.showingLookup = showingLookup
+        state.word = word
+        state.hits = hits.map(stored)
+        state.anchor = resultsAnchor.map(stored)
+        state.history = lookupHistory.map { step in
+            SessionStep(stack: step.visits.map(\.id), page: step.visit?.id, query: step.query,
+                        hits: step.hits.map(stored), showingLookup: step.showingLookup, anchor: step.anchor.map(stored))
+        }
+        return state
+    }
+    func saveSession(tab: Int) {
+        guard let sessionURL else { return }
+        sessionState(tab: tab).write(to: sessionURL)
+    }
+    func restore(_ state: SessionState) {
+        let roots = SessionRoots(documents: documents, candidates: dictionaryFolders)
+        var pages: [UUID: EntryVisit] = [:]
+        for page in state.pages {
+            let hit = page.hit.hit(roots)
+            pages[page.id] = EntryVisit(id: page.id, hit: hit, html: "", query: page.query,
+                                        matches: page.matches.map { $0.hit(roots) }, alternatives: [hit])
+            if let offset = page.offset { entryOffsets[page.id] = offset }
+        }
+        text = state.text
+        readerOffset = state.readerOffset
+        restoredTab = (0...2).contains(state.tab) ? state.tab : 0
+        lookupHistory = state.history.map { step in
+            LookupSnapshot(visit: step.page.flatMap { pages[$0] }, visits: step.stack.compactMap { pages[$0] },
+                           query: step.query, hits: step.hits.map { $0.hit(roots) },
+                           showingLookup: step.showingLookup, anchor: step.anchor.map { $0.hit(roots) })
+        }
+        visits = state.stack.compactMap { pages[$0] }
+        word = state.word
+        hits = state.hits.map { $0.hit(roots) }
+        resultsAnchor = state.anchor.map { $0.hit(roots) }
+        revealResultsAnchor = resultsAnchor != nil
+        showingLookup = state.showingLookup
+        if state.showingEntry, let visit = visits.last {
+            // Set directly: no navigation event at launch.
+            entryRoot = visit.hit.root; entryCode = visit.hit.code
+            entryTitle = visit.hit.word; entryDictionary = visit.hit.dictionary; entryHitIdentity = visit.hit.identity
+            entryID = visit.id; entryMatches = visit.alternatives; entryHTML = ""
+            showingEntry = true
+            loadPage(of: visit)
+        }
     }
     func reload() {
         let root = dictionaryRoot
@@ -347,6 +479,11 @@ struct LookupSnapshot {
             DispatchQueue.main.async {
                 let order = self.dictionaryOrder
                 self.dictionaries = items.sorted { (order.firstIndex(of: $0.id) ?? Int.max) < (order.firstIndex(of: $1.id) ?? Int.max) }
+                // A page reopened at launch fills in its dictionary switcher now.
+                if self.showingEntry, let visit = self.visits.last, visit.id == self.entryID, self.entryMatches.count <= 1 {
+                    let enabled = self.dictionaries.filter { !self.disabledDictionaries.contains($0.id) }
+                    self.loadAlternatives(for: visit.id, hit: visit.hit, query: visit.query, enabled: enabled)
+                }
             }
         }
     }
@@ -365,12 +502,12 @@ struct LookupSnapshot {
         word = selected
         search(dismissKeyboard: false)
     }
-    func search(dismissKeyboard: Bool = true, navigate: Bool = false, onlyIfMatched: Bool = false, openBestMatch: Bool = false) {
+    func search(dismissKeyboard: Bool = true, navigate: Bool = false, onlyIfMatched: Bool = false, openBestMatch: Bool = false, fromReader: Bool = false) {
         if dismissKeyboard { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
         liveSearch?.cancel(); liveSearch = nil
         searchGeneration += 1
         let generation = searchGeneration, query = word
-        let previousPage = showingEntry ? snapshot() : nil
+        let previousPage = showingEntry && !fromReader ? snapshot() : nil
         let preferredRoot = entryRoot, preferredCode = entryCode
         let mode: DictionarySearchMode = openBestMatch ? .exact : (navigate ? .prefix : searchMode)
         let selected = dictionaries.filter { !disabledDictionaries.contains($0.id) && (navigate || searchScope.isEmpty || $0.id == searchScope) }
@@ -387,11 +524,14 @@ struct LookupSnapshot {
                 self.lookupBusy = false
                 switch result {
                 case .success(let hits):
+                    if !navigate && !openBestMatch { self.resultsAnchor = nil }
                     self.hits = hits
                     self.status = hits.isEmpty ? "No match. Try the dictionary form of the word." : ""
                     if openBestMatch, let hit = hits.first(where: { $0.root == preferredRoot && $0.code == preferredCode }) ?? hits.first {
                         self.open(hit)
                     } else if navigate && (!onlyIfMatched || !hits.isEmpty) {
+                        if fromReader { self.startFreshLookup() }
+                        self.resultsAnchor = nil
                         if let previousPage { self.remember(previousPage) }
                         self.showingEntry = false; self.showingLookup = true; self.lookupNavigation = UUID()
                     }
@@ -400,7 +540,7 @@ struct LookupSnapshot {
             }
         }
     }
-    func open(_ hit: DictionaryHit, replacingCurrent: Bool = false) {
+    func open(_ hit: DictionaryHit, replacingCurrent: Bool = false, fresh: Bool = false) {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         liveSearch?.cancel(); liveSearch = nil
         searchGeneration += 1
@@ -409,7 +549,10 @@ struct LookupSnapshot {
         let query = replacingCurrent ? (visits.last?.query ?? word) : word
         let matches = replacingCurrent ? (visits.last?.matches ?? hits) : hits
         let wasEntry = showingEntry
-        let previousPage = snapshot()
+        var previousPage = snapshot()
+        if !wasEntry { previousPage.anchor = hit }
+        // From the Read page's card, Back leads to the card's result list only.
+        if fresh { previousPage = LookupSnapshot(visit: nil, visits: [], query: word, hits: hits, showingLookup: false, anchor: hit) }
         let enabled = dictionaries.filter { !disabledDictionaries.contains($0.id) }
         lookupBusy = true
         queue.async {
@@ -425,15 +568,18 @@ struct LookupSnapshot {
                     // Show the definition at once; the dictionary switcher fills in after.
                     let alternatives = [hit]
                     self.recordSearch(query)
+                    if fresh { self.startFreshLookup() }
                     if !replacingCurrent { self.remember(previousPage) }
+                    // Scroll positions stay while any Back step can still reach their page.
                     if replacingCurrent, !self.visits.isEmpty {
-                        let removed = self.visits.removeLast(); self.entryOffsets.removeValue(forKey: removed.id)
+                        self.visits.removeLast()
                     } else if !wasEntry && !self.showingLookup {
-                        self.visits = []; self.entryOffsets = [:]
+                        self.visits = []
                     }
                     let visit = EntryVisit(hit: hit, html: html, query: query, matches: matches, alternatives: alternatives)
                     self.visits.append(visit)
-                    if self.visits.count > 30 { let removed = self.visits.removeFirst(); self.entryOffsets.removeValue(forKey: removed.id) }
+                    if self.visits.count > 30 { self.visits.removeFirst() }
+                    self.pruneOffsets()
                     self.display(visit)
                     self.loadAlternatives(for: visit.id, hit: hit, query: query, enabled: enabled)
                 case .failure(let error): self.status = error.localizedDescription
@@ -552,9 +698,12 @@ struct LookupSnapshot {
             UserDefaults.standard.set(false, forKey: "savePassagesOnRead")
             UserDefaults.standard.set(true, forKey: "readerAutoSearch")
             _model = StateObject(wrappedValue: ReaderModel(documents: UITestFixture.documents()))
-        } else { _model = StateObject(wrappedValue: ReaderModel()) }
+        } else if ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--ui-") }) {
+            // Interface tests start from a clean screen every launch.
+            _model = StateObject(wrappedValue: ReaderModel())
+        } else { _model = StateObject(wrappedValue: ReaderModel(session: SessionState.defaultURL)) }
         #else
-        _model = StateObject(wrappedValue: ReaderModel())
+        _model = StateObject(wrappedValue: ReaderModel(session: SessionState.defaultURL))
         #endif
     }
     var body: some Scene { WindowGroup { ReaderHome().environmentObject(model).tint(Palette.color(0x1F7A73)) } }
@@ -567,6 +716,8 @@ struct ReaderHome: View {
     @State private var clearedPassage: String?
     @State private var translation = false
     @State private var selectedTab = 0
+    @State private var restoredTab = false
+    @Environment(\.scenePhase) private var scenePhase
     @State private var searchFocusRequest = 0
     @AppStorage("automaticallyShowSearchKeyboard") private var automaticallyShowSearchKeyboard = false
     @AppStorage("searchKeyboardLanguage") private var searchKeyboardLanguage = "ja"
@@ -659,7 +810,7 @@ struct ReaderHome: View {
     }
     var body: some View {
         TabView(selection: Binding(get: { selectedTab }, set: { tab in
-            if tab == 1 { activateSearchTab() } else { selectedTab = tab }
+            if tab == 1 { openSearchTab() } else { selectedTab = tab }
         })) {
             readerTab
             searchTab
@@ -682,6 +833,7 @@ struct ReaderHome: View {
         .environment(\.readerStyle, style)
         .overlay(alignment: .top) { sizeBadge }
         .onAppear {
+            if !restoredTab { restoredTab = true; selectedTab = model.restoredTab }
             applyRedesignOnce()
             // Start WebKit once the first screen is up, so the first definition opens fast.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { DictionaryPage.prewarm() }
@@ -690,11 +842,15 @@ struct ReaderHome: View {
             // Programmatic lookup navigation must keep the keyboard hidden.
             // User tab taps are handled separately, including reselection.
             if tab != 1 {
-                wantsSearchFocus = false; model.closeLookup()
+                // The Search page, its Back history and scroll positions stay put.
+                wantsSearchFocus = false; model.leaveLookup()
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             }
         }
         .onChange(of: model.lookupNavigation) { _, _ in wantsSearchFocus = false; selectedTab = 1 }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { model.saveSession(tab: selectedTab) }
+        }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.folder]) { result in
             switch result {
             case .success(let folder): model.importFolder(folder)
@@ -708,7 +864,7 @@ struct ReaderHome: View {
         HStack {
             Button("Read") { dismissKeyboard(); selectedTab = 0 }.accessibilityIdentifier("keyboardReadTab")
             Spacer()
-            Button("Search") { activateSearchTab() }.accessibilityIdentifier("keyboardSearchTab")
+            Button("Search") { openSearchTab() }.accessibilityIdentifier("keyboardSearchTab")
             Spacer()
             Button("Library") { dismissKeyboard(); selectedTab = 2 }.accessibilityIdentifier("keyboardLibraryTab")
             Spacer()
@@ -925,7 +1081,7 @@ struct ReaderHome: View {
                                                   set: { readerTextSize = $0; sizeHUD = Int($0) },
                                                   ended: hideSizeHUD),
                                saveOffset: { model.readerOffset = $0 }) { word in
-                guard !model.showingLookup, selectedTab == 0 else { return }
+                guard selectedTab == 0 else { return }
                 model.select(word, inDictionary: false)
             }
             .clipShape(SketchShape(radius: 20))
@@ -1030,7 +1186,9 @@ struct ReaderHome: View {
     private var searchTab: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if model.showingEntry { entryView } else { lookup(focusSearch: wantsSearchFocus) }
+                if model.showingEntry {
+                    if model.entryHTML.isEmpty { reopeningEntry } else { entryView }
+                } else { lookup(focusSearch: wantsSearchFocus) }
                 if !model.status.isEmpty {
                     StatusNote(text: model.status, style: style, symbol: "book.closed")
                         .padding(.horizontal, 12).padding(.bottom, 8)
@@ -1081,7 +1239,7 @@ struct ReaderHome: View {
         }
         .toolbarBackground(paper, for: .tabBar, .navigationBar)
         .toolbarBackground(.visible, for: .tabBar, .navigationBar)
-        .background(SearchTabObserver { activateSearchTab() })
+        .background(SearchTabObserver { reselected in if reselected { activateSearchTab() } })
         .tabItem { Label("Search", systemImage: "magnifyingglass") }.tag(1)
     }
 
@@ -1106,6 +1264,17 @@ struct ReaderHome: View {
     }
 
     private var entryPeekVisible: Bool { model.peek?.inDictionary ?? false }
+
+    /// Shown for a moment while a page from the last session is read again.
+    private var reopeningEntry: some View {
+        ProgressView()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .sketchCard(style, radius: 20, tape: .marker, tapeTrailing: true)
+            .padding(.horizontal, pageMargins.cardInset)
+            .padding(.top, 14)
+            .padding(.bottom, 8)
+            .accessibilityIdentifier("reopeningEntry")
+    }
 
     private var entryView: some View {
         let visitID = model.entryID
@@ -1361,6 +1530,7 @@ struct ReaderHome: View {
     }
 
     private func resultGroups(_ hits: [DictionaryHit], switching: Bool = false, topInset: CGFloat = 0) -> some View {
+        ScrollViewReader { reader in
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 6) {
                 ForEach(model.dictionaries) { dictionary in
@@ -1380,6 +1550,7 @@ struct ReaderHome: View {
                                 }
                                 .buttonStyle(.plain)
                                 .padding(.horizontal, 12)
+                                .id(hit.identity)
                                 .accessibilityIdentifier("dictionaryResult_" + hit.word)
                             }
                         }
@@ -1398,6 +1569,14 @@ struct ReaderHome: View {
             if !switching { resultsScrolled(to: minY) }
         }
         .scrollDismissesKeyboard(.immediately)
+        .onAppear {
+            // Back to a result list: show the result that was opened from it.
+            guard !switching, model.revealResultsAnchor, let anchor = model.resultsAnchor,
+                  hits.contains(where: { $0.identity == anchor.identity }) else { return }
+            model.revealResultsAnchor = false
+            DispatchQueue.main.async { reader.scrollTo(anchor.identity, anchor: .center) }
+        }
+        }
     }
 
     private func resultGroupHeader(_ dictionary: InstalledDictionary, count: Int, groupID: String, collapsed: Bool) -> some View {
@@ -1482,6 +1661,16 @@ struct ReaderHome: View {
         if automaticallyShowSearchKeyboard { requestSearchFocus() }
         else { dismissKeyboard() }
     }
+    /// Tapping Search from another tab returns to the open definition, if any.
+    private func openSearchTab() {
+        if selectedTab != 1 && model.showingEntry {
+            dismissKeyboard()
+            selectedTab = 1
+            return
+        }
+        activateSearchTab()
+    }
+    /// Tapping Search again while on it (or with no open definition) goes to the search field.
     private func activateSearchTab() {
         model.showResults()
         selectedTab = 1
@@ -1913,7 +2102,20 @@ struct SelectableJapanese: UIViewRepresentable {
             coordinator.appliedInk = ink
             coordinator.appliedTypography = typography
         }
-        if textChanged { DispatchQueue.main.async { view.setContentOffset(initialOffset, animated: false) } }
+        if textChanged {
+            // The passage (possibly reopened at launch) may still be laying out, so
+            // re-apply its saved place a few times unless the reader has scrolled.
+            let target = initialOffset
+            for delay in [0.0, 0.15, 0.4, 0.9] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak view] in
+                    guard let view, !view.isTracking, !view.isDecelerating,
+                          context.coordinator.appliedText == text,
+                          delay == 0 || !context.coordinator.userScrolled else { return }
+                    view.setContentOffset(target, animated: false)
+                }
+            }
+            context.coordinator.userScrolled = false
+        }
         // The attributed text above already carries the ink color; assigning
         // textColor here would re-apply attributes and drop a live selection.
         if view.backgroundColor != paper { view.backgroundColor = paper }
@@ -1950,6 +2152,8 @@ struct SelectableJapanese: UIViewRepresentable {
             return UIMenu(children: [])
         }
         func scrollViewDidScroll(_ scrollView: UIScrollView) { saveOffset?(scrollView.contentOffset) }
+        var userScrolled = false
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { userScrolled = true }
         var pending: DispatchWorkItem?
         init(_ selected: @escaping (String) -> Void) { self.selected = selected }
         func textViewDidChangeSelection(_ textView: UITextView) {
