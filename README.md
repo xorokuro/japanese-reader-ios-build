@@ -4,13 +4,7 @@ Source-only snapshot for a user-authorized public iOS build. No personal passage
 
 Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuses to run build jobs when this repository is private.
 
-Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.6, build 23).
-
-## 2.6 — picks up where you left off
-
-- **Reopens where you left off**: closing and reopening the app returns to the same tab, the same Read passage at the same place, and the same dictionary or grammar page at the same scroll position. Back still walks through the pages you came from, each at its own position, and back to the result list with the result you opened in view.
-- **Switching tabs keeps your place**: going to Read or Library and tapping Search again returns to the page you were on, with its Back history. Tapping Search while already on it still goes to the search field. A new lookup from the Read page starts a fresh history, as before.
-- **Long pages keep their position**: going Back to a long page (grammar lessons especially) used to land short or at the top, because the position was applied before the page finished laying out. It is now re-applied until the page is ready, and only positions you scrolled to are remembered.
+Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.5, build 22).
 
 ## 2.5 — page margins
 

@@ -286,52 +286,11 @@ struct DictionaryPage: UIViewRepresentable {
         var initialOffset: CGPoint = .zero
         var saveOffset: ((CGPoint) -> Void)?
         private var loaded = false
-        private var restoring = false
-        private var restoreAttempt = 0
-        /// Only positions the reader chose are remembered. WebKit also moves the page
-        /// while it lays out, while a restored position is being applied and while
-        /// the view is taken off screen; saving those would overwrite the real place.
-        func scrollViewDidScroll(_ scrollView: UIScrollView) {
-            guard loaded, !restoring, scrollView.window != nil,
-                  scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating else { return }
-            saveOffset?(scrollView.contentOffset)
-        }
-        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { restoring = false }
-        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { remember(scrollView) }
-        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { remember(scrollView) } }
-        func scrollViewDidScrollToTop(_ scrollView: UIScrollView) { remember(scrollView) }
-        private func remember(_ scrollView: UIScrollView) {
-            guard loaded, !restoring, scrollView.window != nil else { return }
-            saveOffset?(scrollView.contentOffset)
-        }
+        func scrollViewDidScroll(_ scrollView: UIScrollView) { if loaded { saveOffset?(scrollView.contentOffset) } }
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            webView.scrollView.setContentOffset(initialOffset, animated: false)
             sizeSwipe.claimTwoFingers()
             loaded = true
-            restoreAttempt = 0
-            restoring = initialOffset.y > 1
-            restorePosition(webView.scrollView)
-        }
-        /// Long pages (grammar lessons especially) keep growing for a moment after
-        /// loading, so a saved position further down cannot be reached yet. Keep
-        /// re-applying it until the page is tall enough, for up to about 3 seconds,
-        /// and stop as soon as the reader touches the page.
-        private func restorePosition(_ scrollView: UIScrollView) {
-            guard restoring else { return }
-            let insets = scrollView.adjustedContentInset
-            let bottom = max(-insets.top, scrollView.contentSize.height + insets.bottom - scrollView.bounds.height)
-            let target = initialOffset.y
-            scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: min(target, bottom)), animated: false)
-            restoreAttempt += 1
-            let reached = bottom + 1 >= target && abs(scrollView.contentOffset.y - target) < 2
-            // Once reached, check a few more times in case WebKit moves it again.
-            if restoreAttempt >= 30 || (reached && restoreAttempt >= 4) {
-                restoring = false
-                return
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self, weak scrollView] in
-                guard let self, let scrollView else { return }
-                self.restorePosition(scrollView)
-            }
         }
         let queue = DispatchQueue(label: "JapaneseReader.media")
         var cancelled = Set<ObjectIdentifier>()
