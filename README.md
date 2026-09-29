@@ -4,7 +4,17 @@ Source-only snapshot for a user-authorized public iOS build. No personal passage
 
 Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuses to run build jobs when this repository is private.
 
-Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.6, build 23).
+Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.2, build 31).
+
+## 2.7.2 — picks up where you left off
+
+- **Reopens where you left off**: closing and reopening the app returns to the same tab and the same place in it:
+  - **文法**: the lesson that was open, at the same scroll position (Back still returns through the lessons you came from), and the list at the same pattern.
+  - **Search**: the same definition at the same position, with Back walking through the earlier pages and the result list.
+  - **Read**: the same passage at the same place.
+- **Each 文法 level keeps its place in the list**: switching N5 → N2 → N5 returns each level's list to where you were instead of the top.
+- **Switching tabs keeps your place in Search**: going to another tab and tapping Search again returns to the page you were on, with its Back history. Tapping Search while already on it still goes to the search field. A lookup started from Read or a 文法 lesson begins a fresh Search history, as before.
+- **Long pages keep their position**: going back to a long lesson or definition used to land short or at the top, because the position was applied before the page finished laying out. It is now re-applied until the page is ready, and only positions you scrolled to are remembered. Back to a result list shows the result you opened.
 
 ## 2.7.1 — launch crash fix
 

@@ -141,6 +141,30 @@ final class ReaderUITests: XCTestCase {
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.35)).press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.35)))
         XCTAssertTrue(app.textViews["selectablePassage"].waitForExistence(timeout: 5))
     }
+    func testSearchTabReturnsToTheOpenDefinition() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard"]
+        app.launch()
+        app.tabBars.buttons["Search"].tap()
+        let field = app.textFields["dictionarySearchField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.typeText("みほん")
+        let result = app.buttons["dictionaryResult_みほん"].firstMatch
+        XCTAssertTrue(result.waitForExistence(timeout: 15))
+        result.tap()
+        XCTAssertTrue(app.webViews.links["実物"].waitForExistence(timeout: 30))
+        app.webViews.links["実物"].tap()
+        XCTAssertTrue(app.webViews.links["製品"].waitForExistence(timeout: 15))
+        app.tabBars.buttons["Read"].tap()
+        XCTAssertTrue(app.textViews["selectablePassage"].waitForExistence(timeout: 5))
+        app.tabBars.buttons["Search"].tap()
+        XCTAssertTrue(app.webViews.links["製品"].waitForExistence(timeout: 10), "Search reopens the definition that was open")
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        app.buttons["Back"].tap()
+        XCTAssertTrue(app.webViews.links["実物"].waitForExistence(timeout: 15), "Back history survives switching tabs")
+        app.tabBars.buttons["Search"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "Tapping Search again goes to the search field")
+    }
     func testSubmittedSearchAppearsInHistoryAndCanBeReopened() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard"]

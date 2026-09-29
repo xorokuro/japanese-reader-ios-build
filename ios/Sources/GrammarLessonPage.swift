@@ -298,11 +298,8 @@ struct GrammarLessonPage: UIViewRepresentable {
         var lookup: (String) -> Void
         var textSize: Double = 17
         var margins: PageMargins = .compact
-        var initialOffset: CGPoint = .zero
-        var saveOffset: ((CGPoint) -> Void)?
         let sizeSwipe = TextSizeSwipe()
         let reopenTap = SelectionReopenTap()
-        private var loaded = false
         private var cancelled = Set<ObjectIdentifier>()
         private let queue = DispatchQueue(label: "JapaneseReader.grammarMedia")
 
@@ -312,12 +309,24 @@ struct GrammarLessonPage: UIViewRepresentable {
             self.lookup = lookup
         }
 
-        func scrollViewDidScroll(_ scrollView: UIScrollView) { if loaded { saveOffset?(scrollView.contentOffset) } }
+        let scrollKeeper = ScrollKeeper()
+        var initialOffset: CGPoint {
+            get { scrollKeeper.target }
+            set { scrollKeeper.target = newValue }
+        }
+        var saveOffset: ((CGPoint) -> Void)? {
+            get { scrollKeeper.save }
+            set { scrollKeeper.save = newValue }
+        }
+        func scrollViewDidScroll(_ scrollView: UIScrollView) { scrollKeeper.didScroll(scrollView) }
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { scrollKeeper.willBeginDragging() }
+        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { scrollKeeper.settled(scrollView) } }
+        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { scrollKeeper.settled(scrollView) }
+        func scrollViewDidScrollToTop(_ scrollView: UIScrollView) { scrollKeeper.settled(scrollView) }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            if initialOffset != .zero { webView.scrollView.setContentOffset(initialOffset, animated: false) }
             sizeSwipe.claimTwoFingers()
-            loaded = true
+            scrollKeeper.pageLoaded(webView.scrollView)
         }
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {

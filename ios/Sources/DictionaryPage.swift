@@ -420,15 +420,24 @@ struct DictionaryPage: UIViewRepresentable {
         let reopenTap = SelectionReopenTap()
         let pageDoubleTap = PageDoubleTap()
         var sansFont = false
-        var initialOffset: CGPoint = .zero
-        var saveOffset: ((CGPoint) -> Void)?
-        private var loaded = false
-        func scrollViewDidScroll(_ scrollView: UIScrollView) { if loaded { saveOffset?(scrollView.contentOffset) } }
+        let scrollKeeper = ScrollKeeper()
+        var initialOffset: CGPoint {
+            get { scrollKeeper.target }
+            set { scrollKeeper.target = newValue }
+        }
+        var saveOffset: ((CGPoint) -> Void)? {
+            get { scrollKeeper.save }
+            set { scrollKeeper.save = newValue }
+        }
+        func scrollViewDidScroll(_ scrollView: UIScrollView) { scrollKeeper.didScroll(scrollView) }
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { scrollKeeper.willBeginDragging() }
+        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { scrollKeeper.settled(scrollView) } }
+        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { scrollKeeper.settled(scrollView) }
+        func scrollViewDidScrollToTop(_ scrollView: UIScrollView) { scrollKeeper.settled(scrollView) }
         var highlight = ""
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            webView.scrollView.setContentOffset(initialOffset, animated: false)
             sizeSwipe.claimTwoFingers()
-            loaded = true
+            scrollKeeper.pageLoaded(webView.scrollView)
             // A full-text result: mark every occurrence; jump to the first one only
             // on a fresh visit (going back keeps the old scroll position).
             if !highlight.isEmpty, let data = try? JSONEncoder().encode(highlight), let text = String(data: data, encoding: .utf8) {

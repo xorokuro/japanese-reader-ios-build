@@ -117,4 +117,48 @@ final class GrammarTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("lessons/N2_ぬく.html").path))
         XCTAssertEqual(GrammarStore.unpackBuiltIn(packed), root, "Unpacked once per build")
     }
+
+    @MainActor func testOpenLessonsScrollAndListPlaceSurviveARelaunch() throws {
+        let documents = FileManager.default.temporaryDirectory.appendingPathComponent("GrammarDocs-" + UUID().uuidString)
+        try GrammarFixture.write(to: documents.appendingPathComponent("Grammar"))
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "GrammarTests-" + UUID().uuidString))
+        func loaded(_ store: GrammarStore) {
+            let done = expectation(description: "index loaded")
+            func poll() { if store.index != nil { done.fulfill() } else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: poll) } }
+            poll()
+            wait(for: [done], timeout: 10)
+        }
+        let store = GrammarStore(documents: documents, preferences: defaults, bundled: nil)
+        loaded(store)
+        store.path = ["N2|〜ぬく", "N2|〜きる"]
+        store.offsets["N2|〜きる"] = CGPoint(x: 0, y: 1500)
+        store.listTop["N2"] = "N2|〜きる"
+        var state = SessionState()
+        store.fill(&state)
+        let session = documents.appendingPathComponent("session.json")
+        state.write(to: session)
+
+        let reopened = GrammarStore(documents: documents, preferences: defaults, bundled: nil)
+        var saved = try XCTUnwrap(SessionState.load(from: session))
+        saved.grammarPath.append("N2|〜なくなった句型")
+        reopened.restore(saved)
+        loaded(reopened)
+        XCTAssertEqual(reopened.path, ["N2|〜ぬく", "N2|〜きる"], "Open lessons come back; ones no longer in the index are dropped")
+        XCTAssertEqual(reopened.offsets["N2|〜きる"]?.y, 1500)
+        XCTAssertEqual(reopened.listTop["N2"], "N2|〜きる")
+    }
+
+    @MainActor func testListPlaceMapsBetweenRowsAndPatterns() {
+        func entry(_ number: Int, _ category: String, _ pattern: String) -> GrammarEntry {
+            GrammarEntry(level: "N1", category: category, pattern: pattern, meaning: "", number: number,
+                         refs: [], file: nil, revision: nil)
+        }
+        let items = GrammarListItem.build([entry(1, "時間", "〜が早いか"), entry(2, "時間", "〜や"), entry(3, "限定", "〜をもって")], grouped: true)
+        guard case .header = items[0].kind, case .header = items[3].kind else { return XCTFail("expected group headings") }
+        XCTAssertEqual(GrammarTab.pattern(at: items[0].id, in: items), "N1|〜が早いか", "A heading stands for its first pattern")
+        XCTAssertEqual(GrammarTab.pattern(at: items[2].id, in: items), "N1|〜や")
+        XCTAssertEqual(GrammarTab.listRow(for: "N1|〜をもって", in: items), items[3].id, "The first pattern of a group comes back with its heading")
+        XCTAssertEqual(GrammarTab.listRow(for: "N1|〜や", in: items), items[2].id)
+        XCTAssertNil(GrammarTab.listRow(for: "N1|missing", in: items))
+    }
 }

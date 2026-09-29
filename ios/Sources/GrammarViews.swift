@@ -17,8 +17,9 @@ struct GrammarTab: View {
     var showSize: (Int) -> Void
     var hideSize: () -> Void
 
-    @State private var path: [String] = []
     @State private var query = ""
+    /// The row at the top of the list; remembered per level in `grammar.listTop`.
+    @State private var topItem: String?
     @AppStorage("grammarLevel") private var level = "N5"
     @AppStorage("grammarHideLearned") private var hideLearned = false
     @State private var importingLessons = false
@@ -29,11 +30,11 @@ struct GrammarTab: View {
     @AppStorage("handDrawnPaper") private var handDrawnPaper = true
 
     var body: some View {
-        NavigationStack(path: $path) {
+        NavigationStack(path: $grammar.path) {
             listScreen
                 .toolbar(.hidden, for: .navigationBar)
                 .navigationDestination(for: String.self) { id in
-                    GrammarLessonScreen(entryID: id, path: $path, style: style, margins: margins,
+                    GrammarLessonScreen(entryID: id, path: $grammar.path, style: style, margins: margins,
                                         quietMenu: quietMenu, active: active, typeface: typeface,
                                         showSize: showSize, hideSize: hideSize)
                 }
@@ -257,11 +258,38 @@ struct GrammarTab: View {
                     }
                 }
             }
+            .scrollTargetLayout()
             .padding(.horizontal, margins.cardInset + 8)
             .padding(.bottom, 28)
         }
+        .scrollPosition(id: $topItem, anchor: .top)
         .id(searching ? "search" : level)
         .scrollDismissesKeyboard(.immediately)
+        .onAppear { restoreListPosition(items) }
+        .onChange(of: topItem) { _, id in
+            // Search results are not remembered; each level keeps its own place.
+            guard !searching, let id, let pattern = Self.pattern(at: id, in: items) else { return }
+            grammar.listTop[level] = pattern
+        }
+    }
+
+    /// Scrolls a level's list back to the pattern that was at its top.
+    private func restoreListPosition(_ items: [GrammarListItem]) {
+        guard !searching, let pattern = grammar.listTop[level],
+              let target = Self.listRow(for: pattern, in: items), topItem != target else { return }
+        DispatchQueue.main.async { topItem = target }
+    }
+    /// The pattern a row stands for: itself, or for a heading the first pattern under it.
+    nonisolated static func pattern(at itemID: String, in items: [GrammarListItem]) -> String? {
+        guard let start = items.firstIndex(where: { $0.id == itemID }) else { return nil }
+        for item in items[start...] { if case .entry(let entry) = item.kind { return entry.id } }
+        return nil
+    }
+    /// The row to put at the top for a pattern: its heading when it opens a group.
+    nonisolated static func listRow(for pattern: String, in items: [GrammarListItem]) -> String? {
+        guard let index = items.firstIndex(where: { if case .entry(let entry) = $0.kind { return entry.id == pattern }; return false }) else { return nil }
+        if index > 0, case .header = items[index - 1].kind { return items[index - 1].id }
+        return items[index].id
     }
 
     private func groupHeader(_ title: String, count: Int, level: String) -> some View {
@@ -296,7 +324,7 @@ struct GrammarTab: View {
             Button {
                 guard entry.hasLesson else { return }
                 searchFocused = false
-                path.append(entry.id)
+                grammar.path.append(entry.id)
             } label: {
                 HStack(alignment: .center, spacing: 8) {
                     VStack(alignment: .leading, spacing: 3) {
@@ -461,7 +489,7 @@ struct GrammarLessonScreen: View {
                                   margins: margins,
                                   saveOffset: { grammar.offsets[entry.id] = $0 },
                                   openLesson: { open(file: $0) }) { word in
-                    guard active, !model.showingLookup else { return }
+                    guard active else { return }
                     model.select(word, inDictionary: true)
                 }
                 .id(entry.id + style.identity + typeface.rawValue)

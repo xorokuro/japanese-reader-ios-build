@@ -195,8 +195,12 @@ enum GrammarIndexParser {
     @Published private(set) var loading = false
     @Published var busy = false
     @Published var status = ""
-    /// Where each lesson was scrolled to (this session only).
+    /// Where each lesson was scrolled to; kept between launches (`SessionState`).
     var offsets: [String: CGPoint] = [:]
+    /// The lessons open on top of the list, the last one on screen.
+    @Published var path: [String] = []
+    /// The pattern at the top of the list, per level ("N2", "ALL", …).
+    var listTop: [String: String] = [:]
 
     let documents: URL
     private let preferences: UserDefaults
@@ -239,6 +243,7 @@ enum GrammarIndexParser {
                 self.loading = false
                 if let result {
                     self.index = result.0; self.root = result.1; self.source = result.2
+                    self.path = self.openable(self.path)
                     if let failure { self.status = "Your imported lessons could not be read, so the built-in set is shown. \(failure.localizedDescription)" }
                 } else {
                     self.index = nil; self.root = nil; self.source = .none
@@ -246,6 +251,24 @@ enum GrammarIndexParser {
                 }
             }
         }
+    }
+
+    // MARK: Where you left off
+
+    func fill(_ state: inout SessionState) {
+        state.grammarPath = path
+        state.grammarOffsets = offsets
+        state.grammarListTop = listTop
+    }
+    func restore(_ state: SessionState) {
+        offsets = state.grammarOffsets
+        listTop = state.grammarListTop
+        path = openable(state.grammarPath)
+    }
+    /// Lessons that still exist (the lessons may have been updated since).
+    private func openable(_ ids: [String]) -> [String] {
+        guard index != nil else { return ids }
+        return ids.filter { entry(id: $0)?.hasLesson ?? false }
     }
 
     // MARK: Lookup
