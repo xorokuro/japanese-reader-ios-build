@@ -4,7 +4,11 @@ Source-only snapshot for a user-authorized public iOS build. No personal passage
 
 Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuses to run build jobs when this repository is private.
 
-Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.4, build 33).
+Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.5, build 34).
+
+## 2.7.5 — ruled lines in 文法 lessons
+
+- 文法 lessons now have the same **ruled notebook lines** as the Read page: one faint rule under every line of text, placed from where each line actually lands (furigana, headings and boxes included), across the width of the paragraph or box. They follow the two-finger text size gesture, rotation and fonts loading. The same switch turns them off: Library → Appearance → Reading text → *Ruled notebook lines · 罫線*.
 
 ## 2.7.4 — ruled notebook lines (with 文法 kept)
 

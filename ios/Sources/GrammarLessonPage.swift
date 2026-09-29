@@ -218,6 +218,9 @@ struct GrammarLessonPage: UIViewRepresentable {
     var resize: TextResize? = nil
     var margins: PageMargins = .compact
     var saveOffset: ((CGPoint) -> Void)? = nil
+    /// Ruled notebook lines under every line of text (`PageRules`).
+    var ruled = false
+    var ruleColor = ""
     /// A link to another lesson file (…→ 該句型詳解).
     var openLesson: (String) -> Void
     let lookup: (String) -> Void
@@ -228,6 +231,8 @@ struct GrammarLessonPage: UIViewRepresentable {
         coordinator.margins = margins
         coordinator.initialOffset = initialOffset
         coordinator.saveOffset = saveOffset
+        coordinator.ruled = ruled
+        coordinator.ruleColor = ruleColor
         return coordinator
     }
 
@@ -242,6 +247,8 @@ struct GrammarLessonPage: UIViewRepresentable {
         configuration.userContentController.addUserScript(WKUserScript(source: "window.__jpLimit = \(SelectionLimit.current);", injectionTime: .atDocumentStart, forMainFrameOnly: true, in: DictionaryPage.selectionWorld))
         configuration.userContentController.addUserScript(WKUserScript(source: DictionaryPage.selectionScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: DictionaryPage.selectionWorld))
         configuration.userContentController.addUserScript(WKUserScript(source: "document.documentElement.style.setProperty('--g-pad', '\(margins.pagePadding + 2)px'); true", injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: DictionaryPage.selectionWorld))
+        configuration.userContentController.addUserScript(WKUserScript(source: PageRules.initial(on: ruled, color: ruleColor), injectionTime: .atDocumentStart, forMainFrameOnly: true, in: DictionaryPage.selectionWorld))
+        configuration.userContentController.addUserScript(WKUserScript(source: PageRules.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: DictionaryPage.selectionWorld))
         let view = ReaderWebView(frame: .zero, configuration: configuration)
         view.quietMenu = quietMenu
         view.scrollView.delegate = coordinator
@@ -273,6 +280,11 @@ struct GrammarLessonPage: UIViewRepresentable {
             coordinator.textSize = textSize
             DictionaryPage.evaluateSelectionScript("document.documentElement.style.setProperty('--g-size', '\(Int(textSize.rounded()))px'); true", in: view) { _, _ in }
         }
+        if coordinator.ruled != ruled || coordinator.ruleColor != ruleColor {
+            coordinator.ruled = ruled
+            coordinator.ruleColor = ruleColor
+            DictionaryPage.evaluateSelectionScript(PageRules.update(on: ruled, color: ruleColor), in: view) { _, _ in }
+        }
         if coordinator.margins != margins {
             coordinator.margins = margins
             DictionaryPage.evaluateSelectionScript("document.documentElement.style.setProperty('--g-pad', '\(margins.pagePadding + 2)px'); true", in: view) { _, _ in }
@@ -298,6 +310,8 @@ struct GrammarLessonPage: UIViewRepresentable {
         var lookup: (String) -> Void
         var textSize: Double = 17
         var margins: PageMargins = .compact
+        var ruled = false
+        var ruleColor = ""
         let sizeSwipe = TextSizeSwipe()
         let reopenTap = SelectionReopenTap()
         private var cancelled = Set<ObjectIdentifier>()
