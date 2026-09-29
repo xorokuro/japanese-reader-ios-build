@@ -2152,6 +2152,11 @@ struct ReaderHome: View {
                     }
                     if model.busy { ProgressView("Working…") }
                     if !model.status.isEmpty { Text(model.status).font(.footnote).foregroundStyle(style.secondary) }
+                    Section {
+                        Text("Japanese Reader \(ReaderHome.appVersion)")
+                            .font(.footnote).foregroundStyle(style.secondary)
+                            .accessibilityIdentifier("appVersion")
+                    }
                 }
                 .listRowBackground(style.surface)
             }
@@ -2168,6 +2173,14 @@ struct ReaderHome: View {
         .toolbarBackground(paper, for: .tabBar, .navigationBar)
         .toolbarBackground(.visible, for: .tabBar, .navigationBar)
         .tabItem { Label("Library", systemImage: "books.vertical") }.tag(2)
+    }
+
+    /// "2.7.3 (32)": shown at the bottom of Library, so it is easy to tell which build is installed.
+    static var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(version) (\(build))"
     }
 
     private var savedSection: some View {

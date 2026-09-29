@@ -99,6 +99,9 @@ final class GrammarUITests: XCTestCase {
         XCTAssertEqual(again.frame.minY, scrolled, accuracy: 60, "Same scroll position after relaunch")
 
         app.navigationBars.buttons.element(boundBy: 0).tap()
+        // The test fixture resets the chosen level at every launch.
+        XCTAssertTrue(app.buttons["grammarLevel_N2"].waitForExistence(timeout: 10))
+        app.buttons["grammarLevel_N2"].tap()
         let row = app.buttons["grammarEntry_N2|〜ぬく"]
         XCTAssertTrue(row.waitForExistence(timeout: 10))
         row.tap()
