@@ -120,29 +120,33 @@ final class RuledTextView: UITextView {
     }
 
     /// Y positions of the rules, in content coordinates.
+    ///
+    /// Every line fragment has the same fixed height on ruled paper, so the rules
+    /// follow the fragments' own grid. Where inside each fragment the rule goes
+    /// is measured once from the first line that has text: halfway through the
+    /// gap between its glyphs and the glyphs of a same-sized next line. That
+    /// keeps the pitch perfectly even (blank lines included) and the text
+    /// centred between two rules.
     func ruleOffsets() -> [CGFloat] {
         let lines = RuledTextView.lineBoxes(layoutManager: layoutManager, textContainer: textContainer,
                                             storage: textStorage, top: textContainerInset.top)
         var offsets: [CGFloat] = []
         let pageEnd = max(contentSize.height, bounds.height) + bounds.height
-        var y: CGFloat
-        var pitch: CGFloat
-        if lines.isEmpty {
+        guard let last = lines.last else {
             let font = (typingAttributes[.font] as? UIFont) ?? UIFont.systemFont(ofSize: 23)
-            pitch = max(font.lineHeight * 1.35, 24)
-            y = textContainerInset.top + pitch
-        } else {
-            for index in 0..<(lines.count - 1) {
-                offsets.append((lines[index].glyphBottom + lines[index + 1].glyphTop) / 2)
-            }
-            let last = lines[lines.count - 1]
-            pitch = max(last.height, 12)
-            // Same gap the text would have to a following line of the same kind.
-            y = (last.glyphBottom + last.glyphTop + pitch) / 2
+            let pitch = max(font.lineHeight * 1.35, 24)
+            var y = textContainerInset.top + pitch
+            while y < pageEnd && offsets.count < 4000 { offsets.append(y); y += pitch }
+            return offsets
         }
-        while y < pageEnd && offsets.count < 4000 {
-            offsets.append(y); y += pitch
-        }
+        let reference = lines.first { !$0.blank } ?? lines[0]
+        let pitch = max(reference.height, 12)
+        let rule = (reference.glyphBottom + reference.glyphTop + pitch) / 2
+        // How far above the bottom of its line fragment each rule sits.
+        let lift = reference.fragmentBottom - rule
+        for line in lines { offsets.append(line.fragmentBottom - lift) }
+        var y = last.fragmentBottom - lift + max(last.height, 12)
+        while y < pageEnd && offsets.count < 4000 { offsets.append(y); y += pitch }
         return offsets
     }
 
@@ -164,6 +168,10 @@ final class RuledTextView: UITextView {
         var glyphBottom: CGFloat
         /// Height of the whole line fragment, i.e. the line pitch.
         var height: CGFloat
+        /// Bottom of the line fragment, in text-view coordinates.
+        var fragmentBottom: CGFloat = 0
+        /// An empty line (only a line break): its baseline says nothing about glyphs.
+        var blank = false
     }
 
     /// Where every laid-out line's glyphs sit, in text-view coordinates.
@@ -179,8 +187,11 @@ final class RuledTextView: UITextView {
             let font = char < storage.length ? (storage.attribute(.font, at: char, effectiveRange: nil) as? UIFont) : nil
             let size = font?.pointSize ?? 17
             // Japanese glyphs fill an em box from 0.88 em above to 0.12 em below the baseline.
+            let characters = layoutManager.characterRange(forGlyphRange: lineGlyphs, actualGlyphRange: nil)
+            let blank = (storage.string as NSString).substring(with: characters)
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             boxes.append(LineBox(glyphTop: baseline - size * 0.88, glyphBottom: baseline + size * 0.12,
-                                 height: rect.height))
+                                 height: rect.height, fragmentBottom: rect.maxY + top, blank: blank))
         }
         return boxes
     }

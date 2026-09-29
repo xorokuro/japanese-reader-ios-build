@@ -26,7 +26,7 @@ final class RuledPaperTests: XCTestCase {
                 let lines = RuledTextView.lineBoxes(layoutManager: view.layoutManager, textContainer: view.textContainer,
                                                     storage: view.textStorage, top: view.textContainerInset.top)
                 XCTAssertGreaterThan(lines.count, 6, "passage should wrap at \(size)pt")
-                for (index, line) in lines.enumerated() {
+                for (index, line) in lines.enumerated() where !line.blank {
                     // Rule `index` is the one just under line `index`.
                     XCTAssertGreaterThan(rules[index], line.glyphBottom, "rule crosses line \(index) at \(size)pt ×\(spacing)")
                     if index > 0 {
@@ -48,10 +48,12 @@ final class RuledPaperTests: XCTestCase {
         let rules = view.ruleOffsets()
         let lines = RuledTextView.lineBoxes(layoutManager: view.layoutManager, textContainer: view.textContainer,
                                             storage: view.textStorage, top: view.textContainerInset.top)
-        for (index, line) in lines.enumerated() {
+        for (index, line) in lines.enumerated() where !line.blank {
             XCTAssertGreaterThan(rules[index], line.glyphBottom)
             if index > 0 { XCTAssertLessThan(rules[index - 1], line.glyphTop) }
         }
+        let gaps = zip(rules.dropFirst(), rules).map { $0 - $1 }
+        XCTAssertLessThan((gaps.max() ?? 0) - (gaps.min() ?? 0), 1.01, "uneven rules with translations")
     }
 
     func testTurningRulesOffKeepsTheOriginalLayout() {
