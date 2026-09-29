@@ -43,6 +43,14 @@ import WebKit
     })()
     """
 
+    /// Runs a script through the app's own bridge (the Swift-only WebKit calls are
+    /// not linked into the test bundle).
+    private func run(_ script: String, in view: WKWebView) async -> Any? {
+        await withCheckedContinuation { (done: CheckedContinuation<Any?, Never>) in
+            DictionaryPage.evaluateSelectionScript(script, in: view) { value, _ in done.resume(returning: value) }
+        }
+    }
+
     private func loadPage(size: Int) async throws -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.userContentController.addUserScript(WKUserScript(source: PageRules.initial(on: true, color: "rgba(0,0,0,.3)"), injectionTime: .atDocumentStart, forMainFrameOnly: true, in: DictionaryPage.selectionWorld))
@@ -63,7 +71,7 @@ import WebKit
     }
 
     private func check(_ view: WKWebView, file: StaticString = #filePath, line: UInt = #line) async throws {
-        let raw = try await view.evaluateJavaScript(probe) as? String
+        let raw = await run(probe, in: view) as? String
         let data = try XCTUnwrap(raw?.data(using: .utf8), file: file, line: line)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any], file: file, line: line)
         let lines = try XCTUnwrap(object["lines"] as? [[String: Double]], file: file, line: line)
@@ -92,7 +100,7 @@ import WebKit
         let large = try await loadPage(size: 30)
         try await check(large)
         // Changing the text size on a loaded page (the two-finger gesture) redraws them.
-        _ = try await small.evaluateJavaScript("document.body.style.fontSize = '34px'; true")
+        _ = await run("document.body.style.fontSize = '34px'; true", in: small)
         try await Task.sleep(nanoseconds: 600_000_000)
         try await check(small)
     }
@@ -100,9 +108,9 @@ import WebKit
     func testRulesTurnOff() async throws {
         defer { closeWindows() }
         let view = try await loadPage(size: 20)
-        _ = try await view.evaluateJavaScript(PageRules.update(on: false, color: "red"), in: nil, contentWorld: DictionaryPage.selectionWorld)
+        _ = await run(PageRules.update(on: false, color: "red"), in: view)
         try await Task.sleep(nanoseconds: 300_000_000)
-        let hidden = try await view.evaluateJavaScript("document.getElementById('jpRules').style.display") as? String
+        let hidden = await run("document.getElementById('jpRules').style.display", in: view) as? String
         XCTAssertEqual(hidden, "none")
     }
 }
