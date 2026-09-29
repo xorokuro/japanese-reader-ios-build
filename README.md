@@ -4,7 +4,14 @@ Source-only snapshot for a user-authorized public iOS build. No personal passage
 
 Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuses to run build jobs when this repository is private.
 
-Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.2, build 31).
+Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.4, build 33).
+
+## 2.7.4 — ruled notebook lines (with 文法 kept)
+
+- The Read page passage sits on **ruled notebook paper** like the desktop reader: a faint rule between every line and a double margin line on the left. The rules are placed from where each line of text actually lands, so the text always sits between two rules at any text size (two-finger swipe / pinch), line spacing, typeface, page margin or rotation; translation lines get their own ruled line too. Library → Appearance → Reading text → *Ruled notebook lines · 罫線* turns it off.
+- The dictionary card's Results, Translate and Copy buttons are icons only; touch and hold one and drop it on another to change their order (remembered).
+- Library shows the installed version at the bottom.
+- The ruled lines were first built on an older copy without the 文法 tab (branch `ruled-lines`); this build has both.
 
 ## 2.7.2 — picks up where you left off
 
