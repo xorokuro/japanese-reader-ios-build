@@ -51,12 +51,12 @@ import WebKit
       const raw = [];
       for (const p of document.querySelectorAll('p')) {
         const range = document.createRange(); const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT); let n;
-        while ((n = walker.nextNode())) { if (!n.data.trim()) continue; range.selectNodeContents(n); for (const r of range.getClientRects()) raw.push(n.data.slice(0, 3) + ':' + Math.round(r.top + scrollY) + '-' + Math.round(r.bottom + scrollY)); }
-        for (const rt of p.querySelectorAll('rt')) { const r = rt.getBoundingClientRect(); raw.push('rt:' + Math.round(r.top + scrollY) + '-' + Math.round(r.bottom + scrollY)); }
+        while ((n = walker.nextNode())) { if (!n.data.trim()) continue; range.selectNodeContents(n); for (const r of range.getClientRects()) raw.push(n.data.slice(0, 2) + Math.round(r.top + scrollY) + '-' + Math.round(r.bottom + scrollY)); }
+        for (const rt of p.querySelectorAll('rt')) { const r = rt.getBoundingClientRect(); raw.push('R' + Math.round(r.top + scrollY) + '-' + Math.round(r.bottom + scrollY)); }
       }
       const d = document.querySelector('#jpRules path')?.getAttribute('d') || '';
       const ys = [...d.matchAll(/M[\\d.]+ ([\\d.]+)H/g)].map(m => parseFloat(m[1]));
-      return JSON.stringify({ lines, ys, raw });
+      return JSON.stringify({ lines, ys, raw: raw.join(' ') });
     })()
     """
 
@@ -107,9 +107,11 @@ import WebKit
         let lines = try XCTUnwrap(object["lines"] as? [[String: Double]], file: file, line: line)
         let ys = try XCTUnwrap(object["ys"] as? [Double], file: file, line: line).sorted()
         XCTAssertGreaterThan(lines.count, 3, "The long paragraph must wrap", file: file, line: line)
-        XCTAssertEqual(ys.count, lines.count, "One rule per line of text", file: file, line: line)
-        let dump = "raw=\(object["raw"] ?? "") lines=\(lines) ys=\(ys)"
-        if ys.count != lines.count { XCTFail(dump, file: file, line: line) }
+        if ys.count != lines.count {
+            let boxes = lines.map { "\(Int($0["top"] ?? 0))-\(Int($0["bottom"] ?? 0))/\(Int($0["ink"] ?? 0))" }.joined(separator: " ")
+            XCTFail("One rule per line expected. RAW \(object["raw"] as? String ?? "") LINES \(boxes) YS \(ys.map { Int($0) })", file: file, line: line)
+            return
+        }
         let sorted = lines.sorted { ($0["top"] ?? 0) < ($1["top"] ?? 0) }
         for (index, text) in sorted.enumerated() where index < ys.count {
             let y = ys[index]
