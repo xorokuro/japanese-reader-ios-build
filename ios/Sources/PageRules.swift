@@ -30,7 +30,7 @@ enum PageRules {
 
     static let script = #"""
     (() => {
-        let on = false, color = "rgba(0,0,0,.12)", pending = 0, svg = null, path = null;
+        let on = false, color = "rgba(0,0,0,.12)", pending = 0, svg = null, path = null, drawn = 0;
         const SVG = "http://www.w3.org/2000/svg";
         const isBlock = (el) => {
             const d = getComputedStyle(el).display || "";
@@ -40,6 +40,19 @@ enum PageRules {
             let el = node.nodeType === 1 ? node.parentElement : node.parentElement;
             while (el && el !== document.body && !isBlock(el)) el = el.parentElement;
             return el || document.body;
+        };
+        const sameLine = (a, b) => {
+            const overlap = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+            return overlap > 0.5 * Math.min(a.bottom - a.top, b.bottom - b.top);
+        };
+        const rubyLine = (lines, r) => {
+            let best = null, gap = Infinity;
+            for (const l of lines) {
+                if (l.bottom <= r.bottom) continue;
+                const g = Math.abs(l.base - r.bottom);
+                if (g < gap) { gap = g; best = l; }
+            }
+            return best;
         };
         const draw = () => {
             pending = 0;
@@ -74,17 +87,19 @@ enum PageRules {
                 g.text.sort((a, b) => a.top - b.top);
                 const lines = [];
                 for (const r of g.text) {
-                    const line = lines[lines.length - 1];
-                    const h = r.bottom - r.top;
-                    if (line && r.top < line.bottom - Math.min(h, line.bottom - line.top) * 0.5) {
+                    // Same line when the boxes overlap by more than half the smaller height.
+                    const line = lines.find(l => sameLine(l, r));
+                    if (line) {
                         line.top = Math.min(line.top, r.top); line.bottom = Math.max(line.bottom, r.bottom);
                         line.ink = Math.min(line.ink, r.top);
                     } else {
-                        lines.push({ top: r.top, bottom: r.bottom, ink: r.top });
+                        lines.push({ top: r.top, bottom: r.bottom, ink: r.top, base: r.top });
                     }
                 }
+                lines.sort((a, b) => a.top - b.top);
                 for (const r of g.ruby) {
-                    const base = lines.find(l => l.top >= r.bottom - 4);
+                    // Furigana belongs to the line whose text starts just below it.
+                    const base = rubyLine(lines, r);
                     if (base) base.ink = Math.min(base.ink, r.top);
                 }
                 const cs = getComputedStyle(block);
@@ -123,6 +138,7 @@ enum PageRules {
             svg.setAttribute("height", String(Math.max(Math.ceil(lowest) + 2, 1)));
             path.setAttribute("stroke", color);
             path.setAttribute("d", d);
+            svg.setAttribute("data-drawn", String(++drawn));
         };
         const schedule = () => { if (!pending) pending = requestAnimationFrame(draw); };
         window.__jpRules = (enabled, stroke) => { on = !!enabled; if (stroke) color = stroke; schedule(); return true; };

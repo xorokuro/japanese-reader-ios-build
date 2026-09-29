@@ -33,8 +33,19 @@ import WebKit
         while ((n = walker.nextNode())) { if (!n.data.trim()) continue; range.selectNodeContents(n); for (const r of range.getClientRects()) rects.push(r); }
         rects.sort((a, b) => a.top - b.top);
         const own = [];
-        for (const r of rects) { const l = own[own.length - 1]; if (l && r.top < l.bottom - (r.bottom - r.top) * 0.5) { l.bottom = Math.max(l.bottom, r.bottom); } else own.push({ top: r.top + scrollY, bottom: r.bottom + scrollY, ink: r.top + scrollY }); }
-        for (const rt of p.querySelectorAll('rt')) { const r = rt.getBoundingClientRect(); const base = own.find(l => l.top >= r.bottom + scrollY - 4); if (base) base.ink = Math.min(base.ink, r.top + scrollY); }
+        // Independent line count: one line per distinct baseline row of characters.
+        for (const r of rects) {
+          const t = r.top + scrollY, b = r.bottom + scrollY, mid = (t + b) / 2;
+          const l = own.find(l => mid > l.top && mid < l.bottom);
+          if (l) { l.top = Math.min(l.top, t); l.bottom = Math.max(l.bottom, b); l.ink = Math.min(l.ink, t); }
+          else own.push({ top: t, bottom: b, ink: t, first: t });
+        }
+        own.sort((a, b) => a.top - b.top);
+        for (const rt of p.querySelectorAll('rt')) {
+          const r = rt.getBoundingClientRect(); const rb = r.bottom + scrollY;
+          const below = own.filter(l => l.bottom > rb).sort((a, b) => Math.abs(a.first - rb) - Math.abs(b.first - rb));
+          if (below.length) below[0].ink = Math.min(below[0].ink, r.top + scrollY);
+        }
         lines.push(...own);
       }
       const d = document.querySelector('#jpRules path')?.getAttribute('d') || '';
@@ -66,8 +77,21 @@ import WebKit
             loaded.done = { done.resume() }
             view.loadHTMLString(page.replacingOccurrences(of: "font:20px", with: "font:\(size)px"), baseURL: nil)
         }
-        try await Task.sleep(nanoseconds: 600_000_000)
+        try await waitForRules(view, after: 0)
         return view
+    }
+
+    /// Waits until the script has drawn (again) after `after` earlier drawings.
+    private func waitForRules(_ view: WKWebView, after count: Int) async throws {
+        for _ in 0..<50 {
+            let drawn = await run("(() => { const s = document.getElementById('jpRules'); return s ? Number(s.getAttribute('data-drawn') || 0) : 0; })()", in: view) as? Int ?? 0
+            if drawn > count { try await Task.sleep(nanoseconds: 200_000_000); return }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTFail("The rules were never drawn")
+    }
+    private func drawnCount(_ view: WKWebView) async -> Int {
+        await run("Number(document.getElementById('jpRules')?.getAttribute('data-drawn') || 0)", in: view) as? Int ?? 0
     }
 
     private func check(_ view: WKWebView, file: StaticString = #filePath, line: UInt = #line) async throws {
@@ -100,8 +124,9 @@ import WebKit
         let large = try await loadPage(size: 30)
         try await check(large)
         // Changing the text size on a loaded page (the two-finger gesture) redraws them.
+        let before = await drawnCount(small)
         _ = await run("document.body.style.fontSize = '34px'; true", in: small)
-        try await Task.sleep(nanoseconds: 600_000_000)
+        try await waitForRules(small, after: before)
         try await check(small)
     }
 
