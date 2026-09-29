@@ -17,7 +17,7 @@ import WebKit
     private let page = """
     <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
     <style>body{margin:0;padding:12px;font:20px/1.78 -apple-system,sans-serif}
-    p{width:220px;margin:0 0 14px}rt{font-size:.52em}</style></head><body>
+    p{width:220px;margin:0 0 14px}ruby{ruby-position:over}rt{font:500 .52em/1 sans-serif}rt::before{content:attr(data-r)}</style></head><body>
     <p id="a">これは<ruby>長<rt>なが</rt></ruby>い<ruby>文章<rt>ぶんしょう</rt></ruby>です。何行にもわたって折り返されるように、十分に長く書いておきます。まだ続きます。</p>
     <p id="b">短い行。</p>
     </body></html>
@@ -30,7 +30,7 @@ import WebKit
       for (const p of document.querySelectorAll('p')) {
         const range = document.createRange(); const rects = [];
         const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT); let n;
-        while ((n = walker.nextNode())) { if (!n.data.trim()) continue; range.selectNodeContents(n); for (const r of range.getClientRects()) rects.push(r); }
+        while ((n = walker.nextNode())) { if (!n.data.trim() || n.parentElement.closest('rt')) continue; range.selectNodeContents(n); for (const r of range.getClientRects()) rects.push(r); }
         rects.sort((a, b) => a.top - b.top);
         const own = [];
         // Independent line count: one line per distinct baseline row of characters.
@@ -81,7 +81,9 @@ import WebKit
         view.navigationDelegate = loaded
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             loaded.done = { done.resume() }
-            view.loadHTMLString(page.replacingOccurrences(of: "font:20px", with: "font:\(size)px"), baseURL: nil)
+            // Furigana as the app prepares lessons: drawn from data-r, not text.
+            let html = GrammarLessonHTML.movingReadings(page.replacingOccurrences(of: "font:20px", with: "font:\(size)px"))
+            view.loadHTMLString(html, baseURL: nil)
         }
         try await waitForRules(view, after: 0)
         return view
