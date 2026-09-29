@@ -604,6 +604,8 @@ struct ReaderHome: View {
     @AppStorage("washiRedesignApplied") private var washiRedesignApplied = false
     @AppStorage("readerTextSize") private var readerTextSize = 23.0
     @AppStorage("readerLineSpacing") private var readerLineSpacing = 1.35
+    /// Ruled notebook lines behind the passage (desktop look).
+    @AppStorage("ruledPaper") private var ruledPaper = true
     @AppStorage("dictionaryTextSize") private var dictionaryTextSize = 19.0
     @AppStorage("dictionarySans") private var dictionarySans = false
     @AppStorage("pageMargins") private var pageMarginsRaw = PageMargins.compact.rawValue
@@ -921,6 +923,9 @@ struct ReaderHome: View {
                                translations: translationReady ? translatedLines : [],
                                quietMenu: quietMenu,
                                sideInset: pageMargins.readerInset,
+                               ruled: ruledPaper,
+                               ruleColor: UIColor(style.tape).withAlphaComponent(style.isDark ? 0.30 : 0.26),
+                               marginColor: UIColor(accent).withAlphaComponent(0.38),
                                resize: TextResize(value: readerTextSize, range: 16...38,
                                                   set: { readerTextSize = $0; sizeHUD = Int($0) },
                                                   ended: hideSizeHUD),
@@ -1734,6 +1739,7 @@ struct ReaderHome: View {
                         }
                         Slider(value: $readerLineSpacing, in: 1.05...2.0, step: 0.05)
                     }
+                    Toggle("Ruled notebook lines · 罫線", isOn: $ruledPaper).accessibilityIdentifier("ruledPaper")
                 } header: { Text("Reading text · 本文") }
                 Section {
                     Picker("Page margins", selection: $pageMarginsRaw) {
@@ -1761,7 +1767,7 @@ struct ReaderHome: View {
                     Button("Reset appearance", role: .destructive) {
                         themeID = "hand-washi"; accentRGB = 0x1F7A73; paperRGB = 0xFFFFFF; customPaper = false
                         readerTypefaceRaw = ReaderTypeface.kyokasho.rawValue; readerTextSize = 23; readerLineSpacing = 1.35
-                        handDrawnPaper = true
+                        handDrawnPaper = true; ruledPaper = true
                         dictionaryTextSize = 19; dictionarySans = false
                     }
                 }
@@ -1833,6 +1839,10 @@ struct SelectableJapanese: UIViewRepresentable {
     var quietMenu = false
     /// Left and right space inside the reading card.
     var sideInset: CGFloat = 20
+    /// Ruled notebook lines and a margin line behind the text, like the desktop.
+    var ruled = false
+    var ruleColor: UIColor = .clear
+    var marginColor: UIColor = .clear
     /// Two-finger swipe up / down to change the text size.
     var resize: TextResize? = nil
     var saveOffset: ((CGPoint) -> Void)? = nil
@@ -1840,10 +1850,11 @@ struct SelectableJapanese: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(selected) }
     static let translationKey = NSAttributedString.Key("JapaneseReaderTranslation")
     // Reading typography: comfortable line height and page margins for Japanese.
-    static func styled(_ text: String, ink: UIColor, font: UIFont = .systemFont(ofSize: 23), lineSpacing: CGFloat = 1.3) -> NSAttributedString {
+    static func styled(_ text: String, ink: UIColor, font: UIFont = .systemFont(ofSize: 23), lineSpacing: CGFloat = 1.3, ruled: Bool = false) -> NSAttributedString {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineHeightMultiple = lineSpacing
         paragraph.paragraphSpacing = font.pointSize * 0.5
+        if ruled { paragraph.setParagraphStyle(RuledTextView.paragraph(font: font, lineSpacing: lineSpacing)) }
         return NSAttributedString(string: text, attributes: [
             .font: font,
             .foregroundColor: ink,
@@ -1851,10 +1862,10 @@ struct SelectableJapanese: UIViewRepresentable {
         ])
     }
     /// The passage with each sentence followed by its translation in small print.
-    static func interlinear(_ text: String, translations: [String], ink: UIColor, font: UIFont, lineSpacing: CGFloat) -> NSAttributedString {
+    static func interlinear(_ text: String, translations: [String], ink: UIColor, font: UIFont, lineSpacing: CGFloat, ruled: Bool = false) -> NSAttributedString {
         let pieces = PassageSegments.split(text)
         guard !translations.isEmpty, translations.count == pieces.count else {
-            return styled(text, ink: ink, font: font, lineSpacing: lineSpacing)
+            return styled(text, ink: ink, font: font, lineSpacing: lineSpacing, ruled: ruled)
         }
         let original = NSMutableParagraphStyle()
         original.lineHeightMultiple = lineSpacing
@@ -1862,6 +1873,11 @@ struct SelectableJapanese: UIViewRepresentable {
         let translated = NSMutableParagraphStyle()
         translated.lineHeightMultiple = 1.15
         translated.paragraphSpacing = font.pointSize * 0.75
+        if ruled {
+            // On ruled paper each translation line takes one ruled line too.
+            original.setParagraphStyle(RuledTextView.paragraph(font: font, lineSpacing: lineSpacing))
+            translated.setParagraphStyle(original)
+        }
         let small = UIFont.systemFont(ofSize: max(13, font.pointSize * 0.62))
         let result = NSMutableAttributedString()
         for (index, piece) in pieces.enumerated() {
@@ -1881,7 +1897,7 @@ struct SelectableJapanese: UIViewRepresentable {
         return result
     }
     func makeUIView(context: Context) -> UITextView {
-        let view = UITextView(); view.isEditable = false; view.isSelectable = true
+        let view = RuledTextView(); view.isEditable = false; view.isSelectable = true
         view.accessibilityIdentifier = "selectablePassage"
         view.font = .systemFont(ofSize: 23); view.backgroundColor = .clear; view.delegate = context.coordinator
         view.textContainerInset = UIEdgeInsets(top: 24, left: 20, bottom: 40, right: 20)
@@ -1891,23 +1907,31 @@ struct SelectableJapanese: UIViewRepresentable {
         SelectionBridge.shared.readerView = view
         return view
     }
+    /// Left inset of the text: ruled paper leaves room for the margin line.
+    private var leftInset: CGFloat { ruled ? sideInset + 16 : sideInset }
     func updateUIView(_ view: UITextView, context: Context) {
         let coordinator = context.coordinator
+        if let paper = view as? RuledTextView {
+            paper.ruled = ruled
+            paper.ruleColor = ruleColor
+            paper.marginColor = marginColor
+            paper.marginX = ruled ? max(6, sideInset - 2) : nil
+        }
         coordinator.selected = selected
         coordinator.saveOffset = saveOffset
         coordinator.quietMenu = quietMenu
         coordinator.sizeSwipe.resize = resize
-        if view.textContainerInset.left != sideInset {
-            view.textContainerInset = UIEdgeInsets(top: 24, left: sideInset, bottom: 40, right: sideInset)
+        if view.textContainerInset.left != leftInset || view.textContainerInset.right != sideInset {
+            view.textContainerInset = UIEdgeInsets(top: 24, left: leftInset, bottom: 40, right: sideInset)
         }
         // Rebuilding the attributed text clears the selection, so only do it when
         // the passage, its translations or the theme's ink actually changed.
         let textChanged = coordinator.appliedText != text
         let content = translations.joined(separator: "\u{1}")
-        let typography = "\(font.fontName)-\(font.pointSize)-\(lineSpacing)"
+        let typography = "\(font.fontName)-\(font.pointSize)-\(lineSpacing)-\(ruled)"
         if textChanged || coordinator.appliedTranslations != content
             || coordinator.appliedInk != ink || coordinator.appliedTypography != typography {
-            view.attributedText = Self.interlinear(text, translations: translations, ink: ink, font: font, lineSpacing: lineSpacing)
+            view.attributedText = Self.interlinear(text, translations: translations, ink: ink, font: font, lineSpacing: lineSpacing, ruled: ruled)
             coordinator.appliedText = text
             coordinator.appliedTranslations = content
             coordinator.appliedInk = ink

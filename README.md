@@ -4,7 +4,11 @@ Source-only snapshot for a user-authorized public iOS build. No personal passage
 
 Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuses to run build jobs when this repository is private.
 
-Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.5, build 22).
+Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.6, build 23).
+
+## 2.6 — ruled notebook lines
+
+- The Read page passage now sits on **ruled notebook paper** like the desktop reader: a faint rule between every line and a double margin line on the left. The rules are placed from where each line of text actually lands, so the text always sits between two rules at any text size (two-finger swipe / pinch), line spacing, typeface, page margin or rotation; translation lines get their own ruled line too. Library → Appearance → Reading text → *Ruled notebook lines · 罫線* turns it off.
 
 ## 2.5 — page margins
 
