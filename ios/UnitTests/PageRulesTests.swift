@@ -93,7 +93,8 @@ import WebKit
     private func waitForRules(_ view: WKWebView, after count: Int) async throws {
         for _ in 0..<50 {
             let drawn = await run("(() => { const s = document.getElementById('jpRules'); return s ? Number(s.getAttribute('data-drawn') || 0) : 0; })()", in: view) as? Int ?? 0
-            if drawn > count { try await Task.sleep(nanoseconds: 200_000_000); return }
+            // Then let the follow-up redraws (load, fonts, settle timer) finish.
+            if drawn > count { try await Task.sleep(nanoseconds: 1_600_000_000); return }
             try await Task.sleep(nanoseconds: 100_000_000)
         }
         XCTFail("The rules were never drawn")

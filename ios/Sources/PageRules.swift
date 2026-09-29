@@ -140,11 +140,23 @@ enum PageRules {
             path.setAttribute("d", d);
             svg.setAttribute("data-drawn", String(++drawn));
         };
-        const schedule = () => { if (!pending) pending = requestAnimationFrame(draw); };
+        // A short timer rather than an animation frame: WebKit can hold animation
+        // frames back (a page still off screen), and the rules must not wait for that.
+        const schedule = () => { if (!pending) pending = setTimeout(draw, 40); };
         window.__jpRules = (enabled, stroke) => { on = !!enabled; if (stroke) color = stroke; schedule(); return true; };
-        new ResizeObserver(schedule).observe(document.body);
+        // Redraw whenever the text can have moved: size changes (text size gesture,
+        // rotation), the page finishing loading, fonts arriving, and once more
+        // shortly after, when late layout (furigana, images) has settled.
+        const resized = new ResizeObserver(schedule);
+        resized.observe(document.body);
         window.addEventListener("resize", schedule);
-        if (document.fonts && document.fonts.ready) document.fonts.ready.then(schedule);
+        window.addEventListener("load", schedule);
+        if (document.fonts) {
+            if (document.fonts.ready) document.fonts.ready.then(schedule);
+            document.fonts.addEventListener && document.fonts.addEventListener("loadingdone", schedule);
+        }
+        setTimeout(schedule, 300);
+        setTimeout(schedule, 1200);
         const start = window.__jpRulesInit;
         if (start && typeof start === "object") window.__jpRules(start.on, start.color);
     })();
