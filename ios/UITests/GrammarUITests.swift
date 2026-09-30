@@ -128,9 +128,14 @@ final class GrammarUITests: XCTestCase {
         word.press(forDuration: 1.2)
         let card = app.otherElements["lookupPeek"]
         XCTAssertTrue(card.waitForExistence(timeout: 10), "Selecting in a lesson opens the card")
-        card.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.05))
-            .press(forDuration: 0.05, thenDragTo: card.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 1.3)))
-        XCTAssertTrue(card.waitForNonExistence(timeout: 5), "Pulling the card down closes it")
+        XCTAssertTrue(app.buttons["closePeek"].waitForExistence(timeout: 5))
+        sleep(1)
+        // Grab the card by its title row (beside the ✕) and pull it down, on screen.
+        let title = app.buttons["closePeek"].coordinate(withNormalizedOffset: CGVector(dx: -3, dy: 0.5))
+        title.press(forDuration: 0.1, thenDragTo: title.withOffset(CGVector(dx: 0, dy: 260)))
+        let closed = card.waitForNonExistence(timeout: 5)
+        if !closed { shot(app, "Card after pulling down") }
+        XCTAssertTrue(closed, "Pulling the card down closes it")
 
         // Look it up in Search, then Back.
         word.press(forDuration: 1.2)

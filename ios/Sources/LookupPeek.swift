@@ -171,7 +171,7 @@ struct LookupPeekCard: View {
                 header
             }
             .contentShape(Rectangle())
-            .gesture(pullToClose)
+            .highPriorityGesture(pullToClose)
             if peek.long {
                 passage
             } else {
