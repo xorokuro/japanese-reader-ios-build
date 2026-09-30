@@ -292,10 +292,12 @@ final class ReaderUITests: XCTestCase {
         if confirm.waitForExistence(timeout: 4) { confirm.tap() }
         let found = app.buttons["dictionaryResult_みほん"].firstMatch.waitForExistence(timeout: 15)
         if !found {
-            let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-            shot.name = "After opening the link"; shot.lifetime = .keepAlways; add(shot)
+            let tabs = app.tabBars.buttons.allElementsBoundByIndex.map { "\($0.label)=\($0.isSelected)" }.joined(separator: ",")
+            let texts = app.staticTexts.allElementsBoundByIndex.prefix(40).map(\.label).joined(separator: " | ")
+            let alerts = springboard.alerts.allElementsBoundByIndex.map(\.label).joined(separator: ",")
+            XCTFail("Link not handled. state=\(app.state.rawValue) tabs=\(tabs) alerts=\(alerts) texts=\(texts.prefix(700))")
+            return
         }
-        XCTAssertTrue(found, "The link opens the results")
         XCTAssertTrue(app.tabBars.buttons["Search"].isSelected)
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = "Lookup from a link"; shot.lifetime = .keepAlways; add(shot)
