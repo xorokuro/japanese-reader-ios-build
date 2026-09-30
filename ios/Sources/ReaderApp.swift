@@ -410,12 +410,23 @@ struct LookupSnapshot {
     /// (食べました → 食べる), and the results open on the Search tab. Back returns
     /// to the tab that was open.
     private var pendingExternalLookup: String?
+    /// The dictionary list has been read at least once since launch.
+    private(set) var dictionariesLoaded = false
     func lookUpExternal(_ text: String) {
         let query = ExternalLookup.clean(text)
         guard !query.isEmpty else { return }
         let enabled = dictionaries.filter { !disabledDictionaries.contains($0.id) }
-        // Launched by the lookup: the dictionaries are still being opened.
-        guard !enabled.isEmpty else { pendingExternalLookup = query; return }
+        guard !enabled.isEmpty else {
+            if dictionariesLoaded {
+                status = dictionaries.isEmpty
+                    ? "Add your dictionaries in Library to look up 「\(query)」."
+                    : "Turn on a dictionary in Library to look up 「\(query)」."
+            } else {
+                // Launched by the lookup: the dictionaries are still being opened.
+                pendingExternalLookup = query
+            }
+            return
+        }
         pendingExternalLookup = nil
         closePeek()
         cancelPendingSearch()
@@ -573,6 +584,7 @@ struct LookupSnapshot {
             DispatchQueue.main.async {
                 let order = self.dictionaryOrder
                 self.dictionaries = items.sorted { (order.firstIndex(of: $0.id) ?? Int.max) < (order.firstIndex(of: $1.id) ?? Int.max) }
+                self.dictionariesLoaded = true
                 if let waiting = self.pendingExternalLookup {
                     self.pendingExternalLookup = nil
                     if items.isEmpty { self.status = "Add your dictionaries in Library to look up 「\(waiting)」." }

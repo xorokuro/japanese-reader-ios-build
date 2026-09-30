@@ -47,7 +47,10 @@ enum ExternalLookup {
     /// Short text is looked up; a sentence or more is opened on the Read page instead,
     /// where any word in it can be selected.
     static func isPassage(_ text: String) -> Bool {
-        text.count > SelectionLimit.current || text.contains("\n")
+        if text.count > SelectionLimit.current || text.contains("\n") { return true }
+        // A whole sentence (「…しました。」) reads better on the Read page too.
+        let sentence = text.dropLast().contains { "。！？!?".contains($0) }
+        return sentence && text.count > 8
     }
 
     static func url(for text: String) -> URL? {

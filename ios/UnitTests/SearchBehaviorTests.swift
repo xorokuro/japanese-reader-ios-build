@@ -495,6 +495,8 @@ import SQLite3
         XCTAssertFalse(ExternalLookup.isPassage("食べる"))
         XCTAssertTrue(ExternalLookup.isPassage(String(repeating: "あ", count: SelectionLimit.current + 1)))
         XCTAssertTrue(ExternalLookup.isPassage("一行目\n二行目"))
+        XCTAssertFalse(ExternalLookup.isPassage("食べました。"), "One word with a full stop is still a lookup")
+        XCTAssertTrue(ExternalLookup.isPassage("雨が降った。傘を持っていない。"), "Sentences open on the Read page")
     }
     func testLookupFromAnotherAppFindsTheDictionaryFormAndReturnsToTheTab() async throws {
         let (model, root, suite) = try fixture()

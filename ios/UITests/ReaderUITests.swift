@@ -277,32 +277,32 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(reader.exists)
     }
 
-    /// A jpreader:// link (what the share-sheet shortcut and other apps use) opens
-    /// the lookup on the Search tab; Back returns to the tab that was open.
-    func testLinkFromAnotherAppLooksUpTheWord() throws {
+    /// A jpreader:// link (what the share-sheet shortcut and other apps use) reaches
+    /// the app. Opening a link relaunches the app without the test dictionaries, so
+    /// this sends a passage, which opens on the Read page (words are covered by
+    /// the unit tests).
+    func testLinkFromAnotherAppOpensAPassageOnReadPage() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard"]
         app.launch()
         XCTAssertTrue(app.textViews["selectablePassage"].waitForExistence(timeout: 10))
-        app.tabBars.buttons["Library"].tap()
-        app.open(try XCTUnwrap(ExternalLinkForTests.url("みほん")))
-        // iOS may ask "Open in “Japanese Reader”?" first.
+        let passage = "今日は図書館で日本語の新聞を読みました。知らない言葉がたくさんありました。"
+        app.open(try XCTUnwrap(ExternalLinkForTests.url(passage)))
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let confirm = springboard.buttons["Open"]
         if confirm.waitForExistence(timeout: 4) { confirm.tap() }
-        let found = app.buttons["dictionaryResult_みほん"].firstMatch.waitForExistence(timeout: 15)
-        if !found {
+        let reader = app.textViews["selectablePassage"]
+        XCTAssertTrue(reader.waitForExistence(timeout: 15))
+        let arrived = NSPredicate(format: "value == %@", passage)
+        let waited = XCTWaiter.wait(for: [expectation(for: arrived, evaluatedWith: reader)], timeout: 15)
+        if waited != .completed {
             let tabs = app.tabBars.buttons.allElementsBoundByIndex.map { "\($0.label)=\($0.isSelected)" }.joined(separator: ",")
-            let texts = app.staticTexts.allElementsBoundByIndex.prefix(40).map(\.label).joined(separator: " | ")
-            let alerts = springboard.alerts.allElementsBoundByIndex.map(\.label).joined(separator: ",")
-            XCTFail("Link not handled. state=\(app.state.rawValue) tabs=\(tabs) alerts=\(alerts) texts=\(texts.prefix(700))")
+            XCTFail("Passage not opened. tabs=\(tabs) value=\(String(describing: reader.value).prefix(120))")
             return
         }
-        XCTAssertTrue(app.tabBars.buttons["Search"].isSelected)
+        XCTAssertTrue(app.tabBars.buttons["Read"].isSelected)
         let shot = XCTAttachment(screenshot: app.screenshot())
-        shot.name = "Lookup from a link"; shot.lifetime = .keepAlways; add(shot)
-        app.buttons["Back to Main Page"].tap()
-        XCTAssertTrue(app.tabBars.buttons["Library"].isSelected, "Back returns to the tab that was open")
+        shot.name = "Passage from a link"; shot.lifetime = .keepAlways; add(shot)
     }
 }
 
