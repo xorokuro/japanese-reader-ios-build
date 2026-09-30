@@ -1,5 +1,6 @@
 import AppIntents
 import Foundation
+import UIKit
 
 // Looking up text from other apps.
 //
@@ -14,11 +15,20 @@ import Foundation
 @MainActor final class ExternalLookupInbox: ObservableObject {
     static let shared = ExternalLookupInbox()
     @Published var pending: String?
+    /// A note to show when there was nothing to look up.
+    @Published var notice: String?
 
     func deliver(_ text: String) {
         let clean = ExternalLookup.clean(text)
         guard !clean.isEmpty else { return }
         pending = clean
+    }
+
+    /// Whatever was just copied (Back Tap / Action button: Copy, then tap).
+    func deliverClipboard() {
+        let copied = ExternalLookup.clean(UIPasteboard.general.string ?? "")
+        if copied.isEmpty { notice = "Nothing is copied. Select a word, tap Copy, then try again." }
+        else { pending = copied }
     }
 }
 
@@ -82,9 +92,28 @@ struct LookUpInReaderIntent: AppIntent {
     }
 }
 
-/// Makes the action show up in Shortcuts and Spotlight without any setup.
+/// "Look Up Copied Text in Japanese Reader": no settings to fill in, so a
+/// one-action shortcut for Back Tap or the Action button is all it takes:
+/// select → Copy → tap the back of the phone.
+struct LookUpCopiedTextIntent: AppIntent {
+    static var title: LocalizedStringResource = "Look Up Copied Text in Japanese Reader"
+    static var description = IntentDescription("Opens Japanese Reader and looks up the text you just copied. Put it on Back Tap (Settings → Accessibility → Touch → Back Tap) or the Action button.")
+    static var openAppWhenRun = true
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        ExternalLookupInbox.shared.deliverClipboard()
+        return .result()
+    }
+}
+
+/// Makes the actions show up in Shortcuts and Spotlight without any setup.
 struct ReaderShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
+        AppShortcut(intent: LookUpCopiedTextIntent(),
+                    phrases: ["Look up copied text in \(.applicationName)", "Look up the clipboard in \(.applicationName)"],
+                    shortTitle: "Look Up Copied Text",
+                    systemImageName: "doc.on.clipboard")
         AppShortcut(intent: LookUpInReaderIntent(),
                     phrases: ["Look up in \(.applicationName)", "Search \(.applicationName)"],
                     shortTitle: "Look Up",

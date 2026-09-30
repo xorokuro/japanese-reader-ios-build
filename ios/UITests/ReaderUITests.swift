@@ -307,4 +307,13 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Opened from another app. Select any word to look it up."].exists)
         XCTAssertTrue(app.tabBars.buttons["Read"].isSelected)
     }
+
+    /// Back Tap / Action button: select, Copy, tap — the copied word is looked up.
+    func testCopiedTextIsLookedUp() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard", "--ui-clipboard", "みほん", "--ui-lookup-clipboard"]
+        app.launch()
+        XCTAssertTrue(app.buttons["dictionaryResult_みほん"].firstMatch.waitForExistence(timeout: 20), "The copied word opens its results")
+        XCTAssertTrue(app.tabBars.buttons["Search"].isSelected)
+    }
 }

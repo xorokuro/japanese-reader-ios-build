@@ -4,7 +4,12 @@ Source-only snapshot for a user-authorized public iOS build. No personal passage
 
 Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuses to run build jobs when this repository is private.
 
-Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.7, build 36).
+Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.8, build 37).
+
+## 2.7.8 — Copy, then tap the back of the phone
+
+- New action **Look Up Copied Text in Japanese Reader** (no settings): make a one-action shortcut with it and put it on **Back Tap** (Settings → Accessibility → Touch → Back Tap → Double Tap) or the Action button. Then: select a word anywhere → **Copy** → double-tap the back of the iPhone → the results open.
+- To skip iOS's "Allow Paste" question each time: Settings → Apps → Japanese Reader → Paste from Other Apps → **Allow**.
 
 ## 2.7.7 — look up words from other apps
 

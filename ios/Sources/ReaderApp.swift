@@ -885,6 +885,10 @@ struct LookupSnapshot {
             let text = ProcessInfo.processInfo.arguments[index + 1]
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { ExternalLookupInbox.shared.deliver(text) }
         }
+        // What the Back Tap shortcut does: look up what was just copied.
+        if ProcessInfo.processInfo.arguments.contains("--ui-lookup-clipboard") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { ExternalLookupInbox.shared.deliverClipboard() }
+        }
         if ProcessInfo.processInfo.arguments.contains("--ui-dictionary-fixture") {
             UserDefaults.standard.set(false, forKey: "savePassagesOnRead")
             UserDefaults.standard.set(true, forKey: "readerAutoSearch")
@@ -1099,6 +1103,11 @@ struct ReaderHome: View {
             guard let text else { return }
             inbox.pending = nil
             receiveExternal(text)
+        }
+        .onReceive(inbox.$notice) { note in
+            guard let note else { return }
+            inbox.notice = nil
+            model.status = note
         }
         .onChange(of: scenePhase) { _, phase in if phase != .active { saveSession() } }
         // Also straight from UIKit, in case the scene phase reaches this view late.
