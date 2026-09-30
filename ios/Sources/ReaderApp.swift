@@ -879,6 +879,12 @@ struct LookupSnapshot {
            ProcessInfo.processInfo.arguments.indices.contains(index + 1) {
             UIPasteboard.general.string = ProcessInfo.processInfo.arguments[index + 1]
         }
+        // What the share-sheet shortcut does: hand text to the app (after launch).
+        if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "--ui-external-lookup"),
+           ProcessInfo.processInfo.arguments.indices.contains(index + 1) {
+            let text = ProcessInfo.processInfo.arguments[index + 1]
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { ExternalLookupInbox.shared.deliver(text) }
+        }
         if ProcessInfo.processInfo.arguments.contains("--ui-dictionary-fixture") {
             UserDefaults.standard.set(false, forKey: "savePassagesOnRead")
             UserDefaults.standard.set(true, forKey: "readerAutoSearch")

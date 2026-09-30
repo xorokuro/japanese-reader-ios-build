@@ -277,41 +277,28 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(reader.exists)
     }
 
-    /// A jpreader:// link (what the share-sheet shortcut and other apps use) reaches
-    /// the app. Opening a link relaunches the app without the test dictionaries, so
-    /// this sends a passage, which opens on the Read page (words are covered by
-    /// the unit tests).
-    func testLinkFromAnotherAppOpensAPassageOnReadPage() throws {
+    /// Text handed over by the share-sheet shortcut ("Look Up in Japanese Reader"):
+    /// a word opens its results on Search and Back returns to where you were; a
+    /// sentence opens on the Read page.
+    func testTextFromTheShareSheetShortcut() {
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard"]
+        app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard", "--ui-external-lookup", "みほん"]
         app.launch()
-        XCTAssertTrue(app.textViews["selectablePassage"].waitForExistence(timeout: 10))
-        let passage = "今日は図書館で日本語の新聞を読みました。知らない言葉がたくさんありました。"
-        app.open(try XCTUnwrap(ExternalLinkForTests.url(passage)))
-        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        let confirm = springboard.buttons["Open"]
-        if confirm.waitForExistence(timeout: 4) { confirm.tap() }
-        let reader = app.textViews["selectablePassage"]
-        XCTAssertTrue(reader.waitForExistence(timeout: 15))
-        let arrived = NSPredicate(format: "value == %@", passage)
-        let waited = XCTWaiter.wait(for: [expectation(for: arrived, evaluatedWith: reader)], timeout: 15)
-        if waited != .completed {
-            let tabs = app.tabBars.buttons.allElementsBoundByIndex.map { "\($0.label)=\($0.isSelected)" }.joined(separator: ",")
-            XCTFail("Passage not opened. tabs=\(tabs) value=\(String(describing: reader.value).prefix(120))")
-            return
-        }
-        XCTAssertTrue(app.tabBars.buttons["Read"].isSelected)
+        XCTAssertTrue(app.buttons["dictionaryResult_みほん"].firstMatch.waitForExistence(timeout: 20), "The word opens its results")
+        XCTAssertTrue(app.tabBars.buttons["Search"].isSelected)
         let shot = XCTAttachment(screenshot: app.screenshot())
-        shot.name = "Passage from a link"; shot.lifetime = .keepAlways; add(shot)
-    }
-}
+        shot.name = "Lookup from another app"; shot.lifetime = .keepAlways; add(shot)
+        app.buttons["Back to Main Page"].tap()
+        XCTAssertTrue(app.tabBars.buttons["Read"].isSelected, "Back returns to the tab that was open")
+        app.terminate()
 
-/// The UI test target cannot see the app's code; same link format as `ExternalLookup.url(for:)`.
-enum ExternalLinkForTests {
-    static func url(_ text: String) -> URL? {
-        var parts = URLComponents()
-        parts.scheme = "jpreader"; parts.host = "lookup"
-        parts.queryItems = [URLQueryItem(name: "q", value: text)]
-        return parts.url
+        let passage = "今日は図書館で日本語の新聞を読みました。知らない言葉がたくさんありました。"
+        app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard", "--ui-external-lookup", passage]
+        app.launch()
+        let reader = app.textViews["selectablePassage"]
+        XCTAssertTrue(reader.waitForExistence(timeout: 10))
+        let arrived = expectation(for: NSPredicate(format: "value == %@", passage), evaluatedWith: reader)
+        XCTAssertEqual(XCTWaiter.wait(for: [arrived], timeout: 15), .completed, "A sentence opens on the Read page")
+        XCTAssertTrue(app.tabBars.buttons["Read"].isSelected)
     }
 }
