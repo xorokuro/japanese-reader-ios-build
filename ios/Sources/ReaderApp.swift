@@ -405,6 +405,38 @@ struct LookupSnapshot {
         showingLookup = false
         showingEntry = false
     }
+    /// A word sent from another app (share sheet shortcut or a jpreader:// link).
+    /// It is looked up like a selection on the card, dictionary form first
+    /// (食べました → 食べる), and the results open on the Search tab. Back returns
+    /// to the tab that was open.
+    private var pendingExternalLookup: String?
+    func lookUpExternal(_ text: String) {
+        let query = ExternalLookup.clean(text)
+        guard !query.isEmpty else { return }
+        let enabled = dictionaries.filter { !disabledDictionaries.contains($0.id) }
+        // Launched by the lookup: the dictionaries are still being opened.
+        guard !enabled.isEmpty else { pendingExternalLookup = query; return }
+        pendingExternalLookup = nil
+        closePeek()
+        cancelPendingSearch()
+        let generation = searchGeneration
+        lookupBusy = true
+        queue.async {
+            let found = PeekSearch.bestMatch(for: query, in: enabled)
+            DispatchQueue.main.async {
+                guard generation == self.searchGeneration else { return }
+                self.lookupBusy = false
+                self.startFreshLookup()
+                self.word = found.query.isEmpty ? query : found.query
+                self.hits = found.hits
+                self.searchScope = ""
+                self.status = found.hits.isEmpty ? "No match for 「\(query)」. Try the dictionary form of the word." : ""
+                self.recordSearch(self.word)
+                self.showingEntry = false; self.showingLookup = true; self.lookupNavigation = UUID()
+            }
+        }
+    }
+
     /// Leaving the Search tab keeps its page, Back history and scroll positions.
     func leaveLookup() {
         closePeek()
@@ -541,6 +573,11 @@ struct LookupSnapshot {
             DispatchQueue.main.async {
                 let order = self.dictionaryOrder
                 self.dictionaries = items.sorted { (order.firstIndex(of: $0.id) ?? Int.max) < (order.firstIndex(of: $1.id) ?? Int.max) }
+                if let waiting = self.pendingExternalLookup {
+                    self.pendingExternalLookup = nil
+                    if items.isEmpty { self.status = "Add your dictionaries in Library to look up 「\(waiting)」." }
+                    else { self.lookUpExternal(waiting) }
+                }
                 // A page reopened at launch fills in its dictionary switcher now.
                 if self.showingEntry, let visit = self.visits.last, visit.id == self.entryID, self.entryMatches.count <= 1 {
                     let enabled = self.dictionaries.filter { !self.disabledDictionaries.contains($0.id) }
@@ -861,6 +898,9 @@ struct LookupSnapshot {
 
 struct ReaderHome: View {
     @EnvironmentObject var model: ReaderModel
+    @ObservedObject private var inbox = ExternalLookupInbox.shared
+    /// The passage replaced by one sent from another app, for Undo.
+    @State private var replacedPassage: String?
     @EnvironmentObject var grammar: GrammarStore
     @Environment(\.scenePhase) private var scenePhase
     /// The last session's tab is reopened once, at launch.
@@ -947,13 +987,32 @@ struct ReaderHome: View {
     }
     private func clearPassage() {
         clearedPassage = model.text
+        replacedPassage = nil
         model.cancelPendingSearch()
         model.text = ""; model.readerOffset = .zero; model.readerSelection = ""
         model.status = "Passage cleared."
         dismissKeyboard()
     }
+    /// A word is looked up on the Search tab; a sentence or more opens on the Read
+    /// page (the previous passage can be brought back with Undo).
+    private func receiveExternal(_ text: String) {
+        if ExternalLookup.isPassage(text) {
+            let previous = model.text
+            dismissKeyboard()
+            pastePassage([text])
+            if !previous.isEmpty && previous != text { replacedPassage = previous }
+            selectedTab = 0
+            model.status = "Opened from another app. Select any word to look it up."
+        } else {
+            model.returnTab = selectedTab == 1 ? model.returnTab : selectedTab
+            dismissKeyboard()
+            model.lookUpExternal(text)
+        }
+    }
+
     private func pastePassage(_ strings: [String]) {
         guard !strings.isEmpty else { return }
+        replacedPassage = nil
         model.closeLookup()
         model.text = strings.joined(separator: "\n")
         model.readerOffset = .zero
@@ -1014,6 +1073,15 @@ struct ReaderHome: View {
             }
         }
         .onChange(of: model.lookupNavigation) { _, _ in wantsSearchFocus = false; selectedTab = 1 }
+        // Text sent from other apps: the share-sheet shortcut or a jpreader:// link.
+        .onOpenURL { url in
+            if let text = ExternalLookup.text(from: url) { receiveExternal(text) }
+        }
+        .onReceive(inbox.$pending) { text in
+            guard let text else { return }
+            inbox.pending = nil
+            receiveExternal(text)
+        }
         .onChange(of: scenePhase) { _, phase in if phase != .active { saveSession() } }
         // Also straight from UIKit, in case the scene phase reaches this view late.
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in saveSession() }
@@ -1132,7 +1200,12 @@ struct ReaderHome: View {
     }
 
     @ViewBuilder private var clearButton: some View {
-        if model.text.isEmpty, let previous = clearedPassage {
+        if let previous = replacedPassage, !model.text.isEmpty {
+            // A passage sent from another app replaced this one.
+            Button("Undo") { model.text = previous; model.readerOffset = .zero; replacedPassage = nil; model.status = "" }
+                .buttonStyle(HandSoftButtonStyle(style: style, prominent: true))
+                .accessibilityIdentifier("undoReplacedPassage")
+        } else if model.text.isEmpty, let previous = clearedPassage {
             Button("Undo clear") { model.text = previous; clearedPassage = nil; model.status = "" }
                 .buttonStyle(HandSoftButtonStyle(style: style, prominent: true))
                 .accessibilityIdentifier("undoClearPassage")

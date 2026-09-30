@@ -14,7 +14,8 @@ assert info['UIFileSharingEnabled'] is True, 'Files sharing must be enabled'
 assert info['LSSupportsOpeningDocumentsInPlace'] is True
 assert info['MinimumOSVersion'] == '17.4'
 assert info['CFBundleIcons']['CFBundlePrimaryIcon']['CFBundleIconName'] == 'AppIcon'
-print('PASS: packaged iPhone Files integration, OS version, and icon')
+assert any('jpreader' in t.get('CFBundleURLSchemes', []) for t in info.get('CFBundleURLTypes', [])), 'jpreader:// link must be registered'
+print('PASS: packaged iPhone Files integration, OS version, icon and jpreader:// link')
 PY
 (cd build/package && ditto -c -k --keepParent Payload ../JapaneseReader.ipa)
 echo "Built: ios/build/JapaneseReader.ipa (unsigned; sign with AltStore or your Apple account)"

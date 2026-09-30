@@ -4,7 +4,13 @@ Source-only snapshot for a user-authorized public iOS build. No personal passage
 
 Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuses to run build jobs when this repository is private.
 
-Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.6, build 35).
+Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.7, build 36).
+
+## 2.7.7 — look up words from other apps
+
+- **Share → Japanese Reader from any app**: select text anywhere (Safari, Notes, LINE, a PDF…), tap *Share…* and pick the Japanese Reader shortcut. A word or phrase is looked up (dictionary form first: 食べました → 食べる) and the results open on the Search tab; Back returns to the tab you were on. A sentence or more opens on the Read page instead (Undo brings back the previous passage).
+- One-time setup in the Shortcuts app: new shortcut → add **Look Up in Japanese Reader** → tap the ⓘ / settings and turn on **Show in Share Sheet** (receives Text) → set the action's *Text* to *Shortcut Input*. The action also works from Spotlight, Siri, Back Tap and the Action button.
+- Links work too: `jpreader://lookup?q=食べる`.
 
 ## 2.7.6 — pull the card down, Back returns to the lesson
 

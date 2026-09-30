@@ -276,4 +276,31 @@ final class ReaderUITests: XCTestCase {
         app.tabBars.buttons["Read"].tap()
         XCTAssertTrue(reader.exists)
     }
+
+    /// A jpreader:// link (what the share-sheet shortcut and other apps use) opens
+    /// the lookup on the Search tab; Back returns to the tab that was open.
+    func testLinkFromAnotherAppLooksUpTheWord() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard"]
+        app.launch()
+        XCTAssertTrue(app.textViews["selectablePassage"].waitForExistence(timeout: 10))
+        app.tabBars.buttons["Library"].tap()
+        app.open(try XCTUnwrap(ExternalLinkForTests.url("みほん")))
+        XCTAssertTrue(app.buttons["dictionaryResult_みほん"].firstMatch.waitForExistence(timeout: 15), "The link opens the results")
+        XCTAssertTrue(app.tabBars.buttons["Search"].isSelected)
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "Lookup from a link"; shot.lifetime = .keepAlways; add(shot)
+        app.buttons["Back to Main Page"].tap()
+        XCTAssertTrue(app.tabBars.buttons["Library"].isSelected, "Back returns to the tab that was open")
+    }
+}
+
+/// The UI test target cannot see the app's code; same link format as `ExternalLookup.url(for:)`.
+enum ExternalLinkForTests {
+    static func url(_ text: String) -> URL? {
+        var parts = URLComponents()
+        parts.scheme = "jpreader"; parts.host = "lookup"
+        parts.queryItems = [URLQueryItem(name: "q", value: text)]
+        return parts.url
+    }
 }

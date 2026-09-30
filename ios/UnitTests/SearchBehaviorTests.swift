@@ -485,4 +485,29 @@ import SQLite3
         XCTAssertFalse(model.canGoBack, "No result list in between: Back leaves Search")
         XCTAssertEqual(model.returnTab, 3, "…and returns to the 文法 lesson")
     }
+
+    func testLinksFromOtherApps() {
+        XCTAssertEqual(ExternalLookup.text(from: URL(string: "jpreader://lookup?q=%E9%A3%9F%E3%81%B9%E3%82%8B")!), "食べる")
+        XCTAssertEqual(ExternalLookup.text(from: ExternalLookup.url(for: " 見本 ")!), "見本")
+        XCTAssertEqual(ExternalLookup.text(from: URL(string: "jpreader://%E8%A6%8B%E6%9C%AC")!), "見本")
+        XCTAssertNil(ExternalLookup.text(from: URL(string: "jpreader://lookup")!))
+        XCTAssertNil(ExternalLookup.text(from: URL(string: "https://example.com/?q=x")!))
+        XCTAssertFalse(ExternalLookup.isPassage("食べる"))
+        XCTAssertTrue(ExternalLookup.isPassage(String(repeating: "あ", count: SelectionLimit.current + 1)))
+        XCTAssertTrue(ExternalLookup.isPassage("一行目\n二行目"))
+    }
+    func testLookupFromAnotherAppFindsTheDictionaryFormAndReturnsToTheTab() async throws {
+        let (model, root, suite) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
+        // Sent while the app is still opening its dictionaries: it waits for them.
+        model.currentTab = 3
+        model.lookUpExternal("  原因論を ")
+        try await settle(model); try await settle(model); try await settle(model)
+        XCTAssertTrue(model.showingLookup)
+        XCTAssertFalse(model.showingEntry)
+        XCTAssertEqual(model.word, "原因論", "Trailing particles are trimmed until a headword matches")
+        XCTAssertEqual(model.hits.first?.word, "原因論")
+        XCTAssertEqual(model.returnTab, 3)
+        XCTAssertEqual(model.searchHistory.first, "原因論")
+    }
 }
