@@ -298,7 +298,12 @@ final class ReaderUITests: XCTestCase {
         let reader = app.textViews["selectablePassage"]
         XCTAssertTrue(reader.waitForExistence(timeout: 10))
         let arrived = expectation(for: NSPredicate(format: "value == %@", passage), evaluatedWith: reader)
-        XCTAssertEqual(XCTWaiter.wait(for: [arrived], timeout: 15), .completed, "A sentence opens on the Read page")
+        if XCTWaiter.wait(for: [arrived], timeout: 15) != .completed {
+            let tabs = app.tabBars.buttons.allElementsBoundByIndex.map { "\($0.label)=\($0.isSelected)" }.joined(separator: ",")
+            let texts = app.staticTexts.allElementsBoundByIndex.prefix(30).map(\.label).joined(separator: " | ")
+            XCTFail("A sentence opens on the Read page. value=[\(String(describing: reader.value).prefix(160))] tabs=\(tabs) texts=\(texts.prefix(600))")
+            return
+        }
         XCTAssertTrue(app.tabBars.buttons["Read"].isSelected)
     }
 }
