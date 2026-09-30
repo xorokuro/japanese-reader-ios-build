@@ -286,7 +286,16 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(app.textViews["selectablePassage"].waitForExistence(timeout: 10))
         app.tabBars.buttons["Library"].tap()
         app.open(try XCTUnwrap(ExternalLinkForTests.url("みほん")))
-        XCTAssertTrue(app.buttons["dictionaryResult_みほん"].firstMatch.waitForExistence(timeout: 15), "The link opens the results")
+        // iOS may ask "Open in “Japanese Reader”?" first.
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let confirm = springboard.buttons["Open"]
+        if confirm.waitForExistence(timeout: 4) { confirm.tap() }
+        let found = app.buttons["dictionaryResult_みほん"].firstMatch.waitForExistence(timeout: 15)
+        if !found {
+            let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+            shot.name = "After opening the link"; shot.lifetime = .keepAlways; add(shot)
+        }
+        XCTAssertTrue(found, "The link opens the results")
         XCTAssertTrue(app.tabBars.buttons["Search"].isSelected)
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = "Lookup from a link"; shot.lifetime = .keepAlways; add(shot)
