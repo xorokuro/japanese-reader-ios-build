@@ -4,7 +4,11 @@ Source-only snapshot for a user-authorized public iOS build. No personal passage
 
 Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuses to run build jobs when this repository is private.
 
-Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.8, build 37).
+Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.9, build 38).
+
+## 2.7.9 — one shortcut for Share and Back Tap
+
+- **Look Up in Japanese Reader** now also works with no text: run from Back Tap, Control Center or AssistiveTouch (where there is no share-sheet input), it looks up what you just copied. The same shortcut can sit in the share sheet and on Back Tap.
 
 ## 2.7.8 — Copy, then tap the back of the phone
 

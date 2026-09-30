@@ -512,4 +512,18 @@ import SQLite3
         XCTAssertEqual(model.returnTab, 3)
         XCTAssertEqual(model.searchHistory.first, "原因論")
     }
+
+    func testShareShortcutWithoutTextLooksUpTheClipboard() async throws {
+        let inbox = ExternalLookupInbox.shared
+        inbox.pending = nil
+        UIPasteboard.general.string = "  見本  "
+        var intent = LookUpInReaderIntent()
+        intent.text = ""
+        _ = try await intent.perform()
+        XCTAssertEqual(inbox.pending, "見本", "No share-sheet text: the copied word is used")
+        intent.text = "実物"
+        _ = try await intent.perform()
+        XCTAssertEqual(inbox.pending, "実物", "Share-sheet text wins over the clipboard")
+        inbox.pending = nil
+    }
 }

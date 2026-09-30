@@ -75,7 +75,7 @@ enum ExternalLookup {
 /// "Look Up in Japanese Reader": the action a share-sheet shortcut runs.
 struct LookUpInReaderIntent: AppIntent {
     static var title: LocalizedStringResource = "Look Up in Japanese Reader"
-    static var description = IntentDescription("Opens Japanese Reader with the text: a word or phrase is looked up in your dictionaries; a longer passage opens on the Read page.")
+    static var description = IntentDescription("Opens Japanese Reader with the text: a word or phrase is looked up in your dictionaries; a longer passage opens on the Read page. With no text (Back Tap, Control Center), it looks up what you just copied.")
     static var openAppWhenRun = true
 
     @Parameter(title: "Text", description: "The Japanese word, phrase or passage.")
@@ -87,7 +87,10 @@ struct LookUpInReaderIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        ExternalLookupInbox.shared.deliver(text)
+        // Run without text (Back Tap, Control Center, AssistiveTouch: there is no
+        // share-sheet input), it looks up what was just copied instead.
+        if ExternalLookup.clean(text).isEmpty { ExternalLookupInbox.shared.deliverClipboard() }
+        else { ExternalLookupInbox.shared.deliver(text) }
         return .result()
     }
 }
