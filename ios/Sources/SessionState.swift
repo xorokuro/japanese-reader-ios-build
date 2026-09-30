@@ -18,6 +18,8 @@ struct SessionState: Codable {
     var stack: [UUID] = []
     var showingEntry = false
     var showingLookup = false
+    /// Where Back goes once the Search pages are used up (nil in older saves).
+    var returnTab: Int?
     var word = ""
     var hits: [SessionHit] = []
     /// The result last opened from the results list, scrolled back into view.

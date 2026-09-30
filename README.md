@@ -4,7 +4,12 @@ Source-only snapshot for a user-authorized public iOS build. No personal passage
 
 Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuses to run build jobs when this repository is private.
 
-Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.5, build 34).
+Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.6, build 35).
+
+## 2.7.6 — pull the card down, Back returns to the lesson
+
+- **Pull the dictionary card down to close it** (from the bar on top or its title), instead of tapping the small ✕.
+- **Back returns to where you selected the word**: after looking up a word from a 文法 lesson (or the Read page) and opening a result, Back (top-left button or the edge swipe) goes straight back to that lesson, not to a result list first.
 
 ## 2.7.5 — ruled lines in 文法 lessons
 

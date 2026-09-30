@@ -98,9 +98,17 @@ struct LookupSnapshot {
     var resultsAnchor: DictionaryHit?
     /// Set when a results list is about to be shown again (Back, or at launch).
     var revealResultsAnchor = false
+    /// The tab on screen (0 Read, 1 Search, 2 Library, 3 文法), kept up to date by the view.
+    var currentTab = 1
     /// True while the Search tab is on screen. Lookups started anywhere else (Read,
     /// 文法) begin a new Search stack instead of piling onto the one kept there.
-    var onSearchTab = true
+    var onSearchTab: Bool {
+        get { currentTab == 1 }
+        set { currentTab = newValue ? 1 : 0 }
+    }
+    /// Where Back goes once the Search stack is used up: the page the lookup came
+    /// from (the 文法 lesson or the Read passage where the text was selected).
+    var returnTab: Int?
     private func snapshot() -> LookupSnapshot {
         let visit = showingEntry ? visits.last : nil
         return LookupSnapshot(visit: visit, visits: visits, query: visit?.query ?? word, hits: visit?.matches ?? hits,
@@ -108,6 +116,7 @@ struct LookupSnapshot {
     }
     private func startFreshLookup() {
         lookupHistory = []; visits = []; entryOffsets = [:]; resultsAnchor = nil
+        if currentTab != 1 { returnTab = currentTab }
     }
     /// A lookup from this selection belongs to the page on the Search tab.
     private func continuesSearch(inDictionary: Bool) -> Bool { inDictionary && onSearchTab }
@@ -471,6 +480,7 @@ struct LookupSnapshot {
         state.stack = visits.map(\.id)
         state.showingEntry = showingEntry && !visits.isEmpty
         state.showingLookup = showingLookup
+        state.returnTab = returnTab
         state.word = word
         state.hits = hits.map(stored)
         state.anchor = resultsAnchor.map(stored)
@@ -504,6 +514,7 @@ struct LookupSnapshot {
         resultsAnchor = state.anchor.map { $0.hit(roots) }
         revealResultsAnchor = resultsAnchor != nil
         showingLookup = state.showingLookup
+        returnTab = state.returnTab
         if state.showingEntry, let visit = visits.last {
             // Set directly: no navigation event at launch.
             entryRoot = visit.hit.root; entryCode = visit.hit.code
@@ -654,8 +665,6 @@ struct LookupSnapshot {
         let wasEntry = showingEntry
         var previousPage = snapshot()
         if !wasEntry { previousPage.anchor = hit }
-        // From a card outside Search, Back leads to the card's result list only.
-        if fresh { previousPage = LookupSnapshot(visit: nil, visits: [], query: word, hits: hits, showingLookup: false, anchor: hit) }
         let enabled = dictionaries.filter { !disabledDictionaries.contains($0.id) }
         lookupBusy = true
         queue.async {
@@ -671,8 +680,10 @@ struct LookupSnapshot {
                     // Show the definition at once; the dictionary switcher fills in after.
                     let alternatives = [hit]
                     self.recordSearch(query)
+                    // From a card outside Search, Back leads straight back to the page
+                    // the text was selected on (see `returnTab`), not to a result list.
                     if fresh { self.startFreshLookup() }
-                    if !replacingCurrent { self.remember(previousPage) }
+                    else if !replacingCurrent { self.remember(previousPage) }
                     // Scroll positions stay while any Back step can still reach their page.
                     if replacingCurrent, !self.visits.isEmpty {
                         self.visits.removeLast()
@@ -986,7 +997,7 @@ struct ReaderHome: View {
                 restoredTab = true
                 if let state = model.restoredSession { grammar.restore(state) }
                 selectedTab = model.restoredTab
-                model.onSearchTab = selectedTab == 1
+                model.currentTab = selectedTab
             }
             applyRedesignOnce()
             // Start WebKit once the first screen is up, so the first definition opens fast.
@@ -995,7 +1006,7 @@ struct ReaderHome: View {
         .onChange(of: selectedTab) { _, tab in
             // Programmatic lookup navigation must keep the keyboard hidden.
             // User tab taps are handled separately, including reselection.
-            model.onSearchTab = tab == 1
+            model.currentTab = tab
             if tab != 1 {
                 // The Search page, its Back history and scroll positions stay put.
                 wantsSearchFocus = false; model.leaveLookup()
@@ -2042,7 +2053,11 @@ struct ReaderHome: View {
         if model.canGoBack {
             model.backToPreviousEntry()
             if !model.showingEntry { applySearchKeyboardPreference() }
-        } else { selectedTab = 0 }
+        } else {
+            // Back to where the lookup came from: the 文法 lesson or the Read page.
+            dismissKeyboard()
+            selectedTab = model.returnTab ?? 0
+        }
     }
     private func backSwipeEdge(fromLeft: Bool) -> some View {
         // Narrow, so taps on text near the page edge still reach the page.
@@ -2061,6 +2076,8 @@ struct ReaderHome: View {
     }
     /// Tapping Search from another tab returns to the open definition, if any.
     private func openSearchTab() {
+        // Back from Search, once its pages are used up, returns to this tab.
+        if selectedTab != 1 { model.returnTab = selectedTab }
         if selectedTab != 1 && model.showingEntry {
             dismissKeyboard()
             selectedTab = 1

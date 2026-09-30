@@ -461,5 +461,28 @@ import SQLite3
         try await settle(model)
         XCTAssertTrue(model.showingLookup)
         XCTAssertFalse(model.canGoBack)
+        XCTAssertEqual(model.returnTab, 0, "Back goes to the page the text was selected on")
+    }
+    func testOpeningACardResultFromALessonGoesStraightBackToIt() async throws {
+        let (model, root, suite) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
+        try await settle(model)
+        // Something already open on the Search tab.
+        model.word = "原因論"; model.search(dismissKeyboard: false)
+        try await settle(model)
+        model.open(try XCTUnwrap(model.hits.first))
+        try await settle(model)
+        // On the 文法 tab: select a word, open a result from the card.
+        model.currentTab = 3
+        model.selectionPeek = true
+        model.select("原因", inDictionary: true)
+        try await settle(model); try await settle(model)
+        let hit = try XCTUnwrap(model.peek?.hits.first)
+        model.openPeekHit(hit)
+        try await settle(model)
+        XCTAssertTrue(model.showingEntry)
+        XCTAssertEqual(model.entryTitle, "原因")
+        XCTAssertFalse(model.canGoBack, "No result list in between: Back leaves Search")
+        XCTAssertEqual(model.returnTab, 3, "…and returns to the 文法 lesson")
     }
 }

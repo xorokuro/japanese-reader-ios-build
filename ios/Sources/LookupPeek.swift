@@ -159,12 +159,19 @@ struct LookupPeekCard: View {
     /// The order of the icon buttons along the bottom, changed by dragging them.
     @AppStorage(PeekAction.storageKey) private var actionOrder = PeekAction.standard
     @State private var dropTarget: PeekAction?
+    /// How far the card is being pulled down; past a short distance it closes.
+    @State private var pull: CGFloat = 0
 
     private var copied: Bool { copiedText == peek.text }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            header
+            VStack(spacing: 6) {
+                grabber
+                header
+            }
+            .contentShape(Rectangle())
+            .gesture(pullToClose)
             if peek.long {
                 passage
             } else {
@@ -188,8 +195,43 @@ struct LookupPeekCard: View {
         .animation(.snappy(duration: 0.22), value: copied)
         .padding(.horizontal, 10)
         .padding(.bottom, 8)
+        .offset(y: pull)
+        .opacity(1 - min(pull / 400, 0.4))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("lookupPeek")
+        .accessibilityAction(named: "Close") { close() }
+    }
+
+    /// The little bar on top: a hint that the card can be pulled down.
+    private var grabber: some View {
+        Capsule()
+            .fill(style.lineStrong.opacity(0.55))
+            .frame(width: 38, height: 5)
+            .frame(maxWidth: .infinity)
+            .padding(.top, -8)
+            .accessibilityHidden(true)
+    }
+
+    /// Pull the top of the card (the bar or the title) down to close it, like a sheet.
+    private var pullToClose: some Gesture {
+        DragGesture(minimumDistance: 6, coordinateSpace: .global)
+            .onChanged { value in
+                let down = value.translation.height
+                // Follows the finger down; resists a little when pulled up.
+                pull = down > 0 ? down : down / 6
+            }
+            .onEnded { value in
+                let flung = value.predictedEndTranslation.height > 220
+                if value.translation.height > 90 || flung {
+                    withAnimation(.easeOut(duration: 0.18)) { pull = 600 }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.17) {
+                        close()
+                        pull = 0
+                    }
+                } else {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { pull = 0 }
+                }
+            }
     }
 
     private func doCopy() {

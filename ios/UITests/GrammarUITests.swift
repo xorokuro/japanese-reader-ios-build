@@ -111,6 +111,40 @@ final class GrammarUITests: XCTestCase {
         XCTAssertEqual(third.frame.minY, scrolled, accuracy: 60, "Opening it again from the list lands at the same place")
     }
 
+    /// Look up a word selected in a lesson, then go Back: the lesson comes back
+    /// (not a result list). Pulling the card down closes it.
+    func testBackFromALessonLookupReturnsToTheLessonAndTheCardPullsDown() {
+        let app = launch()
+        app.tabBars.buttons["Grammar"].tap()
+        XCTAssertTrue(app.buttons["grammarLevel_N2"].waitForExistence(timeout: 15))
+        app.buttons["grammarLevel_N2"].tap()
+        app.buttons["grammarEntry_N2|〜ぬく"].tap()
+        let page = app.webViews["grammarLessonPage"]
+        let word = page.staticTexts["意思"]
+        XCTAssertTrue(word.waitForExistence(timeout: 20))
+        sleep(1)
+
+        // Pull the card down to close it.
+        word.press(forDuration: 1.2)
+        let card = app.otherElements["lookupPeek"]
+        XCTAssertTrue(card.waitForExistence(timeout: 10), "Selecting in a lesson opens the card")
+        card.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.05))
+            .press(forDuration: 0.05, thenDragTo: card.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 1.3)))
+        XCTAssertTrue(card.waitForNonExistence(timeout: 5), "Pulling the card down closes it")
+
+        // Look it up in Search, then Back.
+        word.press(forDuration: 1.2)
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        app.buttons["peekAllResults"].tap()
+        let back = app.buttons["Back to Main Page"]
+        XCTAssertTrue(back.waitForExistence(timeout: 10), "The lookup opens on the Search tab")
+        shot(app, "Search after a lesson lookup")
+        back.tap()
+        XCTAssertTrue(app.webViews["grammarLessonPage"].waitForExistence(timeout: 10), "Back returns to the lesson")
+        XCTAssertTrue(app.tabBars.buttons["Grammar"].isSelected)
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+    }
+
     func testGrammarLessonInDarkTheme() {
         let app = launch(theme: "hand-engawa")
         app.tabBars.buttons["Grammar"].tap()
