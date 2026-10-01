@@ -6,6 +6,20 @@ Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuse
 
 Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.9, build 38).
 
+## 3.3.0 — Fable variations
+
+- **The film, as drawn** (Library → Appearance → *Fable · 糸*): Paper, Meadow, Blossom, Unfinished and One water keep the wound ring, figure, ripples and spark. The thread now only passes through the header emblem and fades out; nothing runs down the page any more.
+- **Fable variations · 変奏**, seven new themes in the same hand (Klee One titles, handwritten notes, pencil rules), each with its own header drawings and page decoration:
+  - **方眼 Cool S**: graph-paper notebook, the cool S with a highlighter swipe, coloured-pencil doodles; dictionary and 文法 pages on graph paper too.
+  - **残照 Sundown**: a linocut sun half-set on the horizon, ochre rays and dotted rays.
+  - **月 Borrowed light** (dark): a small moon, a dotted path of light to a lit window.
+  - **雨 Underlight**: watercolour wash and rain, a utility pole, washing on the wire.
+  - **ボールペン Ballpoint**: blue-biro crosshatched self-portrait, red-pen curls.
+  - **応 Echo**: a dot calls out; rings and small coloured worlds answer over a halftone field.
+  - **根 Roots** (dark): white roots on slate, crossed by one red line.
+- Quieter details for every Fable theme: lighter pencil rules, a soft wash (not a black block) for the chosen chip or button, fainter grain, small handwritten notes in each header (*one sentence at a time*, *kept, for later*, *the shapes under words*).
+- Fixes: theme swatches are clipped to their rounded corners; Library and Appearance section headers no longer turn into a white strip while scrolling, and keep their normal case.
+
 ## 3.2.0 — 糸 Fable, the Claude style
 
 - New appearance: **Library → Appearance → Fable · 糸 (Claude style)**, five papers — *Paper* (cream), *Meadow* (sage), *Blossom* (dusty pink), *Unfinished* (warm grey) and *One water* (night).

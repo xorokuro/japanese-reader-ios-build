@@ -42,6 +42,9 @@ final class FableUITests: XCTestCase {
             appearance.tap()
             sleep(1)
             shot(app, "Fable \(theme) · Appearance")
+            app.swipeUp()
+            sleep(1)
+            shot(app, "Fable \(theme) · Appearance scrolled")
             app.navigationBars.buttons.firstMatch.tap()
         }
 
@@ -59,4 +62,26 @@ final class FableUITests: XCTestCase {
 
     func testFablePaperTour() { tour(theme: "fable") }
     func testFableNightTour() { tour(theme: "fable-night") }
+
+    /// One quick look at each variation: Read, Grammar and Library.
+    func testFableVariationsGallery() {
+        for theme in ["fable-graph", "fable-sundown", "fable-midnight", "fable-mist", "fable-ballpoint", "fable-echo", "fable-roots"] {
+            let app = XCUIApplication()
+            app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard", "--ui-clipboard",
+                                   "みほんの文章です。ゆっくり読んで、知らない言葉を調べましょう。", "-readerThemePreset", theme]
+            app.launch()
+            XCTAssertTrue(app.textViews["selectablePassage"].waitForExistence(timeout: 10))
+            app.buttons["pastePassage"].tap()
+            sleep(1)
+            shot(app, "Variation \(theme) · Read")
+            app.tabBars.buttons["Grammar"].tap()
+            app.buttons["grammarLevel_N2"].tap()
+            XCTAssertTrue(app.buttons["grammarEntry_N2|〜ぬく"].waitForExistence(timeout: 15))
+            shot(app, "Variation \(theme) · Grammar")
+            app.tabBars.buttons["Library"].tap()
+            sleep(1)
+            shot(app, "Variation \(theme) · Library")
+            app.terminate()
+        }
+    }
 }

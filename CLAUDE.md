@@ -1,6 +1,6 @@
 # Japanese Reader (iOS) — notes for anyone working on this repo
 
-- **`main` is the app.** Start every change from the latest `main` (currently 3.2.0, build 48).
+- **`main` is the app.** Start every change from the latest `main` (currently 3.3.0, build 50).
   Do not start from older branches (`ruled-lines`, `grammar-tab`, `fix/…`, `claude/…`): they are
   snapshots of past versions, and building from one of them drops features such as the 文法 tab.
 - The app has four tabs: Read, Search, Library and **文法 (Grammar)**. A build without the Grammar tab
