@@ -1426,7 +1426,7 @@ struct ReaderHome: View {
                                quietMenu: quietMenu,
                                sideInset: pageMargins.readerInset,
                                ruled: ruledPaper,
-                               ruleColor: UIColor(style.isFable ? style.thread : style.tape).withAlphaComponent(min(1, (style.isDark ? 0.30 : 0.26) * ruleStrength)),
+                               ruleColor: UIColor(style.isFable ? style.secondary : style.tape).withAlphaComponent(min(1, (style.isDark ? 0.30 : 0.26) * ruleStrength)),
                                ruleWidth: CGFloat(1.5 * ruleThickness),
                                marginColor: UIColor(style.isFable ? style.spark : accent).withAlphaComponent(style.isFable ? 0.42 : 0.38),
                                resize: TextResize(value: readerTextSize, range: 16...48,
@@ -2503,7 +2503,7 @@ struct ReaderHome: View {
                 Section {
                     themeGrid(ReaderTheme.fable)
                 } header: { Text("Fable · 糸 (Claude style)") } footer: {
-                    Text("Cream paper, fine ink lines, handwritten captions, a hand-wound ring and one golden thread down every page.")
+                    Text("Soft paper, fine pencil lines and small handwritten notes. Quiet, warm and a little unfinished.")
                 }
                 Section { themeGrid(ReaderTheme.editorial) } header: { Text("Editorial · 余白 (choose a paper)") }
                 Section {

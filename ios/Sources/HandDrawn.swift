@@ -238,7 +238,7 @@ struct HandRule: View {
     let style: ReaderStyle
     var body: some View {
         if style.isYohaku {
-            BrushLine(width: 1.7).fill(style.navy).frame(height: 8).accessibilityHidden(true)
+            BrushLine(width: 1.7).fill(style.rule).frame(height: 8).accessibilityHidden(true)
         } else {
             wavy
         }
@@ -266,13 +266,13 @@ struct SketchCardModifier: ViewModifier {
                 // Rows: no card, a hand-drawn brush rule underneath.
                 content
                     .background(fill.map { AnyShapeStyle($0) } ?? AnyShapeStyle(Color.clear))
-                    .overlay(alignment: .bottom) { BrushLine(width: 1.7).fill(style.navy).frame(height: 6).offset(y: 3).allowsHitTesting(false) }
+                    .overlay(alignment: .bottom) { BrushLine(width: 1.7).fill(style.rule).frame(height: 6).offset(y: 3).allowsHitTesting(false) }
             } else {
                 // Panels: the same flat paper (with grain), brush rules above and below.
                 content
                     .background { if let fill { YohakuPaper(style: style, color: fill) } }
-                    .overlay(alignment: .top) { BrushLine(width: 1.7).fill(style.navy).frame(height: 6).offset(y: -3).allowsHitTesting(false) }
-                    .overlay(alignment: .bottom) { BrushLine(width: 1.7).fill(style.navy).frame(height: 6).offset(y: 3).allowsHitTesting(false) }
+                    .overlay(alignment: .top) { BrushLine(width: 1.7).fill(style.rule).frame(height: 6).offset(y: -3).allowsHitTesting(false) }
+                    .overlay(alignment: .bottom) { BrushLine(width: 1.7).fill(style.rule).frame(height: 6).offset(y: 3).allowsHitTesting(false) }
             }
         } else {
             sketched(content)
@@ -308,9 +308,14 @@ struct SketchPill: ViewModifier {
     func body(content: Content) -> some View {
         if style.isYohaku {
             content
-                .foregroundStyle(selected ? style.background : style.navy)
-                .background { if selected { TornRect(roughness: 1).fill(style.navy) } }
-                .overlay { if !selected { BrushBox(width: 1.5).fill(style.navy).allowsHitTesting(false) } }
+                .foregroundStyle(selected ? style.onChosen : style.navy)
+                .background {
+                    if selected {
+                        if style.isFable { RoundedRectangle(cornerRadius: 8, style: .continuous).fill(style.chosen) }
+                        else { TornRect(roughness: 1).fill(style.navy) }
+                    }
+                }
+                .overlay { if !selected { BrushBox(width: 1.5).fill(style.rule).allowsHitTesting(false) } }
         } else {
             sketched(content)
         }
@@ -346,7 +351,13 @@ struct HandPrimaryButtonStyle: ButtonStyle {
                 .foregroundStyle(style.background)
                 .padding(.horizontal, 20)
                 .frame(minHeight: 46)
-                .background(TornRect().fill(style.navy.opacity(configuration.isPressed ? 0.82 : 1)))
+                .background {
+                    if style.isFable {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous).fill(style.ink.opacity(configuration.isPressed ? 0.75 : 0.9))
+                    } else {
+                        TornRect().fill(style.navy.opacity(configuration.isPressed ? 0.82 : 1))
+                    }
+                }
         } else {
             hand(configuration)
         }
@@ -374,14 +385,15 @@ struct HandSoftButtonStyle: ButtonStyle {
             // 1px navy outline; a prominent (selected) one is filled navy.
             configuration.label
                 .font(YohakuFont.title(14))
-                .foregroundStyle(prominent ? style.background : style.navy)
+                .foregroundStyle(prominent ? style.onChosen : style.navy)
                 .padding(.horizontal, 14)
                 .frame(minHeight: 40)
                 .background {
-                    if prominent { TornRect(roughness: 1).fill(style.navy) }
+                    if prominent && style.isFable { RoundedRectangle(cornerRadius: 10, style: .continuous).fill(style.chosen) }
+                    else if prominent { TornRect(roughness: 1).fill(style.navy) }
                     else if configuration.isPressed { Rectangle().fill(style.accentSoft) }
                 }
-                .overlay { if !prominent { BrushBox(width: 1.6).fill(style.navy).allowsHitTesting(false) } }
+                .overlay { if !prominent { BrushBox(width: 1.6).fill(style.rule).allowsHitTesting(false) } }
         } else {
             soft(configuration)
         }
@@ -663,7 +675,7 @@ struct PaperBackground: View, Equatable {
             style.background
             // 余白 Yohaku: one flat colour with a fine, even grain.
             if style.isYohaku { YohakuPaper(style: style) }
-            // 糸 Fable: one thin thread wandering down the page, and a few faint stars.
+            // 糸 Fable: a few faint specks, like marks on old paper.
             if style.isFable { FableBackdrop(style: style) }
             if texture && !style.isYohaku {
                 Image(uiImage: PaperTexture.grain(dark: style.isDark))

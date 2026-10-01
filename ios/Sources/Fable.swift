@@ -6,9 +6,10 @@ import UIKit
 //   • cream / sage / blush / warm-grey / night papers with a fine grain,
 //   • ink hairlines instead of brush rules (about half the weight),
 //   • handwritten lowercase captions (Gaegu) and pen-textbook titles (Klee One),
-//   • a thick, hand-wound ring with a soft shadow and a gap at the top, a small
-//     rust spark at its centre and faint ripples spreading out behind it,
-//   • one thin golden thread wandering down every screen, with a few faint stars.
+//   • a fine pen circle that never quite closes, a small rust spark in its
+//     opening, and faint ripples behind it,
+//   • small handwritten notes in the margins, and a few faint specks on the paper.
+// It borrows the film's spirit (quiet, warm, unfinished), not its pictures.
 // Everything here is only drawn while a Fable paper is chosen (ReaderTheme.fable).
 
 // MARK: - Shapes
@@ -26,52 +27,27 @@ enum FableStroke {
         }
     }
 
-    /// The thread: a long, slow S-curve from the top of `rect` to the bottom.
-    static func thread(in rect: CGRect, seed: UInt64) -> Path {
-        let noise = BrushNoise(seed: seed), fine = BrushNoise(seed: seed &+ 17)
-        let steps = max(40, Int(rect.height / 6))
-        var path = Path()
-        for i in 0...steps {
-            let t = CGFloat(i) / CGFloat(steps)
-            let x = rect.minX + rect.width * (0.70 + noise.at(t * 3.2) * 0.13 + fine.at(t * 19) * 0.004)
-            let p = CGPoint(x: x, y: rect.minY - 4 + (rect.height + 8) * t)
-            if i == 0 { path.move(to: p) } else { path.addLine(to: p) }
-        }
-        return path
-    }
 }
 
-/// The thick hand-wound ring: a dark cord with fine cross-ticks, a soft grey shadow
-/// just below it and an opening near the top (the video's "still unfinished" ring).
+/// A fine pen circle, drawn twice the way a hand goes over a pencil line: one
+/// confident stroke and one fainter second pass. It never quite closes: a small
+/// opening near the top is left unfinished.
 struct FableRing: View {
     let style: ReaderStyle
-    var weight: CGFloat = 4.2
+    var weight: CGFloat = 1.5
     var seed: UInt64 = 2026
     var body: some View {
         Canvas { context, size in
             let r = min(size.width, size.height) / 2 - weight - 2
             let c = CGPoint(x: size.width / 2, y: size.height / 2)
-            // Opening between about 11 and 1 o'clock, a little off-centre.
-            let start = -CGFloat.pi / 2 + 0.42, end = start + CGFloat.pi * 2 - 0.86
-            let points = FableStroke.arc(center: c, radius: r, from: start, to: end, seed: seed)
-            let cord = Brush.ribbon(points, width: weight, seed: seed &+ 5, wobble: 0.45, taper: weight * 3.2)
-            let ink = style.ink
-            context.fill(cord.offsetBy(dx: 1.2, dy: 1.8), with: .color(ink.opacity(style.isDark ? 0.22 : 0.16)))
-            context.fill(cord, with: .color(ink.opacity(0.92)))
-            // Cross-ticks: the twisted look of a wound cord.
-            var ticks = Path()
-            var random = SeededRandom(seed: seed &+ 9)
-            var index = 0
-            while index < points.count - 2 {
-                let p = points[index], q = points[index + 1]
-                let dx = q.x - p.x, dy = q.y - p.y, d = max(hypot(dx, dy), 0.001)
-                let nx = -dy / d, ny = dx / d, h = weight * 0.42
-                let lean = (random.unit() - 0.5) * 0.6
-                ticks.move(to: CGPoint(x: p.x + nx * h + dx / d * lean, y: p.y + ny * h + dy / d * lean))
-                ticks.addLine(to: CGPoint(x: p.x - nx * h - dx / d * lean, y: p.y - ny * h - dy / d * lean))
-                index += 2
-            }
-            context.stroke(ticks, with: .color(style.background.opacity(0.42)), lineWidth: 0.55)
+            let start = -CGFloat.pi / 2 + 0.30, end = start + CGFloat.pi * 2 - 0.55
+            let main = FableStroke.arc(center: c, radius: r, from: start, to: end, seed: seed, wobble: 0.012)
+            context.fill(Brush.ribbon(main, width: weight, seed: seed &+ 5, wobble: 0.35, taper: 14),
+                         with: .color(style.ink.opacity(0.82)))
+            let again = FableStroke.arc(center: CGPoint(x: c.x + 0.8, y: c.y - 0.6), radius: r * 0.985,
+                                        from: start + 0.9, to: end - 1.6, seed: seed &+ 11, wobble: 0.016)
+            context.fill(Brush.ribbon(again, width: weight * 0.6, seed: seed &+ 13, wobble: 0.4, taper: 18),
+                         with: .color(style.ink.opacity(0.28)))
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
@@ -181,20 +157,20 @@ struct FableEmblem: View {
         let art = FableDrawing(drawing)
         ZStack {
             if ripples {
-                FableRipples(count: 4)
-                    .stroke(style.secondary.opacity(style.isDark ? 0.26 : 0.18), lineWidth: 0.55)
-                    .frame(width: size * 1.22, height: size * 1.22)
+                FableRipples(count: 3)
+                    .stroke(style.secondary.opacity(style.isDark ? 0.20 : 0.13), lineWidth: 0.5)
+                    .frame(width: size * 1.12, height: size * 1.12)
             }
-            FableRing(style: style, weight: max(2.6, size * 0.036))
+            FableRing(style: style, weight: max(1.2, size * 0.014))
                 .frame(width: size * 0.86, height: size * 0.86)
             FableLineArt(drawing: art)
-                .stroke(style.ink.opacity(0.78), style: StrokeStyle(lineWidth: 0.9, lineCap: .round, lineJoin: .round))
+                .stroke(style.ink.opacity(0.7), style: StrokeStyle(lineWidth: 0.85, lineCap: .round, lineJoin: .round))
                 .frame(width: size * 0.44, height: size * 0.44)
                 .offset(y: art == .figure ? size * 0.12 : 0)
             FableSpark()
                 .stroke(style.spark, style: StrokeStyle(lineWidth: 0.8, lineCap: .round))
                 .frame(width: size * 0.13, height: size * 0.13)
-                .offset(x: art == .figure ? 0 : size * 0.2, y: art == .figure ? -size * 0.28 : -size * 0.2)
+                .offset(x: size * 0.07, y: -size * 0.43)
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
@@ -220,23 +196,28 @@ struct FableStars: Shape {
     }
 }
 
-struct FableThreadShape: Shape {
-    var seed: UInt64 = 1207
-    func path(in rect: CGRect) -> Path { FableStroke.thread(in: rect, seed: seed) }
-}
 
-/// The page decoration behind every Fable screen: the thread and the stars.
+/// The page decoration behind every Fable screen: only a few faint specks, like
+/// marks on old paper. (No lines run through the reading area.)
 struct FableBackdrop: View {
     let style: ReaderStyle
     var body: some View {
-        ZStack {
-            FableStars(count: style.isDark ? 22 : 8, seed: style.isDark ? 31 : 7)
-                .stroke(style.secondary.opacity(style.isDark ? 0.45 : 0.22), style: StrokeStyle(lineWidth: 0.6, lineCap: .round))
-            FableThreadShape()
-                .stroke(style.thread.opacity(style.isDark ? 0.75 : 0.62), style: StrokeStyle(lineWidth: 0.85, lineCap: .round))
+        FableStars(count: style.isDark ? 12 : 5, seed: style.isDark ? 31 : 7)
+            .stroke(style.secondary.opacity(style.isDark ? 0.32 : 0.16), style: StrokeStyle(lineWidth: 0.5, lineCap: .round))
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+/// The small handwritten margin note in each Fable header, in place of a plain label.
+enum FableNotes {
+    static func note(for latin: String) -> String {
+        switch latin.lowercased() {
+        case "reading": return "one sentence at a time"
+        case "library": return "kept, for later"
+        case "grammar": return "the shapes under words"
+        default: return latin.lowercased()
         }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
     }
 }
 
@@ -252,12 +233,11 @@ struct FableSwatch: View {
         let ink = Palette.color(theme.inkRGB ?? 0x2B2925)
         ZStack(alignment: .topLeading) {
             Rectangle().fill(paper)
-            FableThreadShape(seed: 5).stroke(Palette.color(theme.markerRGB ?? 0xB89A6A), lineWidth: 0.7)
             Text("儚い").font(.custom(HandFont.bold, size: compact ? 12 : 17)).foregroundStyle(ink)
                 .padding(compact ? 5 : 8)
             Circle()
                 .trim(from: 0.1, to: 0.94)
-                .stroke(ink, style: StrokeStyle(lineWidth: compact ? 1.8 : 2.6, lineCap: .round))
+                .stroke(ink.opacity(0.8), style: StrokeStyle(lineWidth: compact ? 1 : 1.3, lineCap: .round))
                 .rotationEffect(.degrees(-80))
                 .frame(width: compact ? 15 : 24, height: compact ? 15 : 24)
                 .overlay(FableSpark().stroke(Palette.color(theme.highlightRGB ?? 0xB04A3C), lineWidth: 0.7)
@@ -291,7 +271,7 @@ enum FableWeb {
     static let ringMask: String = {
         let start = -CGFloat.pi / 2 + 0.42, end = start + CGFloat.pi * 2 - 0.86
         let points = FableStroke.arc(center: CGPoint(x: 50, y: 50), radius: 44, from: start, to: end, seed: 2026)
-        let path = Brush.ribbon(points, width: 5.2, seed: 2031, wobble: 0.45, taper: 14)
+        let path = Brush.ribbon(points, width: 2.2, seed: 2031, wobble: 0.35, taper: 14)
         return svgURI("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><path d='\(SVGPath.data(path))'/></svg>")
     }()
     /// Ripples with a small figure: the grammar-lesson header drawing.
@@ -341,7 +321,7 @@ section>h2,h2{font-family:var(--y-hand);font-weight:600}
 section>h2::before{font:400 1.15em/1.2 var(--y-caption);letter-spacing:0}
 footer{font:400 14px/1.6 var(--y-caption);letter-spacing:.02em;text-transform:lowercase}
 .reg{background:var(--y-sage)}
-li::marker{color:var(--y-thread)}
+li::marker{color:var(--y-muted)}
 summary::before{content:"~ "}
 """#
 }
