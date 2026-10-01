@@ -1426,7 +1426,7 @@ struct ReaderHome: View {
                                quietMenu: quietMenu,
                                sideInset: pageMargins.readerInset,
                                ruled: ruledPaper,
-                               ruleColor: UIColor(style.isFable ? style.secondary : style.tape).withAlphaComponent(min(1, (style.isDark ? 0.30 : 0.26) * ruleStrength)),
+                               ruleColor: UIColor(style.paperRule).withAlphaComponent(min(1, (style.isDark ? 0.30 : 0.26) * ruleStrength)),
                                ruleWidth: CGFloat(1.5 * ruleThickness),
                                marginColor: UIColor(style.isFable ? style.spark : accent).withAlphaComponent(style.isFable ? 0.42 : 0.38),
                                resize: TextResize(value: readerTextSize, range: 16...48,
@@ -2065,7 +2065,7 @@ struct ReaderHome: View {
             Text(name)
                 .font(.system(size: 13, weight: selected ? .semibold : .regular))
                 .lineLimit(1)
-                .foregroundStyle(selected ? style.onAccent : style.ink)
+                .foregroundStyle(selected ? style.onPill : style.ink)
                 .padding(.horizontal, 13).padding(.vertical, 7)
                 .sketchPill(style, selected: selected)
         }
@@ -2292,23 +2292,23 @@ struct ReaderHome: View {
                 }
                 Group {
                     appearanceLink
-                    Section("Search keyboard") {
+                    Section {
                         Toggle("Show keyboard when returning from definitions", isOn: $automaticallyShowSearchKeyboard)
                             .accessibilityIdentifier("automaticallyShowSearchKeyboard")
                         Text("Tapping the Search tab always opens the keyboard and selects the previous search. Tap blank space to hide the keyboard.")
                             .font(.caption).foregroundStyle(style.secondary)
-                    }
-                    Section("Keyboard language") {
+                    } header: { Text("Search keyboard").textCase(nil) }
+                    Section {
                         Picker("Search keyboard", selection: $searchKeyboardLanguage) {
                             Text("Japanese").tag("ja")
                             Text("English").tag("en")
                             Text("System keyboard").tag("system")
                         }
                         Text("Enable your preferred language in iPhone Settings → General → Keyboard → Keyboards. System keyboard lets you choose any installed language.").font(.caption)
-                    }
+                    } header: { Text("Keyboard language").textCase(nil) }
                     savedSection
                     dictionariesSection
-                    Section("Dictionary search") {
+                    Section {
                         Toggle("Show selection results in a card", isOn: $model.selectionPeek).accessibilityIdentifier("librarySelectionPeek")
                         Stepper(value: $selectionLimit, in: SelectionLimit.range, step: 5) {
                             HStack {
@@ -2326,27 +2326,27 @@ struct ReaderHome: View {
                         Toggle("Auto-search inside all dictionaries", isOn: $model.dictionaryAutoSearch).accessibilityIdentifier("dictionaryAutoSearch")
                         Text("Independent of Reader auto-search. A matching selection opens results across enabled dictionaries. When off, use Search selected text.").font(.caption).foregroundStyle(style.secondary)
                         Text("Search prefers an enabled Japanese keyboard. Enable Japanese – Romaji in iPhone Settings → General → Keyboard → Keyboards. iOS controls the exact Japanese layout.").font(.caption).foregroundStyle(style.secondary)
-                    }
-                    Section("Upside down · 倒過來") {
+                    } header: { Text("Dictionary search").textCase(nil) }
+                    Section {
                         Picker("Flip the screen", selection: $flipModeRaw) {
                             ForEach(FlipMode.allCases) { Text($0.label).tag($0.rawValue) }
                         }
                         .accessibilityIdentifier("flipMode")
                         Text("For using the phone upside down on a stand while it charges. iPhones with Face ID can't turn apps upside down, so the app turns its own screen. Auto flips when you turn the phone over and flips back when you turn it upright. Always keeps it flipped. While flipped, the iPhone keyboard still appears the other way up, so turn the phone upright to type (Auto flips back for you).")
                             .font(.caption).foregroundStyle(style.secondary)
-                    }
-                    Section("Full screen · 全螢幕") {
+                    } header: { Text("Upside down · 倒過來").textCase(nil) }
+                    Section {
                         Toggle("Two-finger tap for full screen", isOn: $immersiveGesture)
                             .accessibilityIdentifier("immersiveGesture")
                         Text("Tap anywhere with two fingers to hide the tabs, the title bar, the page buttons and the clock, so the page fills the screen. Tap with two fingers again to bring them back. Also in the ⋯ / ≡ menus of the Read, dictionary and grammar pages. With this switch off, only the menus turn full screen on, and a two-finger tap still turns it off.")
                             .font(.caption).foregroundStyle(style.secondary)
-                    }
-                    Section("Keep a backup") {
+                    } header: { Text("Full screen · 全螢幕").textCase(nil) }
+                    Section {
                         Text("Your passages and notes are in reading-library.json in Files → On My iPhone → Japanese Reader. Copy this file before uninstalling. Dictionary files can also be copied from here.").font(.footnote).foregroundStyle(style.secondary)
-                    }
-                    Section("Translation") {
+                    } header: { Text("Keep a backup").textCase(nil) }
+                    Section {
                         Text("Translate opens Apple's translation panel. Apple may ask you to download languages. Argos and LM Studio from the Windows app are not included in this iPhone edition. Copy learning prompt works with any AI app you choose.").font(.footnote).foregroundStyle(style.secondary)
-                    }
+                    } header: { Text("Translation").textCase(nil) }
                     if model.busy { ProgressView("Working…") }
                     if !model.status.isEmpty { Text(model.status).font(.footnote).foregroundStyle(style.secondary) }
                     Section {
@@ -2384,7 +2384,7 @@ struct ReaderHome: View {
     }
 
     private var savedSection: some View {
-        Section("Saved passages · \(model.saved.count)") {
+        Section {
             if model.saved.isEmpty {
                 Text("No saved passages. Use Save, or turn on Auto-save and tap Read.").foregroundStyle(style.secondary).accessibilityIdentifier("emptyLibrary")
             } else if filteredPassages.isEmpty {
@@ -2420,11 +2420,11 @@ struct ReaderHome: View {
                 ShareLink(item: model.libraryURL) { Label("Export saved texts", systemImage: "square.and.arrow.up") }
                 Button("Delete all saved passages", role: .destructive) { deleteAll = true }
             }
-        }
+        } header: { Text("Saved passages · \(model.saved.count)").textCase(nil) }
     }
 
     private var dictionariesSection: some View {
-        Section("Offline dictionaries · \(model.dictionaries.count)") {
+        Section {
             Text("Move the supplied dictionaries folder into On My iPhone → Japanese Reader using Files, then tap Refresh. Or import the folder below.").font(.subheadline).foregroundStyle(style.secondary)
             Button("Add dictionary pack") { importing = true }.disabled(model.busy)
             Button("Refresh dictionaries") { model.reload() }
@@ -2436,7 +2436,7 @@ struct ReaderHome: View {
             ForEach(model.dictionaries) { item in
                 Toggle(item.name, isOn: Binding(get: { !model.disabledDictionaries.contains(item.id) }, set: { model.enableDictionary(item.id, enabled: $0) })).font(.footnote)
             }.onMove { model.moveDictionaries(from: $0, to: $1) }
-        }
+        } header: { Text("Offline dictionaries · \(model.dictionaries.count)").textCase(nil) }
     }
 
     // MARK: - Appearance
@@ -2499,19 +2499,24 @@ struct ReaderHome: View {
                             ColorPicker("App background", selection: colorBinding($paperRGB), supportsOpacity: false)
                         }
                     }
-                } header: { Text("Automatic & custom") }
+                } header: { Text("Automatic & custom").textCase(nil) }
                 Section {
-                    themeGrid(ReaderTheme.fable)
-                } header: { Text("Fable · 糸 (Claude style)") } footer: {
-                    Text("Soft paper, fine pencil lines and small handwritten notes. Quiet, warm and a little unfinished.")
+                    themeGrid(ReaderTheme.fableFilm)
+                } header: { Text("Fable · 糸 (Claude style)").textCase(nil) } footer: {
+                    Text("The film, as drawn: cream paper, a hand-wound ring, a thread through the header, handwritten notes.")
                 }
-                Section { themeGrid(ReaderTheme.editorial) } header: { Text("Editorial · 余白 (choose a paper)") }
+                Section {
+                    themeGrid(ReaderTheme.fableVariations)
+                } header: { Text("Fable variations · 変奏").textCase(nil) } footer: {
+                    Text("Same hand, other pictures: a graph-paper notebook, a linocut sunset, a moon and a lit window, watercolour rain, blue biro, an echo of rings, roots on slate.")
+                }
+                Section { themeGrid(ReaderTheme.editorial) } header: { Text("Editorial · 余白 (choose a paper)").textCase(nil) }
                 Section {
                     themeGrid(ReaderTheme.desk)
                     Toggle("Paper grain & doodles", isOn: $handDrawnPaper).accessibilityIdentifier("handDrawnPaper")
-                } header: { Text("Hand-drawn · 手描き (same as desktop)") }
-                Section { themeGrid(ReaderTheme.light) } header: { Text("Light · 昼") }
-                Section { themeGrid(ReaderTheme.dark) } header: { Text("Dark · 夜") }
+                } header: { Text("Hand-drawn · 手描き (same as desktop)").textCase(nil) }
+                Section { themeGrid(ReaderTheme.light) } header: { Text("Light · 昼").textCase(nil) }
+                Section { themeGrid(ReaderTheme.dark) } header: { Text("Dark · 夜").textCase(nil) }
                 Section {
                     Picker("Typeface", selection: $readerTypefaceRaw) {
                         ForEach(ReaderTypeface.allCases) { face in
@@ -2555,7 +2560,7 @@ struct ReaderHome: View {
                         }
                         Text("For the ruled lines on the Read page and in grammar lessons.").font(.caption).foregroundStyle(style.secondary)
                     }
-                } header: { Text("Reading text · 本文") }
+                } header: { Text("Reading text · 本文").textCase(nil) }
                 Section {
                     Picker("Page margins", selection: $pageMarginsRaw) {
                         ForEach(PageMargins.allCases) { margin in Text(margin.title).tag(margin.rawValue) }
@@ -2586,7 +2591,7 @@ struct ReaderHome: View {
                     }
                     Text("Dictionary pages keep each publisher's layout and use your theme: large headwords, muted labels, and examples as an indented phrase with the translation underneath.")
                         .font(.caption).foregroundStyle(style.secondary)
-                } header: { Text("Dictionary pages · 辞書") }
+                } header: { Text("Dictionary pages · 辞書").textCase(nil) }
                 Section {
                     Button("Reset appearance", role: .destructive) {
                         themeID = "hand-washi"; accentRGB = 0x1F7A73; paperRGB = 0xFFFFFF; customPaper = false

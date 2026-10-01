@@ -112,6 +112,8 @@ struct ReaderTheme: Identifiable, Equatable, Hashable {
     /// (keywords in examples, the pitch-accent line, source tags).
     var mutedRGB: Int? = nil
     var highlightRGB: Int? = nil
+    /// Fable: which set of drawings, page decoration and fills the theme uses.
+    var motif: FableMotif = .film
 
     static let systemID = "system"
     static let customID = "custom"
@@ -243,26 +245,47 @@ struct ReaderTheme: Identifiable, Equatable, Hashable {
     ]
 
     /// 糸 Fable papers (the Claude style): `accentRGB` is the ink line colour,
-    /// `highlightRGB` the small rust spark, `tapeRGB` the sage fill and
-    /// `markerRGB` the wandering thread.
+    /// `highlightRGB` the small spark, `tapeRGB` the soft "chosen" wash and
+    /// `markerRGB` the motif's own colour (thread, grid, rays, moon, wash…).
     private static func fablePaper(_ id: String, _ name: String, _ detail: String, family: Family = .light,
+                                   motif: FableMotif = .film,
                                    paper: Int, ink: Int, lines: Int, muted: Int, spark: Int, sage: Int, thread: Int) -> ReaderTheme {
         ReaderTheme(id: id, name: name, detail: detail, family: family, backgroundRGB: paper, surfaceRGB: paper,
                     accentRGB: lines, tapeRGB: sage, markerRGB: thread, inkRGB: ink,
-                    design: .fable, mutedRGB: muted, highlightRGB: spark)
+                    design: .fable, mutedRGB: muted, highlightRGB: spark, motif: motif)
     }
     static let fable: [ReaderTheme] = [
-        fablePaper("fable", "糸 Fable · Paper", "Claude style · cream paper, ink and thread",
+        // The film itself: drawn from the inside.
+        fablePaper("fable", "糸 Fable · Paper", "The film · cream paper, wound ring, thread",
                    paper: 0xF5F0E4, ink: 0x2B2925, lines: 0x34322D, muted: 0x6E695F, spark: 0xB04A3C, sage: 0xDDE2CE, thread: 0xB89A6A),
-        fablePaper("fable-sage", "糸 Fable · Meadow", "Claude style · pale sage",
+        fablePaper("fable-sage", "糸 Fable · Meadow", "The film · pale sage",
                    paper: 0xDDE2CE, ink: 0x22251E, lines: 0x2C3328, muted: 0x5A6152, spark: 0xA0453A, sage: 0xC6CFB4, thread: 0x9C8456),
-        fablePaper("fable-blush", "糸 Fable · Blossom", "Claude style · dusty pink",
+        fablePaper("fable-blush", "糸 Fable · Blossom", "The film · dusty pink",
                    paper: 0xEAD9CF, ink: 0x2C2421, lines: 0x3D3330, muted: 0x6E5E58, spark: 0x9E3F35, sage: 0xDDE2CE, thread: 0xA88A5E),
-        fablePaper("fable-dusk", "糸 Fable · Unfinished", "Claude style · warm grey",
+        fablePaper("fable-dusk", "糸 Fable · Unfinished", "The film · warm grey",
                    paper: 0xD6D2C7, ink: 0x22211D, lines: 0x2E2C28, muted: 0x58544C, spark: 0x973F33, sage: 0xC3C8B4, thread: 0x96804F),
-        fablePaper("fable-night", "糸 Fable · One water", "Claude style · night, starlit thread", family: .dark,
-                   paper: 0x211F1B, ink: 0xEDE6D6, lines: 0xE6DFCE, muted: 0xA59E8E, spark: 0xE39A7E, sage: 0x3A3F34, thread: 0xC9A46A)
+        fablePaper("fable-night", "糸 Fable · One water", "The film · night, stars", family: .dark,
+                   paper: 0x211F1B, ink: 0xEDE6D6, lines: 0xE6DFCE, muted: 0xA59E8E, spark: 0xE39A7E, sage: 0x3A3F34, thread: 0xC9A46A),
+        // Variations of my own, after Kengo Works.
+        fablePaper("fable-graph", "方眼 Cool S", "Graph-paper notebook, coloured-pencil doodles", motif: .graph,
+                   paper: 0xF4F2E8, ink: 0x2C2D2A, lines: 0x35362F, muted: 0x63665D, spark: 0xC24E6E, sage: 0xF3E592, thread: 0x8EB5A9),
+        fablePaper("fable-sundown", "残照 Sundown", "Linocut sun, ochre rays, burnt orange", motif: .sundown,
+                   paper: 0xF3E7CC, ink: 0x3A2618, lines: 0x47301F, muted: 0x76604B, spark: 0xC0582A, sage: 0xEDD39A, thread: 0xD3A040),
+        fablePaper("fable-midnight", "月 Borrowed light", "A small moon keeps a lit window company", family: .dark, motif: .midnight,
+                   paper: 0x1B2033, ink: 0xEFE7D3, lines: 0xE7DEC9, muted: 0xA1A6B8, spark: 0xF2C46B, sage: 0x343B57, thread: 0xF1E2AE),
+        fablePaper("fable-mist", "雨 Underlight", "Watercolour rain, a pole and its wires", motif: .mist,
+                   paper: 0xE4E8E2, ink: 0x1E2933, lines: 0x293742, muted: 0x56636E, spark: 0xB9503C, sage: 0xCAD5E0, thread: 0x6F8CB0),
+        fablePaper("fable-ballpoint", "ボールペン Ballpoint", "Blue biro on paper, red-pen marks", motif: .ballpoint,
+                   paper: 0xF2EAD8, ink: 0x1D2C66, lines: 0x24367A, muted: 0x5A6386, spark: 0xB8352E, sage: 0xDCE1F2, thread: 0xB8352E),
+        fablePaper("fable-echo", "応 Echo", "A dot calls out; rings and small worlds answer", motif: .echo,
+                   paper: 0xF6F0DA, ink: 0x1F2130, lines: 0x272A3B, muted: 0x60616F, spark: 0xD04A2F, sage: 0xF1DD8E, thread: 0xE2C24C),
+        fablePaper("fable-roots", "根 Roots", "White roots on slate, one red line", family: .dark, motif: .roots,
+                   paper: 0x1E2328, ink: 0xECE8DE, lines: 0xE3DED2, muted: 0x9BA3A8, spark: 0xD9584A, sage: 0x323C45, thread: 0xD8D2C4)
     ]
+
+    /// The five papers of the film, and the variations after Kengo Works.
+    static var fableFilm: [ReaderTheme] { fable.filter { $0.motif == .film } }
+    static var fableVariations: [ReaderTheme] { fable.filter { $0.motif != .film } }
 
     static let all: [ReaderTheme] = {
         var themes: [ReaderTheme] = [system]
@@ -317,6 +340,10 @@ struct ReaderStyle: Equatable {
     /// Fable's "chosen" fill: a soft sage wash instead of a solid ink block.
     var chosen: Color { isFable ? sage.opacity(isDark ? 0.9 : 1) : navy }
     var onChosen: Color { isFable ? ink : background }
+    /// Ruled notebook lines on the Read page.
+    var paperRule: Color { isFable ? (theme.motif == .graph ? thread : secondary) : tape }
+    /// Text on a selected chip: the theme ink on Fable's soft wash, onAccent elsewhere.
+    var onPill: Color { isFable ? ink : onAccent }
     /// Yohaku navy: titles, rules, primary buttons, active states.
     var navy: Color { accent }
     var secondary: Color { isYohaku ? Palette.color(theme.mutedRGB ?? 0x58687A) : ink.opacity(0.62) }
@@ -367,6 +394,13 @@ struct ReaderStyle: Equatable {
         guard let background = theme.backgroundRGB else {
             return system(theme: theme, accentRGB: theme.accentRGB, systemDark: systemDark)
         }
+        return fixed(theme: theme, backgroundRGB: background,
+                     surfaceRGB: theme.surfaceRGB ?? Palette.raised(background), accentRGB: theme.accentRGB)
+    }
+
+    /// The resolved colours of any theme, without changing the active one (for swatches).
+    static func preview(_ theme: ReaderTheme) -> ReaderStyle {
+        let background = theme.backgroundRGB ?? 0xF5F0E4
         return fixed(theme: theme, backgroundRGB: background,
                      surfaceRGB: theme.surfaceRGB ?? Palette.raised(background), accentRGB: theme.accentRGB)
     }
