@@ -1206,7 +1206,7 @@ struct ReaderHome: View {
                         if style.isYohaku {
                             YohakuHeader(style: style, index: "01", title: "読む", latin: "Reading",
                                          detail: model.text.isEmpty ? nil : "\(model.text.count) 字",
-                                         layout: .circleRight, drawing: .sprig, height: 112) {
+                                         drawing: .sprig, height: 112) {
                                 HStack(spacing: 2) { clearButton; translateButton; readerOptionsMenu }
                             }
                         } else {
@@ -1779,7 +1779,7 @@ struct ReaderHome: View {
             .id(visitID.uuidString + style.identity + "-\(dictionarySans)")
             .clipShape(SketchShape(radius: 18))
             .padding(pageMargins == .compact ? 1 : 3)
-            .sketchCard(style, radius: 20, tape: .marker, tapeTrailing: true, fill: style.isYohaku ? style.background : nil)
+            .sketchCard(style, radius: 20, tape: .marker, tapeTrailing: true, fill: nil)
             .padding(.horizontal, pageMargins.cardInset)
             .padding(.top, 14)
             .padding(.bottom, 8)
@@ -2281,7 +2281,7 @@ struct ReaderHome: View {
             List {
                 if style.isYohaku {
                     YohakuHeader(style: style, index: "03", title: "書庫", latin: "Library",
-                                 detail: "\(model.saved.count) saved", layout: .squareRight, drawing: .teacup, height: 120) { EmptyView() }
+                                 detail: "saved passages", numeral: "\(model.saved.count)", drawing: .teacup, height: 128) { EmptyView() }
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
                         .listRowBackground(style.background)
@@ -2496,7 +2496,7 @@ struct ReaderHome: View {
                         }
                     }
                 } header: { Text("Automatic & custom") }
-                Section { themeGrid(ReaderTheme.editorial) } header: { Text("Editorial · 余白") }
+                Section { themeGrid(ReaderTheme.editorial) } header: { Text("Editorial · 余白 (choose a paper)") }
                 Section {
                     themeGrid(ReaderTheme.desk)
                     Toggle("Paper grain & doodles", isOn: $handDrawnPaper).accessibilityIdentifier("handDrawnPaper")

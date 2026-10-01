@@ -94,7 +94,7 @@ struct GrammarTab: View {
         if style.isYohaku {
             YohakuHeader(style: style, index: "04", title: "文法", latin: "Grammar",
                          detail: grammar.entries.isEmpty ? nil : "\(grammar.learned.count) / \(grammar.entries.count) 已讀",
-                         layout: .blockLeft, drawing: .pen, height: 112) {
+                         drawing: .pen, height: 112) {
                 if grammar.busy || grammar.loading { ProgressView().controlSize(.small) }
                 optionsMenu
             }
@@ -516,7 +516,7 @@ struct GrammarLessonScreen: View {
                 .id(entry.id + style.identity + typeface.rawValue)
                 .clipShape(SketchShape(radius: 18))
                 .padding(margins == .compact ? 1 : 3)
-                .sketchCard(style, radius: 20, tape: .marker, tapeTrailing: true, fill: style.isYohaku ? style.background : nil)
+                .sketchCard(style, radius: 20, tape: .marker, tapeTrailing: true, fill: nil)
                 .padding(.horizontal, margins.cardInset)
                 .padding(.top, 14)
                 .padding(.bottom, 8)
@@ -612,7 +612,7 @@ struct GrammarLessonScreen: View {
         }
         failed = false
         var css = GrammarLessonStyle.css + GrammarLessonStyle.variables(style: style, size: textSize, typeface: typeface)
-        if style.isYohaku { css += YohakuWeb.fontFaces(scheme: "jpgrammar") + YohakuWeb.grammarCSS }
+        if style.isYohaku { css += YohakuWeb.fontFaces(scheme: "jpgrammar") + YohakuWeb.grammarCSS(style) }
         html = GrammarLessonHTML.make(source: source, css: css)
     }
 

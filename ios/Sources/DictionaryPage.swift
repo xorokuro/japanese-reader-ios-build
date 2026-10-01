@@ -352,9 +352,9 @@ struct DictionaryPage: UIViewRepresentable {
             let script = "const s=document.createElement('style');s.textContent='\(themeCSS):root{--e-pad:\(coordinator.margins.pagePadding)px}';document.head.appendChild(s);"
             configuration.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: selectionWorld))
         }
-        if YohakuDesign.active {
-            // 余白 Yohaku: Mincho headwords and examples, hairlines, Hanken numerals.
-            let css = YohakuWeb.fontFaces(scheme: "jpread") + YohakuWeb.dictionaryCSS
+        if YohakuDesign.active, let yohaku = YohakuDesign.style {
+            // 余白 Yohaku: paper grain, Mincho headwords and examples, brush dividers, Hanken numerals.
+            let css = YohakuWeb.fontFaces(scheme: "jpread") + YohakuWeb.dictionaryCSS(yohaku)
             let literal = (try? String(data: JSONEncoder().encode(css), encoding: .utf8)) ?? "\"\""
             let script = "const y=document.createElement('style');y.textContent=\(literal);document.head.appendChild(y);"
             configuration.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: selectionWorld))
