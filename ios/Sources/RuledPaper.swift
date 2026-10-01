@@ -13,6 +13,8 @@ import UIKit
 final class RuledTextView: UITextView {
     /// Rule colour (the desktop's accent-2 at about a quarter strength).
     var ruleColor: UIColor = .clear { didSet { if ruleColor != oldValue { applyColors() } } }
+    /// Thickness of the ruled lines (Appearance → line thickness).
+    var ruleWidth: CGFloat = 1.5 { didSet { if ruleWidth != oldValue { rules.lineWidth = ruleWidth } } }
     /// Margin line colour (the desktop's accent); the inner line is drawn lighter.
     var marginColor: UIColor = .clear { didSet { if marginColor != oldValue { applyColors() } } }
     /// Where the double margin line sits, from the left edge. Nil hides it.

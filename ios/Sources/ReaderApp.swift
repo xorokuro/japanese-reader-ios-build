@@ -980,6 +980,9 @@ struct ReaderHome: View {
     @AppStorage("readerLineSpacing") private var readerLineSpacing = 1.35
     /// Ruled notebook lines behind the passage (desktop look).
     @AppStorage("ruledPaper") private var ruledPaper = true
+    /// Ruled-line visibility and thickness multipliers (1 = default).
+    @AppStorage("ruleStrength") private var ruleStrength = 1.0
+    @AppStorage("ruleThickness") private var ruleThickness = 1.0
     @AppStorage("dictionaryTextSize") private var dictionaryTextSize = 19.0
     @AppStorage(DictionaryTextSizes.key) private var dictionaryTextSizes = ""
     @AppStorage("dictionarySans") private var dictionarySans = false
@@ -1206,7 +1209,7 @@ struct ReaderHome: View {
                         if style.isYohaku {
                             YohakuHeader(style: style, index: "01", title: "読む", latin: "Reading",
                                          detail: model.text.isEmpty ? nil : "\(model.text.count) 字",
-                                         layout: .circleRight, drawing: .sprig, height: 112) {
+                                         drawing: .sprig, height: 112) {
                                 HStack(spacing: 2) { clearButton; translateButton; readerOptionsMenu }
                             }
                         } else {
@@ -1423,9 +1426,10 @@ struct ReaderHome: View {
                                quietMenu: quietMenu,
                                sideInset: pageMargins.readerInset,
                                ruled: ruledPaper,
-                               ruleColor: UIColor(style.tape).withAlphaComponent(style.isDark ? 0.30 : 0.26),
+                               ruleColor: UIColor(style.tape).withAlphaComponent(min(1, (style.isDark ? 0.30 : 0.26) * ruleStrength)),
+                               ruleWidth: CGFloat(1.5 * ruleThickness),
                                marginColor: UIColor(accent).withAlphaComponent(0.38),
-                               resize: TextResize(value: readerTextSize, range: 16...38,
+                               resize: TextResize(value: readerTextSize, range: 16...48,
                                                   set: { readerTextSize = $0; sizeHUD = Int($0) },
                                                   ended: hideSizeHUD),
                                saveOffset: { model.readerOffset = $0 }) { word in
@@ -1779,7 +1783,7 @@ struct ReaderHome: View {
             .id(visitID.uuidString + style.identity + "-\(dictionarySans)")
             .clipShape(SketchShape(radius: 18))
             .padding(pageMargins == .compact ? 1 : 3)
-            .sketchCard(style, radius: 20, tape: .marker, tapeTrailing: true, fill: style.isYohaku ? style.background : nil)
+            .sketchCard(style, radius: 20, tape: .marker, tapeTrailing: true, fill: nil)
             .padding(.horizontal, pageMargins.cardInset)
             .padding(.top, 14)
             .padding(.bottom, 8)
@@ -2281,7 +2285,7 @@ struct ReaderHome: View {
             List {
                 if style.isYohaku {
                     YohakuHeader(style: style, index: "03", title: "書庫", latin: "Library",
-                                 detail: "\(model.saved.count) saved", layout: .squareRight, drawing: .teacup, height: 120) { EmptyView() }
+                                 detail: "saved passages", numeral: "\(model.saved.count)", drawing: .teacup, height: 128) { EmptyView() }
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
                         .listRowBackground(style.background)
@@ -2496,7 +2500,7 @@ struct ReaderHome: View {
                         }
                     }
                 } header: { Text("Automatic & custom") }
-                Section { themeGrid(ReaderTheme.editorial) } header: { Text("Editorial · 余白") }
+                Section { themeGrid(ReaderTheme.editorial) } header: { Text("Editorial · 余白 (choose a paper)") }
                 Section {
                     themeGrid(ReaderTheme.desk)
                     Toggle("Paper grain & doodles", isOn: $handDrawnPaper).accessibilityIdentifier("handDrawnPaper")
@@ -2516,7 +2520,7 @@ struct ReaderHome: View {
                             Spacer()
                             Text("\(Int(readerTextSize)) pt").foregroundStyle(style.secondary).monospacedDigit()
                         }
-                        Slider(value: $readerTextSize, in: 16...38, step: 1)
+                        Slider(value: $readerTextSize, in: 16...48, step: 1)
                     }
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
@@ -2527,6 +2531,25 @@ struct ReaderHome: View {
                         Slider(value: $readerLineSpacing, in: 1.05...2.0, step: 0.05)
                     }
                     Toggle("Ruled notebook lines · 罫線", isOn: $ruledPaper).accessibilityIdentifier("ruledPaper")
+                    if ruledPaper {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("Line visibility · 可見度")
+                                Spacer()
+                                Text("\(Int((ruleStrength * 100).rounded()))%").foregroundStyle(style.secondary).monospacedDigit()
+                            }
+                            Slider(value: $ruleStrength, in: 0.5...3.5, step: 0.25).accessibilityIdentifier("ruleStrength")
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("Line thickness · 太さ")
+                                Spacer()
+                                Text(String(format: "%.2f×", ruleThickness)).foregroundStyle(style.secondary).monospacedDigit()
+                            }
+                            Slider(value: $ruleThickness, in: 0.5...3, step: 0.25).accessibilityIdentifier("ruleThickness")
+                        }
+                        Text("For the ruled lines on the Read page and in grammar lessons.").font(.caption).foregroundStyle(style.secondary)
+                    }
                 } header: { Text("Reading text · 本文") }
                 Section {
                     Picker("Page margins", selection: $pageMarginsRaw) {
@@ -2563,7 +2586,7 @@ struct ReaderHome: View {
                     Button("Reset appearance", role: .destructive) {
                         themeID = "hand-washi"; accentRGB = 0x1F7A73; paperRGB = 0xFFFFFF; customPaper = false
                         readerTypefaceRaw = ReaderTypeface.kyokasho.rawValue; readerTextSize = 23; readerLineSpacing = 1.35
-                        handDrawnPaper = true; ruledPaper = true
+                        handDrawnPaper = true; ruledPaper = true; ruleStrength = 1; ruleThickness = 1
                         dictionaryTextSize = 19; dictionaryTextSizes = ""; dictionarySans = false
                     }
                 }
@@ -2639,6 +2662,7 @@ struct SelectableJapanese: UIViewRepresentable {
     /// Ruled notebook lines and a margin line behind the text, like the desktop.
     var ruled = false
     var ruleColor: UIColor = .clear
+    var ruleWidth: CGFloat = 1.5
     var marginColor: UIColor = .clear
     /// Two-finger swipe up / down to change the text size.
     var resize: TextResize? = nil
@@ -2718,6 +2742,7 @@ struct SelectableJapanese: UIViewRepresentable {
         if let paper = view as? RuledTextView {
             paper.ruled = ruled
             paper.ruleColor = ruleColor
+            paper.ruleWidth = ruleWidth
             paper.marginColor = marginColor
             paper.marginX = ruled ? max(6, sideInset - 2) : nil
         }

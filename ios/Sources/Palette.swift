@@ -105,8 +105,10 @@ struct ReaderTheme: Identifiable, Equatable, Hashable {
     /// A warm reading ink; `nil` uses plain black or white.
     var inkRGB: Int? = nil
     var design: Design = .washi
-    /// Yohaku: secondary text colour (Muted) and the large-shape grey-blue.
+    /// Yohaku: secondary text colour (Muted) and the highlight accent
+    /// (keywords in examples, the pitch-accent line, source tags).
     var mutedRGB: Int? = nil
+    var highlightRGB: Int? = nil
 
     static let systemID = "system"
     static let customID = "custom"
@@ -212,13 +214,30 @@ struct ReaderTheme: Identifiable, Equatable, Hashable {
                     tapeRGB: 0x9FD0FF, markerRGB: 0xF5A0C2, inkRGB: 0xE9EDFF)
     ]
 
-    /// New Bauhaus / Swiss editorial: cream paper, navy rules, sage and grey-blue shapes.
-    static let yohaku = ReaderTheme(
-        id: "yohaku", name: "余白 Yohaku", detail: "Editorial · cream, navy and sage",
-        family: .light, backgroundRGB: 0xF2EEE3, surfaceRGB: 0xFAF8F2, accentRGB: 0x1C2B3F,
-        tapeRGB: 0xA9B7A0, markerRGB: 0xC3CDD6, inkRGB: 0x1A1A18, design: .yohaku, mutedRGB: 0x58687A)
+    /// 余白 Yohaku papers. `accentRGB` is the line / title colour (rules, buttons,
+    /// active states); `highlightRGB` is the warm accent; sage fills small shapes.
+    private static func paper(_ id: String, _ name: String, _ detail: String, family: Family = .light,
+                              paper: Int, ink: Int, lines: Int, muted: Int, accent: Int) -> ReaderTheme {
+        ReaderTheme(id: id, name: name, detail: detail, family: family, backgroundRGB: paper, surfaceRGB: paper,
+                    accentRGB: lines, tapeRGB: 0xB4C0AA, markerRGB: 0xB4C0AA, inkRGB: ink,
+                    design: .yohaku, mutedRGB: muted, highlightRGB: accent)
+    }
+    static let yohaku = paper("yohaku", "余白 生成 Kinari", "Editorial · unbleached paper",
+                              paper: 0xECE3CC, ink: 0x1A1A18, lines: 0x1C2B3F, muted: 0x5A5F66, accent: 0x7A3B2B)
 
-    static let editorial: [ReaderTheme] = [yohaku]
+    static let editorial: [ReaderTheme] = [
+        yohaku,
+        paper("yohaku-washi", "余白 和紙 Washi white", "Editorial · white washi",
+              paper: 0xF3F0E8, ink: 0x1A1A18, lines: 0x22303F, muted: 0x5F646A, accent: 0x4F6578),
+        paper("yohaku-seiji", "余白 青磁 Celadon", "Editorial · celadon green",
+              paper: 0xDDE3D7, ink: 0x1B1F1C, lines: 0x1F3A3A, muted: 0x526058, accent: 0x7A5A2E),
+        paper("yohaku-kiri", "余白 霧 Fog blue", "Editorial · fog blue",
+              paper: 0xDCE1E4, ink: 0x181C21, lines: 0x1C2B3F, muted: 0x53606C, accent: 0x8A4B3A),
+        paper("yohaku-wara", "余白 藁半紙 Newsprint", "Editorial · 1980 newsprint",
+              paper: 0xE2D6B6, ink: 0x26221C, lines: 0x2A2620, muted: 0x5E574A, accent: 0x2F5D73),
+        paper("yohaku-sumi", "余白 墨夜 Sumi night", "Editorial · dark", family: .dark,
+              paper: 0x25292D, ink: 0xE9E2D0, lines: 0xE9E2D0, muted: 0xA7A396, accent: 0xD2A955)
+    ]
 
     static let all: [ReaderTheme] = [system] + editorial + desk + light + dark + [custom]
 
@@ -258,7 +277,7 @@ struct ReaderStyle: Equatable {
     var navy: Color { accent }
     var secondary: Color { isYohaku ? Palette.color(theme.mutedRGB ?? 0x58687A) : ink.opacity(0.62) }
     var faint: Color { isYohaku ? Palette.color(theme.mutedRGB ?? 0x58687A).opacity(0.75) : ink.opacity(0.42) }
-    var hairline: Color { isYohaku ? accent.opacity(0.22) : ink.opacity(isDark ? 0.16 : 0.09) }
+    var hairline: Color { isYohaku ? accent.opacity(0.25) : ink.opacity(isDark ? 0.16 : 0.09) }
     var separator: Color { isYohaku ? accent : ink.opacity(isDark ? 0.12 : 0.07) }
     var accentSoft: Color { isYohaku ? accent.opacity(0.08) : accent.opacity(isDark ? 0.22 : 0.13) }
     var shadow: Color { isYohaku ? .clear : Color.black.opacity(isDark ? 0.40 : 0.08) }
@@ -267,10 +286,10 @@ struct ReaderStyle: Equatable {
     var pencil: Color { isYohaku ? .clear : ink.opacity(0.16) }
     /// The hard, offset shadow under sketched cards (desktop: 4px 6px 0 -1px).
     var shade: Color { isYohaku ? .clear : (isDark ? Color.black.opacity(0.34) : ink.opacity(0.14)) }
-    /// Yohaku shapes: sage blocks, grey-blue and light grey-blue (large shapes only).
+    /// Yohaku: sage for small flat fills, the warm highlight accent and muted text.
     var sage: Color { tape }
-    var greyBlue: Color { Palette.color(0x7F93A6) }
-    var greyBlueLight: Color { marker }
+    var highlight: Color { Palette.color(theme.highlightRGB ?? accentRGB) }
+    var mutedRGB: Int { theme.mutedRGB ?? 0x5A5F66 }
     /// Locks the interface to the theme's own mode; `nil` keeps following iOS.
     var colorScheme: ColorScheme? { usesSystemSurfaces ? nil : (isDark ? .dark : .light) }
     /// Identity for views that must be rebuilt when the palette changes.
@@ -281,12 +300,13 @@ struct ReaderStyle: Equatable {
     private static var resolved: [String: ReaderStyle] = [:]
     static func resolve(themeID: String, customPaper: Bool, paperRGB: Int, customAccentRGB: Int, systemDark: Bool) -> ReaderStyle {
         let key = "\(themeID)|\(customPaper)|\(paperRGB)|\(customAccentRGB)|\(systemDark)"
-        if let cached = resolved[key] { YohakuDesign.active = cached.isYohaku; return cached }
+        if let cached = resolved[key] { YohakuDesign.active = cached.isYohaku; YohakuDesign.style = cached.isYohaku ? cached : nil; return cached }
         let style = compute(themeID: themeID, customPaper: customPaper, paperRGB: paperRGB,
                             customAccentRGB: customAccentRGB, systemDark: systemDark)
         if resolved.count > 64 { resolved.removeAll() }
         resolved[key] = style
         YohakuDesign.active = style.isYohaku
+        YohakuDesign.style = style.isYohaku ? style : nil
         return style
     }
     private static func compute(themeID: String, customPaper: Bool, paperRGB: Int, customAccentRGB: Int, systemDark: Bool) -> ReaderStyle {

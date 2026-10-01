@@ -183,7 +183,7 @@ struct LookupPeekCard: View {
         .padding(.horizontal, 14)
         .padding(.top, 16)
         .padding(.bottom, 12)
-        .sketchCard(style, radius: 22, tape: .marker, tapeTrailing: true)
+        .sketchCard(style, radius: 22, tape: .marker, tapeTrailing: true, fill: style.isYohaku ? style.background : nil)
         .overlay(alignment: .top) {
             if showCopiedNote {
                 CopiedNote(style: style)

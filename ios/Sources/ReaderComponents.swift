@@ -88,7 +88,7 @@ struct SectionLabel: View {
             // RESULTS ───── : letter-spaced Hanken capitals over a navy hairline.
             HStack(spacing: 8) {
                 Text(text.uppercased()).font(YohakuFont.label(10)).tracking(1.8).foregroundStyle(style.secondary)
-                Rectangle().fill(style.navy).frame(height: 1)
+                BrushLine(width: 1.5).fill(style.navy).frame(height: 6)
             }
             .accessibilityAddTraits(.isHeader)
         } else {
@@ -161,11 +161,14 @@ struct PrimaryActionStyle: ButtonStyle {
             .foregroundStyle(style.onAccent)
             .padding(.horizontal, 22)
             .frame(minHeight: 44)
-            .background(
-                LinearGradient(colors: [style.accent, style.accent.opacity(style.isYohaku ? 1 : 0.86)],
-                               startPoint: .top, endPoint: .bottom),
-                in: RoundedRectangle(cornerRadius: style.isYohaku ? 0 : 99, style: .continuous)
-            )
+            .background {
+                if style.isYohaku {
+                    TornRect().fill(style.navy)
+                } else {
+                    Capsule(style: .continuous).fill(LinearGradient(colors: [style.accent, style.accent.opacity(0.86)],
+                                                                     startPoint: .top, endPoint: .bottom))
+                }
+            }
             .shadow(color: style.isYohaku ? .clear : style.accent.opacity(style.isDark ? 0.35 : 0.28), radius: style.isYohaku ? 0 : 10, x: 0, y: style.isYohaku ? 0 : 5)
             .scaleEffect(configuration.isPressed ? 0.975 : 1)
             .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
@@ -184,8 +187,10 @@ struct SoftActionStyle: ButtonStyle {
             .frame(minHeight: 40)
             .background(style.isYohaku ? (prominent ? style.accentSoft : Color.clear) : (prominent ? style.accentSoft : style.raised),
                         in: RoundedRectangle(cornerRadius: style.isYohaku ? 0 : 99, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: style.isYohaku ? 0 : 99, style: .continuous)
-                .strokeBorder(style.isYohaku ? style.navy : style.hairline, lineWidth: 1))
+            .overlay {
+                if style.isYohaku { BrushBox(width: 1.6).fill(style.navy).allowsHitTesting(false) }
+                else { Capsule(style: .continuous).strokeBorder(style.hairline, lineWidth: 1) }
+            }
             .scaleEffect(configuration.isPressed ? 0.975 : 1)
             .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
             .modifier(EnabledOpacity())
@@ -237,18 +242,16 @@ struct ThemeSwatch: View {
             ZStack(alignment: .topLeading) {
                 RoundedRectangle(cornerRadius: theme.design == .yohaku ? 0 : (compact ? 10 : 14), style: .continuous).fill(colors.background)
                 if theme.design == .yohaku {
-                    // 余白: navy circle bleeding off the edge, sage square, a hairline and 余.
-                    ZStack(alignment: .topLeading) {
-                        Circle().fill(Palette.color(0x1C2B3F)).frame(width: height * 0.9, height: height * 0.9)
-                            .offset(x: width * 0.52, y: -height * 0.12)
-                        Rectangle().fill(Palette.color(0xA9B7A0)).frame(width: height * 0.36, height: height * 0.36)
-                            .offset(x: width * 0.36, y: height * 0.54)
-                        Rectangle().fill(Palette.color(0x1C2B3F)).frame(width: 1, height: height).offset(x: width * 0.30)
-                        Text("余").font(.custom(YohakuFont.gothicBold, size: compact ? 15 : 24)).foregroundStyle(Palette.color(0x1C2B3F))
-                            .offset(x: compact ? 5 : 8, y: compact ? 4 : 7)
+                    // 余白 paper: 儚い in the paper's ink, a brush rule and an accent dot.
+                    let line = Palette.color(theme.accentRGB)
+                    VStack(alignment: .leading, spacing: compact ? 2 : 5) {
+                        Text("儚い").font(.custom(YohakuFont.minchoBold, size: compact ? 13 : 19))
+                            .foregroundStyle(Palette.color(theme.inkRGB ?? 0x1A1A18))
+                        BrushLine(width: 1.4).fill(line).frame(height: 5)
+                        Circle().fill(Palette.color(theme.highlightRGB ?? theme.accentRGB)).frame(width: compact ? 4 : 6, height: compact ? 4 : 6)
                     }
+                    .padding(compact ? 6 : 9)
                     .frame(width: width, height: height, alignment: .topLeading)
-                    .clipped()
                 } else {
                 VStack(alignment: .leading, spacing: compact ? 3 : 5) {
                     HStack(spacing: 4) {

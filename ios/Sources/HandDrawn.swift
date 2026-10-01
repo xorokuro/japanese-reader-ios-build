@@ -183,10 +183,10 @@ struct HandSeal: View {
     var body: some View {
         if style.isYohaku {
             Text(text)
-                .font(YohakuFont.headword(size * 0.56))
-                .foregroundStyle(style.background)
+                .font(YohakuFont.headword(size * 0.5))
+                .foregroundStyle(style.navy)
                 .frame(width: size, height: size)
-                .background(style.navy)
+                .overlay(BrushCircle(width: 1.5).fill(style.navy))
                 .accessibilityHidden(true)
         } else {
             seal
@@ -212,15 +212,8 @@ struct EnsoLogo: View {
     @State private var drawn = false
     var body: some View {
         if style.isYohaku {
-            // The app-icon composition: navy circle, sage square, one Mincho character.
-            ZStack(alignment: .topLeading) {
-                Circle().fill(style.navy).frame(width: size * 0.62, height: size * 0.62).offset(x: size * 0.32, y: size * 0.06)
-                Rectangle().fill(style.sage).frame(width: size * 0.38, height: size * 0.38).offset(x: size * 0.08, y: size * 0.50)
-                Text(text).font(YohakuFont.headword(size * 0.30)).foregroundStyle(style.background)
-                    .frame(width: size * 0.62, height: size * 0.62).offset(x: size * 0.32, y: size * 0.06)
-            }
-            .frame(width: size, height: size, alignment: .topLeading)
-            .accessibilityHidden(true)
+            // The leaf sprig on a sage disc inside a hand-drawn circle.
+            YohakuEmblem(style: style, drawing: .sprig, size: size)
         } else {
             enso
         }
@@ -245,7 +238,7 @@ struct HandRule: View {
     let style: ReaderStyle
     var body: some View {
         if style.isYohaku {
-            Rectangle().fill(style.navy).frame(height: 1).padding(.vertical, 3.5).accessibilityHidden(true)
+            BrushLine(width: 1.7).fill(style.navy).frame(height: 8).accessibilityHidden(true)
         } else {
             wavy
         }
@@ -270,16 +263,16 @@ struct SketchCardModifier: ViewModifier {
     func body(content: Content) -> some View {
         if style.isYohaku {
             if radius < 18 {
-                // Rows: no card, a navy hairline underneath.
+                // Rows: no card, a hand-drawn brush rule underneath.
                 content
                     .background(fill.map { AnyShapeStyle($0) } ?? AnyShapeStyle(Color.clear))
-                    .overlay(alignment: .bottom) { Rectangle().fill(style.separator).frame(height: 1).allowsHitTesting(false) }
+                    .overlay(alignment: .bottom) { BrushLine(width: 1.7).fill(style.navy).frame(height: 6).offset(y: 3).allowsHitTesting(false) }
             } else {
-                // Panels: paper, square, ruled above and below. No shadow, no tape.
+                // Panels: the same flat paper (with grain), brush rules above and below.
                 content
-                    .background(fill ?? style.surface)
-                    .overlay(alignment: .top) { Rectangle().fill(style.navy).frame(height: 1).allowsHitTesting(false) }
-                    .overlay(alignment: .bottom) { Rectangle().fill(style.navy).frame(height: 1).allowsHitTesting(false) }
+                    .background { if let fill { YohakuPaper(style: style, color: fill) } }
+                    .overlay(alignment: .top) { BrushLine(width: 1.7).fill(style.navy).frame(height: 6).offset(y: -3).allowsHitTesting(false) }
+                    .overlay(alignment: .bottom) { BrushLine(width: 1.7).fill(style.navy).frame(height: 6).offset(y: 3).allowsHitTesting(false) }
             }
         } else {
             sketched(content)
@@ -316,8 +309,8 @@ struct SketchPill: ViewModifier {
         if style.isYohaku {
             content
                 .foregroundStyle(selected ? style.background : style.navy)
-                .background(selected ? style.navy : Color.clear)
-                .overlay(Rectangle().strokeBorder(style.navy, lineWidth: 1))
+                .background { if selected { TornRect(roughness: 1).fill(style.navy) } }
+                .overlay { if !selected { BrushBox(width: 1.5).fill(style.navy).allowsHitTesting(false) } }
         } else {
             sketched(content)
         }
@@ -353,7 +346,7 @@ struct HandPrimaryButtonStyle: ButtonStyle {
                 .foregroundStyle(style.background)
                 .padding(.horizontal, 20)
                 .frame(minHeight: 46)
-                .background(style.navy.opacity(configuration.isPressed ? 0.82 : 1))
+                .background(TornRect().fill(style.navy.opacity(configuration.isPressed ? 0.82 : 1)))
         } else {
             hand(configuration)
         }
@@ -384,8 +377,11 @@ struct HandSoftButtonStyle: ButtonStyle {
                 .foregroundStyle(prominent ? style.background : style.navy)
                 .padding(.horizontal, 14)
                 .frame(minHeight: 40)
-                .background(prominent ? style.navy : (configuration.isPressed ? style.accentSoft : Color.clear))
-                .overlay(Rectangle().strokeBorder(style.navy, lineWidth: 1))
+                .background {
+                    if prominent { TornRect(roughness: 1).fill(style.navy) }
+                    else if configuration.isPressed { Rectangle().fill(style.accentSoft) }
+                }
+                .overlay { if !prominent { BrushBox(width: 1.6).fill(style.navy).allowsHitTesting(false) } }
         } else {
             soft(configuration)
         }
@@ -665,7 +661,8 @@ struct PaperBackground: View, Equatable {
     var body: some View {
         ZStack {
             style.background
-            // 余白 Yohaku keeps the paper flat: emptiness is the texture.
+            // 余白 Yohaku: one flat colour with a fine, even grain.
+            if style.isYohaku { YohakuPaper(style: style) }
             if texture && !style.isYohaku {
                 Image(uiImage: PaperTexture.grain(dark: style.isDark))
                     .resizable(resizingMode: .tile)

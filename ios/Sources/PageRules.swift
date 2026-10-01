@@ -11,11 +11,13 @@ import UIKit
 ///
 /// It runs in the app's own script world, so the lesson files' scripts stay off.
 enum PageRules {
-    /// `rgba(…)` for the rules: the theme's tape colour, faint.
-    static func color(_ style: ReaderStyle) -> String {
+    /// `rgba(…)|width` for the rules: the theme's tape colour, faint by default.
+    /// `strength` and `thickness` are the Appearance multipliers (1 = default).
+    static func color(_ style: ReaderStyle, strength: Double = 1, thickness: Double = 1) -> String {
         let rgb = Palette.rgb(style.tape)
-        let alpha = style.isDark ? 0.34 : 0.32
-        return "rgba(\((rgb >> 16) & 0xFF),\((rgb >> 8) & 0xFF),\(rgb & 0xFF),\(alpha))"
+        let alpha = min(1, (style.isDark ? 0.34 : 0.32) * strength)
+        let width = 1.2 * thickness
+        return "rgba(\((rgb >> 16) & 0xFF),\((rgb >> 8) & 0xFF),\(rgb & 0xFF),\(String(format: "%.3f", alpha)))|\(String(format: "%.2f", width))"
     }
 
     /// Sets the starting state before the page's own content loads.
@@ -30,7 +32,7 @@ enum PageRules {
 
     static let script = #"""
     (() => {
-        let on = false, color = "rgba(0,0,0,.12)", pending = 0, svg = null, path = null, drawn = 0;
+        let on = false, color = "rgba(0,0,0,.12)", width = "1.2", pending = 0, svg = null, path = null, drawn = 0;
         const SVG = "http://www.w3.org/2000/svg";
         const isBlock = (el) => {
             const d = getComputedStyle(el).display || "";
@@ -139,13 +141,18 @@ enum PageRules {
             svg.setAttribute("width", String(Math.max(document.documentElement.clientWidth, 1)));
             svg.setAttribute("height", String(Math.max(Math.ceil(lowest) + 2, 1)));
             path.setAttribute("stroke", color);
+            path.setAttribute("stroke-width", width);
             path.setAttribute("d", d);
             svg.setAttribute("data-drawn", String(++drawn));
         };
         // A short timer rather than an animation frame: WebKit can hold animation
         // frames back (a page still off screen), and the rules must not wait for that.
         const schedule = () => { if (!pending) pending = setTimeout(draw, 40); };
-        window.__jpRules = (enabled, stroke) => { on = !!enabled; if (stroke) color = stroke; schedule(); return true; };
+        window.__jpRules = (enabled, stroke) => {
+            on = !!enabled;
+            if (stroke) { const parts = String(stroke).split("|"); color = parts[0]; if (parts[1]) width = parts[1]; }
+            schedule(); return true;
+        };
         // Redraw whenever the text can have moved: size changes (text size gesture,
         // rotation), the page finishing loading, fonts arriving, and once more
         // shortly after, when late layout (furigana, images) has settled.
