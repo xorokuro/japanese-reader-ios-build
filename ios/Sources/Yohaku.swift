@@ -300,7 +300,7 @@ struct YohakuLabel: View {
     var size: CGFloat = 10
     var body: some View {
         Text(style.isFable ? text.lowercased() : text)
-            .font(YohakuFont.label(size))
+            .font(style.isFable ? .custom(YohakuFont.caption, size: size * 1.42) : .custom(YohakuFont.latinBold, size: size))
             .tracking(style.isFable ? size * 0.02 : size * 0.18)
             .foregroundStyle(strong ? style.navy : style.secondary)
     }
@@ -492,7 +492,8 @@ struct YohakuHeader<Trailing: View>: View {
             HStack(spacing: 8) {
                 if !style.isFable { YohakuLabel(text: "JAPANESE READER", style: style, strong: true, size: 10.5) }
                 Text(crumb)
-                    .font(YohakuFont.label(10.5)).tracking(style.isFable ? 0.3 : 1.6)
+                    .font(style.isFable ? .custom(YohakuFont.caption, size: 15) : .custom(YohakuFont.latinBold, size: 10.5))
+                    .tracking(style.isFable ? 0.3 : 1.6)
                     .foregroundStyle(style.secondary)
                 Spacer(minLength: 4)
                 trailing()
