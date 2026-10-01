@@ -216,7 +216,7 @@ struct GrammarTab: View {
                 Text("\(count)").font(.system(size: 11, weight: .semibold)).monospacedDigit()
                     .opacity(0.75)
             }
-            .foregroundStyle(selected ? style.onAccent : style.ink)
+            .foregroundStyle(selected ? style.onPill : style.ink)
             .padding(.horizontal, 12)
             .frame(minHeight: 34)
             .sketchPill(style, selected: selected)

@@ -442,7 +442,7 @@ struct YohakuEmblem: View {
     var disc = true
     var body: some View {
         if style.isFable {
-            FableEmblem(style: style, drawing: drawing, size: size, ripples: size >= 70)
+            FableEmblem(style: style, drawing: drawing, size: size, decorated: size >= 70)
         } else {
             yohaku
         }
