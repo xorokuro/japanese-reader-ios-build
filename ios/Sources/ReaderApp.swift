@@ -869,9 +869,15 @@ struct LookupSnapshot {
 @main struct JapaneseReaderApp: App {
     @StateObject private var model: ReaderModel
     @StateObject private var grammar: GrammarStore
+    @UIApplicationDelegateAdaptor(FlipAppDelegate.self) private var appDelegate
     init() {
         HandFont.register()
         #if DEBUG
+        // Interface tests run upright unless a test asks for the flipped screen.
+        if ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--ui-") }) {
+            let flip = ProcessInfo.processInfo.arguments.contains("--ui-flip-on") ? FlipMode.on : FlipMode.off
+            UserDefaults.standard.set(flip.rawValue, forKey: FlipMode.key)
+        }
         if ProcessInfo.processInfo.arguments.contains("--ui-reset-search-keyboard") {
             UserDefaults.standard.removeObject(forKey: "automaticallyShowSearchKeyboard")
         }
@@ -914,7 +920,7 @@ struct LookupSnapshot {
         #endif
     }
     var body: some Scene {
-        WindowGroup { ReaderHome().environmentObject(model).environmentObject(grammar).tint(Palette.color(0x1F7A73)) }
+        WindowGroup { ReaderHome().environmentObject(model).environmentObject(grammar).tint(Palette.color(0x1F7A73)).modifier(FlipHost()) }
     }
 }
 
@@ -935,6 +941,7 @@ struct ReaderHome: View {
     @State private var searchFocusRequest = 0
     @AppStorage("automaticallyShowSearchKeyboard") private var automaticallyShowSearchKeyboard = false
     @AppStorage("searchKeyboardLanguage") private var searchKeyboardLanguage = "ja"
+    @AppStorage(FlipMode.key) private var flipModeRaw = FlipMode.off.rawValue
     @State private var showingHistory = false
     @State private var clearHistoryConfirmation = false
     @State private var wantsSearchFocus = false
@@ -2231,6 +2238,14 @@ struct ReaderHome: View {
             List {
                 Group {
                     appearanceLink
+                    Section("Upside down · 倒過來") {
+                        Picker("Flip the screen", selection: $flipModeRaw) {
+                            ForEach(FlipMode.allCases) { Text($0.label).tag($0.rawValue) }
+                        }
+                        .accessibilityIdentifier("flipMode")
+                        Text("For using the phone upside down on a stand while it charges. iPhones with Face ID can't turn apps upside down, so the app turns its own screen. Auto flips when you turn the phone over and flips back when you turn it upright. Always keeps it flipped. While flipped, the iPhone keyboard still appears the other way up, so turn the phone upright to type (Auto flips back for you).")
+                            .font(.caption).foregroundStyle(style.secondary)
+                    }
                     Section("Search keyboard") {
                         Toggle("Show keyboard when returning from definitions", isOn: $automaticallyShowSearchKeyboard)
                             .accessibilityIdentifier("automaticallyShowSearchKeyboard")

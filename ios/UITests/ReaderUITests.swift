@@ -316,4 +316,24 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(app.buttons["dictionaryResult_みほん"].firstMatch.waitForExistence(timeout: 20), "The copied word opens its results")
         XCTAssertTrue(app.tabBars.buttons["Search"].isSelected)
     }
+
+    /// "Always" flip: the whole app is turned 180°, taps still reach the right
+    /// buttons, and the tab bar stays clear of the Dynamic Island / notch.
+    func testFlippedScreenStillWorks() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-flip-on"]
+        app.launch()
+        let library = app.tabBars.buttons["Library"]
+        XCTAssertTrue(library.waitForExistence(timeout: 10))
+        let screen = app.windows.firstMatch.frame
+        let settled = expectation(for: NSPredicate { _, _ in library.frame.midY < screen.midY }, evaluatedWith: library)
+        XCTAssertEqual(XCTWaiter.wait(for: [settled], timeout: 5), .completed, "The tab bar should be at the top of the screen when flipped (frame \(library.frame), screen \(screen))")
+        if screen.height >= 812 {
+            XCTAssertGreaterThanOrEqual(library.frame.minY, 48, "Tab bar buttons must stay below the Dynamic Island / notch (frame \(library.frame))")
+        }
+        library.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["flipMode"].waitForExistence(timeout: 5), "Tapping Library while flipped opens Library")
+        app.tabBars.buttons["Read"].tap()
+        XCTAssertTrue(app.tabBars.buttons["Read"].isSelected)
+    }
 }
