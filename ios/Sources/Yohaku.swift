@@ -633,6 +633,10 @@ enum YohakuWeb {
         let path = Brush.ribbon(Brush.line(CGPoint(x: 0.5, y: 4), CGPoint(x: 399.5, y: 4)), width: 1.7, seed: 1207)
         return svgURI("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 8' preserveAspectRatio='none'><path d='\(SVGPath.data(path))'/></svg>")
     }()
+    static let vRuleMask: String = {
+        let path = Brush.ribbon(Brush.line(CGPoint(x: 4, y: 0.5), CGPoint(x: 4, y: 399.5)), width: 1.7, seed: 1709)
+        return svgURI("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 400' preserveAspectRatio='none'><path d='\(SVGPath.data(path))'/></svg>")
+    }()
     static let ringMask: String = {
         let path = Brush.ribbon(Brush.circle(center: CGPoint(x: 50, y: 50), radius: 46, seed: 33), width: 2.6, seed: 34, taper: 9)
         return svgURI("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><path d='\(SVGPath.data(path))'/></svg>")
@@ -652,7 +656,8 @@ enum YohakuWeb {
         let paper = style.backgroundRGB ?? 0xECE3CC
         return ":root{--y-paper:\(hex(paper));--y-ink:\(hex(Palette.rgb(style.ink)));--y-line:\(hex(style.accentRGB));"
             + "--y-muted:\(hex(style.mutedRGB));--y-accent:\(hex(style.theme.highlightRGB ?? style.accentRGB));--y-sage:#B4C0AA;"
-            + "--y-grain:url(\"\(YohakuGrain.dataURI(dark: style.isDark))\");--y-rule:\(ruleMask);--y-ring:\(ringMask);--y-box:\(boxMask);--y-pen:\(penMask)}"
+            + "--y-grain:url(\"\(YohakuGrain.dataURI(dark: style.isDark))\");--y-rule:\(ruleMask);--y-vrule:\(vRuleMask);--y-ring:\(ringMask);--y-box:\(boxMask);--y-pen:\(penMask);"
+            + "--y-frame:var(--y-rule) top/100% 5px no-repeat,var(--y-rule) bottom/100% 5px no-repeat,var(--y-vrule) left/5px 100% no-repeat,var(--y-vrule) right/5px 100% no-repeat}"
     }
 
     /// Dictionary pages: paper with grain, Mincho headwords and examples, Zen Kaku
@@ -701,7 +706,7 @@ html:root:not(#y):not(#w) body :is(.slabel,.label,.naihou,.note_div,.shironuki,.
  font-family:var(--e-sans)!important;color:var(--y-muted)!important;border-radius:0!important;background:transparent!important}
 html:root:not(#y):not(#w) body :is(.tkbt-label,.white-square,.hinshi,.shiyouiki,.senmon_g,.mjrhsjcd-entry .type){position:relative;border:0!important;padding:0 .45em!important}
 html:root:not(#y):not(#w) body :is(.tkbt-label,.white-square,.hinshi,.shiyouiki,.senmon_g,.mjrhsjcd-entry .type)::after{content:"";position:absolute;inset:0;background:var(--y-muted);
- -webkit-mask:var(--y-box) center/100% 100% no-repeat;mask:var(--y-box) center/100% 100% no-repeat}
+ -webkit-mask:var(--y-frame);mask:var(--y-frame)}
 html:root:not(#y):not(#w) body :is(.tyuuki_rogo,.kaiwa_rogo,.kakomi_4_title_rogo,.tyuuki_kanren_rogo){background:var(--y-sage)!important;color:#1A1A18!important;border-radius:0!important}
 /* Definitions and examples. */
 html:root:not(#y):not(#w) body :is(.eng,.mean_yakugo,.yakugo,.dfcn,.meaning,.def1){color:var(--y-ink)!important}
@@ -737,13 +742,11 @@ html:root body :is(con_table>accent){border-radius:0!important}
  --g-muted:var(--y-muted);--g-faint:color-mix(in srgb,var(--y-muted) 80%,var(--y-paper));
  --muted:var(--y-muted);--faint:color-mix(in srgb,var(--y-muted) 80%,var(--y-paper));
 }
-/* Notes and translations stay readable at every text size: no tiny fixed sizes
-   from the lesson files, and the secondary text classes only slightly smaller. */
-section [style*="font-size"]:not(rt):not(ruby):not(.badge){font-size:inherit!important}
-.zh{font-size:.95em;line-height:1.75}
-.sn,.setsu .sn{font-size:.92em;color:var(--y-muted)}
-.hsub{font-size:1em}
-.box,.box p,.cmp .pt,.swap,li{font-size:1em}
+/* One text size everywhere (only the title is larger, furigana smaller):
+   secondary text differs by colour, never by size. Also beats sizes written
+   into the lesson files. */
+section *:not(rt),header.h .hsub,header.h .revision-note,footer,footer *{font-size:1em!important}
+.zh,.sn,.setsu .sn,.ety,h2 small{color:var(--y-muted)}
 html,body{background:var(--y-paper) var(--y-grain) repeat;background-size:48px 48px;background-blend-mode:overlay}
 rt{color:var(--y-muted)}
 ::selection{background:color-mix(in srgb,var(--y-accent) 26%,transparent)}
@@ -782,10 +785,10 @@ h2+*{margin-top:0}
 .box{margin-bottom:.6em}
 .box:last-child{margin-bottom:0}
 section:first-of-type .box::before{display:none}
-.ety{background:transparent;border:0;border-radius:0;padding:8px 0 0;margin-top:10px;font-size:.95em;color:var(--y-ink)}
+.ety{background:transparent;border:0;border-radius:0;padding:8px 0 0;margin-top:10px}
 .setsu{font-family:var(--g-zh);font-size:.95em;line-height:1.9}
 .setsu b{position:relative;display:inline-block;margin:2px 0;padding:1px 11px;font:800 1.05em/1.6 var(--g-jp);color:var(--y-line)}
-.setsu b::after{content:"";position:absolute;inset:0;background:var(--y-line);-webkit-mask:var(--y-box) center/100% 100% no-repeat;mask:var(--y-box) center/100% 100% no-repeat}
+.setsu b::after{content:"";position:absolute;inset:0;background:var(--y-line);-webkit-mask:var(--y-frame);mask:var(--y-frame)}
 .ex{margin:0 0 12px;padding:0}
 .ex:last-child{margin-bottom:0}
 .ex::after{display:none}
@@ -796,16 +799,16 @@ section:first-of-type .box::before{display:none}
 mark{background:none;color:var(--y-accent);font-weight:800;border-radius:0}
 .cmp{margin-bottom:12px}
 .cmp .vs{position:relative;border:0;border-radius:0;color:var(--y-line);background:transparent;font-family:var(--y-latin)}
-.cmp .vs::after{content:"";position:absolute;inset:0;background:var(--y-line);-webkit-mask:var(--y-box) center/100% 100% no-repeat;mask:var(--y-box) center/100% 100% no-repeat}
+.cmp .vs::after{content:"";position:absolute;inset:0;background:var(--y-line);-webkit-mask:var(--y-frame);mask:var(--y-frame)}
 .cmp h3{font:800 1.05em/1.5 var(--g-jp);color:var(--y-line)}
 .cmp .pt b,.swap b{color:var(--y-line)}
 .swap{background:transparent;border:0;border-radius:0;padding:4px 0 0}
 .chip{position:relative;border:0;border-radius:0;box-shadow:none;background:transparent;font-family:var(--g-jp)}
-.chip::after{content:"";position:absolute;inset:0;background:var(--y-line);-webkit-mask:var(--y-box) center/100% 100% no-repeat;mask:var(--y-box) center/100% 100% no-repeat}
+.chip::after{content:"";position:absolute;inset:0;background:var(--y-line);-webkit-mask:var(--y-frame);mask:var(--y-frame)}
 li::marker{color:var(--y-accent)}
 .q{margin-bottom:12px}
-details{position:relative;background:transparent;border:0;border-radius:0}
-details::after{content:"";position:absolute;inset:0;pointer-events:none;background:var(--y-line);-webkit-mask:var(--y-box) center/100% 100% no-repeat;mask:var(--y-box) center/100% 100% no-repeat}
+details{position:relative;background:transparent;border:0;border-radius:0;padding:10px 14px}
+details::after{content:"";position:absolute;inset:0;pointer-events:none;background:var(--y-line);-webkit-mask:var(--y-frame);mask:var(--y-frame)}
 details[open]{background:transparent}
 summary{font-family:var(--g-zh);color:var(--y-line)}
 summary::before{content:"→ "}

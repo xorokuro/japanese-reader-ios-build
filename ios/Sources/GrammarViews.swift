@@ -502,7 +502,7 @@ struct GrammarLessonScreen: View {
                                   initialOffset: grammar.offsets[entry.id] ?? .zero,
                                   bottomInset: peekVisible ? 300 : 0,
                                   quietMenu: quietMenu,
-                                  resize: TextResize(value: textSize, range: 13...28,
+                                  resize: TextResize(value: textSize, range: 13...40,
                                                      set: { textSize = $0; showSize(Int($0)) },
                                                      ended: hideSize),
                                   margins: margins,

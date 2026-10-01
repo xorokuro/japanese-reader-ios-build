@@ -24,7 +24,7 @@ final class ReaderWebView: WKWebView {
 /// Stored as JSON `{code: size}` in one preference.
 enum DictionaryTextSizes {
     static let key = "dictionaryTextSizes"
-    static let range: ClosedRange<Double> = 14...28
+    static let range: ClosedRange<Double> = 14...40
 
     static func decode(_ raw: String) -> [String: Double] {
         guard let data = raw.data(using: .utf8),

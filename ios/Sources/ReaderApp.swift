@@ -1425,7 +1425,7 @@ struct ReaderHome: View {
                                ruled: ruledPaper,
                                ruleColor: UIColor(style.tape).withAlphaComponent(style.isDark ? 0.30 : 0.26),
                                marginColor: UIColor(accent).withAlphaComponent(0.38),
-                               resize: TextResize(value: readerTextSize, range: 16...38,
+                               resize: TextResize(value: readerTextSize, range: 16...48,
                                                   set: { readerTextSize = $0; sizeHUD = Int($0) },
                                                   ended: hideSizeHUD),
                                saveOffset: { model.readerOffset = $0 }) { word in
@@ -2516,7 +2516,7 @@ struct ReaderHome: View {
                             Spacer()
                             Text("\(Int(readerTextSize)) pt").foregroundStyle(style.secondary).monospacedDigit()
                         }
-                        Slider(value: $readerTextSize, in: 16...38, step: 1)
+                        Slider(value: $readerTextSize, in: 16...48, step: 1)
                     }
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
