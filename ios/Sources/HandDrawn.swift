@@ -15,9 +15,12 @@ enum HandFont {
             guard let url = Bundle.main.url(forResource: name, withExtension: "ttf") else { continue }
             CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
         }
+        YohakuFont.register()
     }
-    static func title(_ size: CGFloat) -> Font { .custom(bold, size: size) }
-    static func body(_ size: CGFloat) -> Font { .custom(regular, size: size) }
+    /// In 余白 Yohaku the interface type is Zen Kaku Gothic New; Klee One is kept
+    /// for the rare handwritten note.
+    static func title(_ size: CGFloat) -> Font { YohakuDesign.active ? YohakuFont.title(size) : .custom(bold, size: size) }
+    static func body(_ size: CGFloat) -> Font { YohakuDesign.active ? YohakuFont.body(size) : .custom(regular, size: size) }
 }
 
 // MARK: - Shapes
@@ -28,6 +31,8 @@ struct SketchShape: Shape {
     var radius: CGFloat = 20
     var variant = 0
     func path(in rect: CGRect) -> Path {
+        // 余白 Yohaku: square corners everywhere.
+        if YohakuDesign.active { return Path(rect) }
         let limit = max(2, min(rect.width, rect.height) / 2)
         let jitter: [CGFloat] = variant % 2 == 0
             ? [2, -3, 4, -2, -2, 3, -3, 2]
@@ -95,8 +100,11 @@ struct WashiTape: View {
     let style: ReaderStyle
     var width: CGFloat = 104
     var body: some View {
+        if !style.isYohaku { tape }
+    }
+    private var tape: some View {
         let color = kind == .tape ? style.tape : style.marker
-        Canvas { context, size in
+        return Canvas { context, size in
             let stripe: CGFloat = 7
             var x = -size.height
             var index = 0
@@ -128,6 +136,20 @@ struct HandTitle: View {
     let style: ReaderStyle
     var size: CGFloat = 24
     var body: some View {
+        if style.isYohaku {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(text).font(YohakuFont.title(size)).foregroundStyle(style.navy)
+                if let subtitle {
+                    Text(subtitle.uppercased()).font(YohakuFont.label(10.5)).tracking(1.8).foregroundStyle(style.secondary)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isHeader)
+        } else {
+            handTitle
+        }
+    }
+    private var handTitle: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(text)
                 .font(HandFont.title(size))
@@ -159,6 +181,18 @@ struct HandSeal: View {
     let style: ReaderStyle
     var size: CGFloat = 32
     var body: some View {
+        if style.isYohaku {
+            Text(text)
+                .font(YohakuFont.headword(size * 0.56))
+                .foregroundStyle(style.background)
+                .frame(width: size, height: size)
+                .background(style.navy)
+                .accessibilityHidden(true)
+        } else {
+            seal
+        }
+    }
+    private var seal: some View {
         Text(text)
             .font(HandFont.title(size * 0.54))
             .foregroundStyle(style.onAccent)
@@ -177,6 +211,21 @@ struct EnsoLogo: View {
     var size: CGFloat = 42
     @State private var drawn = false
     var body: some View {
+        if style.isYohaku {
+            // The app-icon composition: navy circle, sage square, one Mincho character.
+            ZStack(alignment: .topLeading) {
+                Circle().fill(style.navy).frame(width: size * 0.62, height: size * 0.62).offset(x: size * 0.32, y: size * 0.06)
+                Rectangle().fill(style.sage).frame(width: size * 0.38, height: size * 0.38).offset(x: size * 0.08, y: size * 0.50)
+                Text(text).font(YohakuFont.headword(size * 0.30)).foregroundStyle(style.background)
+                    .frame(width: size * 0.62, height: size * 0.62).offset(x: size * 0.32, y: size * 0.06)
+            }
+            .frame(width: size, height: size, alignment: .topLeading)
+            .accessibilityHidden(true)
+        } else {
+            enso
+        }
+    }
+    private var enso: some View {
         ZStack {
             Circle()
                 .trim(from: 0.04, to: drawn ? 0.93 : 0.04)
@@ -195,6 +244,13 @@ struct EnsoLogo: View {
 struct HandRule: View {
     let style: ReaderStyle
     var body: some View {
+        if style.isYohaku {
+            Rectangle().fill(style.navy).frame(height: 1).padding(.vertical, 3.5).accessibilityHidden(true)
+        } else {
+            wavy
+        }
+    }
+    private var wavy: some View {
         WavyLine()
             .stroke(style.ink.opacity(0.22), style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
             .frame(height: 8)
@@ -212,6 +268,24 @@ struct SketchCardModifier: ViewModifier {
     var fill: Color? = nil
     var shadow: CGSize = CGSize(width: 4, height: 6)
     func body(content: Content) -> some View {
+        if style.isYohaku {
+            if radius < 18 {
+                // Rows: no card, a navy hairline underneath.
+                content
+                    .background(fill.map { AnyShapeStyle($0) } ?? AnyShapeStyle(Color.clear))
+                    .overlay(alignment: .bottom) { Rectangle().fill(style.separator).frame(height: 1).allowsHitTesting(false) }
+            } else {
+                // Panels: paper, square, ruled above and below. No shadow, no tape.
+                content
+                    .background(fill ?? style.surface)
+                    .overlay(alignment: .top) { Rectangle().fill(style.navy).frame(height: 1).allowsHitTesting(false) }
+                    .overlay(alignment: .bottom) { Rectangle().fill(style.navy).frame(height: 1).allowsHitTesting(false) }
+            }
+        } else {
+            sketched(content)
+        }
+    }
+    private func sketched(_ content: Content) -> some View {
         content
             .background {
                 ZStack {
@@ -239,6 +313,16 @@ struct SketchPill: ViewModifier {
     let style: ReaderStyle
     var selected = false
     func body(content: Content) -> some View {
+        if style.isYohaku {
+            content
+                .foregroundStyle(selected ? style.background : style.navy)
+                .background(selected ? style.navy : Color.clear)
+                .overlay(Rectangle().strokeBorder(style.navy, lineWidth: 1))
+        } else {
+            sketched(content)
+        }
+    }
+    private func sketched(_ content: Content) -> some View {
         content
             .background(selected ? style.accent : style.surface, in: SketchShape(radius: 13))
             .overlay(SketchShape(radius: 13).stroke(selected ? Color.clear : style.lineStrong, lineWidth: 1.3))
@@ -262,6 +346,19 @@ extension View {
 struct HandPrimaryButtonStyle: ButtonStyle {
     let style: ReaderStyle
     func makeBody(configuration: Configuration) -> some View {
+        if style.isYohaku {
+            // Solid navy, cream type, square.
+            configuration.label
+                .font(YohakuFont.title(15))
+                .foregroundStyle(style.background)
+                .padding(.horizontal, 20)
+                .frame(minHeight: 46)
+                .background(style.navy.opacity(configuration.isPressed ? 0.82 : 1))
+        } else {
+            hand(configuration)
+        }
+    }
+    private func hand(_ configuration: Configuration) -> some View {
         configuration.label
             .font(HandFont.title(16))
             .foregroundStyle(style.onAccent)
@@ -280,6 +377,20 @@ struct HandSoftButtonStyle: ButtonStyle {
     let style: ReaderStyle
     var prominent = false
     func makeBody(configuration: Configuration) -> some View {
+        if style.isYohaku {
+            // 1px navy outline; a prominent (selected) one is filled navy.
+            configuration.label
+                .font(YohakuFont.title(14))
+                .foregroundStyle(prominent ? style.background : style.navy)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 40)
+                .background(prominent ? style.navy : (configuration.isPressed ? style.accentSoft : Color.clear))
+                .overlay(Rectangle().strokeBorder(style.navy, lineWidth: 1))
+        } else {
+            soft(configuration)
+        }
+    }
+    private func soft(_ configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 14, weight: .semibold))
             .foregroundStyle(prominent ? style.accent : style.ink)
@@ -554,7 +665,8 @@ struct PaperBackground: View, Equatable {
     var body: some View {
         ZStack {
             style.background
-            if texture {
+            // 余白 Yohaku keeps the paper flat: emptiness is the texture.
+            if texture && !style.isYohaku {
                 Image(uiImage: PaperTexture.grain(dark: style.isDark))
                     .resizable(resizingMode: .tile)
                     .blendMode(style.isDark ? .screen : .multiply)

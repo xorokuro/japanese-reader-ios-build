@@ -352,6 +352,13 @@ struct DictionaryPage: UIViewRepresentable {
             let script = "const s=document.createElement('style');s.textContent='\(themeCSS):root{--e-pad:\(coordinator.margins.pagePadding)px}';document.head.appendChild(s);"
             configuration.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: selectionWorld))
         }
+        if YohakuDesign.active {
+            // 余白 Yohaku: Mincho headwords and examples, hairlines, Hanken numerals.
+            let css = YohakuWeb.fontFaces(scheme: "jpread") + YohakuWeb.dictionaryCSS
+            let literal = (try? String(data: JSONEncoder().encode(css), encoding: .utf8)) ?? "\"\""
+            let script = "const y=document.createElement('style');y.textContent=\(literal);document.head.appendChild(y);"
+            configuration.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: selectionWorld))
+        }
         let view = ReaderWebView(frame: .zero, configuration: configuration)
         view.scrollView.delegate = coordinator
         view.accessibilityIdentifier = "dictionaryEntryPage"
@@ -468,6 +475,13 @@ struct DictionaryPage: UIViewRepresentable {
             let id = ObjectIdentifier(urlSchemeTask)
             cancelled.remove(id)
             let url = urlSchemeTask.request.url!
+            if url.host == "font" {
+                // The theme's bundled fonts (jpread://font/<name>.ttf).
+                guard let data = YohakuWeb.fontData(named: url.lastPathComponent) else { urlSchemeTask.didFailWithError(URLError(.fileDoesNotExist)); return }
+                urlSchemeTask.didReceive(URLResponse(url: url, mimeType: "font/ttf", expectedContentLength: data.count, textEncodingName: nil))
+                urlSchemeTask.didReceive(data); urlSchemeTask.didFinish()
+                return
+            }
             queue.async {
                 let result = Result { try DictionaryStore.shared(root: self.root).media(code: self.code, name: url.path) }
                 DispatchQueue.main.async {

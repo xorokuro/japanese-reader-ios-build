@@ -58,7 +58,7 @@ enum GrammarLessonStyle {
     /// Theme colours for the page, from the active reader theme.
     static func variables(style: ReaderStyle, size: Double, typeface: ReaderTypeface) -> String {
         let dark = style.isDark
-        let bg = style.surfaceRGB ?? (dark ? 0x1C1C1E : 0xFFFFFF)
+        let bg = (style.isYohaku ? style.backgroundRGB : style.surfaceRGB) ?? (dark ? 0x1C1C1E : 0xFFFFFF)
         let ink = style.usesSystemSurfaces ? (dark ? 0xF2F2F7 : 0x1C1C1E) : Palette.rgb(style.ink)
         let accent = Palette.rgb(style.accent)
         let tape = Palette.rgb(style.tape)
@@ -371,10 +371,7 @@ struct GrammarLessonPage: UIViewRepresentable {
             queue.async {
                 var data: Data?
                 if host == "font" {
-                    let base = (name as NSString).deletingPathExtension
-                    if base.hasPrefix("KleeOne"), let file = Bundle.main.url(forResource: base, withExtension: "ttf") {
-                        data = try? Data(contentsOf: file, options: .mappedIfSafe)
-                    }
+                    data = YohakuWeb.fontData(named: name)
                 } else if !name.contains("/"), !name.hasPrefix(".") {
                     data = try? Data(contentsOf: folder.appendingPathComponent(name))
                 }
