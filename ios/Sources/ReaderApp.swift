@@ -980,6 +980,9 @@ struct ReaderHome: View {
     @AppStorage("readerLineSpacing") private var readerLineSpacing = 1.35
     /// Ruled notebook lines behind the passage (desktop look).
     @AppStorage("ruledPaper") private var ruledPaper = true
+    /// Ruled-line visibility and thickness multipliers (1 = default).
+    @AppStorage("ruleStrength") private var ruleStrength = 1.0
+    @AppStorage("ruleThickness") private var ruleThickness = 1.0
     @AppStorage("dictionaryTextSize") private var dictionaryTextSize = 19.0
     @AppStorage(DictionaryTextSizes.key) private var dictionaryTextSizes = ""
     @AppStorage("dictionarySans") private var dictionarySans = false
@@ -1423,7 +1426,8 @@ struct ReaderHome: View {
                                quietMenu: quietMenu,
                                sideInset: pageMargins.readerInset,
                                ruled: ruledPaper,
-                               ruleColor: UIColor(style.tape).withAlphaComponent(style.isDark ? 0.30 : 0.26),
+                               ruleColor: UIColor(style.tape).withAlphaComponent(min(1, (style.isDark ? 0.30 : 0.26) * ruleStrength)),
+                               ruleWidth: CGFloat(1.5 * ruleThickness),
                                marginColor: UIColor(accent).withAlphaComponent(0.38),
                                resize: TextResize(value: readerTextSize, range: 16...48,
                                                   set: { readerTextSize = $0; sizeHUD = Int($0) },
@@ -2527,6 +2531,25 @@ struct ReaderHome: View {
                         Slider(value: $readerLineSpacing, in: 1.05...2.0, step: 0.05)
                     }
                     Toggle("Ruled notebook lines · 罫線", isOn: $ruledPaper).accessibilityIdentifier("ruledPaper")
+                    if ruledPaper {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("Line visibility · 可見度")
+                                Spacer()
+                                Text("\(Int((ruleStrength * 100).rounded()))%").foregroundStyle(style.secondary).monospacedDigit()
+                            }
+                            Slider(value: $ruleStrength, in: 0.5...3.5, step: 0.25).accessibilityIdentifier("ruleStrength")
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("Line thickness · 太さ")
+                                Spacer()
+                                Text(String(format: "%.2f×", ruleThickness)).foregroundStyle(style.secondary).monospacedDigit()
+                            }
+                            Slider(value: $ruleThickness, in: 0.5...3, step: 0.25).accessibilityIdentifier("ruleThickness")
+                        }
+                        Text("For the ruled lines on the Read page and in grammar lessons.").font(.caption).foregroundStyle(style.secondary)
+                    }
                 } header: { Text("Reading text · 本文") }
                 Section {
                     Picker("Page margins", selection: $pageMarginsRaw) {
@@ -2563,7 +2586,7 @@ struct ReaderHome: View {
                     Button("Reset appearance", role: .destructive) {
                         themeID = "hand-washi"; accentRGB = 0x1F7A73; paperRGB = 0xFFFFFF; customPaper = false
                         readerTypefaceRaw = ReaderTypeface.kyokasho.rawValue; readerTextSize = 23; readerLineSpacing = 1.35
-                        handDrawnPaper = true; ruledPaper = true
+                        handDrawnPaper = true; ruledPaper = true; ruleStrength = 1; ruleThickness = 1
                         dictionaryTextSize = 19; dictionaryTextSizes = ""; dictionarySans = false
                     }
                 }
@@ -2639,6 +2662,7 @@ struct SelectableJapanese: UIViewRepresentable {
     /// Ruled notebook lines and a margin line behind the text, like the desktop.
     var ruled = false
     var ruleColor: UIColor = .clear
+    var ruleWidth: CGFloat = 1.5
     var marginColor: UIColor = .clear
     /// Two-finger swipe up / down to change the text size.
     var resize: TextResize? = nil
@@ -2718,6 +2742,7 @@ struct SelectableJapanese: UIViewRepresentable {
         if let paper = view as? RuledTextView {
             paper.ruled = ruled
             paper.ruleColor = ruleColor
+            paper.ruleWidth = ruleWidth
             paper.marginColor = marginColor
             paper.marginX = ruled ? max(6, sideInset - 2) : nil
         }

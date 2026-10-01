@@ -435,6 +435,8 @@ struct GrammarLessonScreen: View {
     @AppStorage("grammarTextSize") private var textSize = 17.0
     /// Same switch as the Read page: Library → Appearance → Ruled notebook lines.
     @AppStorage("ruledPaper") private var ruledPaper = true
+    @AppStorage("ruleStrength") private var ruleStrength = 1.0
+    @AppStorage("ruleThickness") private var ruleThickness = 1.0
     @State private var html = ""
     @State private var failed = false
     @State private var copiedPattern = false
@@ -508,7 +510,7 @@ struct GrammarLessonScreen: View {
                                   margins: margins,
                                   saveOffset: { grammar.offsets[entry.id] = $0 },
                                   ruled: ruledPaper,
-                                  ruleColor: PageRules.color(style),
+                                  ruleColor: PageRules.color(style, strength: ruleStrength, thickness: ruleThickness),
                                   openLesson: { open(file: $0) }) { word in
                     guard active else { return }
                     model.select(word, inDictionary: true)
