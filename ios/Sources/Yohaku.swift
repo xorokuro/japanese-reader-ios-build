@@ -680,10 +680,13 @@ html:root:not(#y) body .dictionary-source::before{width:6px!important;height:6px
 html:root:not(#y) body .dictionary-source::after{content:"";position:absolute;left:0;right:0;bottom:-2px;height:6px;background:var(--y-line);
  -webkit-mask:var(--y-rule) center/100% 100% no-repeat;mask:var(--y-rule) center/100% 100% no-repeat}
 /* Headwords: very large Mincho. */
-html:root:not(#y):not(#w) body :is(.HeadG .headword,.hw_midashi,.item_midashi .midashi,.midashi_kana,.titlekana,.dc-headword,.headword_kana,.mjrhsjcd-entry .word,.kanji01,headword,h3,.head>.かな,.headword>.reading,.midashi){
- font-family:var(--y-mincho)!important;font-weight:800!important;font-size:2.35em!important;line-height:1.15!important;letter-spacing:0!important;color:var(--y-ink)!important}
-html:root:not(#y):not(#w) body :is(.headword.表記,.m_hyoki,.hyouki_g,.headword_kanji,black_branckets,.hyouki_g *,.headword:not(.表記)~.headword){
- font-family:var(--y-mincho)!important;font-weight:500!important;font-size:1.25em!important;color:var(--y-line)!important}
+html:root:not(#y):not(#w) body :is(.HeadG .headword,.hw_midashi,.item_midashi .midashi,.midashi_kana,.titlekana,.dc-headword,.headword_kana,.mjrhsjcd-entry .word,.kanji01,headword,.head>.かな,.headword>.reading){
+ font-family:var(--y-mincho)!important;font-weight:800!important;font-size:calc(var(--e-size) * 1.6)!important;line-height:1.25!important;letter-spacing:0!important;color:var(--y-ink)!important}
+/* Children of a headword keep its size instead of multiplying it. */
+html:root:not(#y):not(#w) body :is(.HeadG .headword,.hw_midashi,.item_midashi .midashi,.midashi_kana,.titlekana,.dc-headword,.headword_kana,.mjrhsjcd-entry .word,.kanji01,headword,.head>.かな,.headword>.reading) *{font-size:1em!important}
+html:root:not(#y):not(#w) body :is(.headword.表記,.m_hyoki,.hyouki_g,.headword_kanji,black_branckets,.headword:not(.表記)~.headword){
+ font-family:var(--y-mincho)!important;font-weight:500!important;font-size:calc(var(--e-size) * 1.25)!important;color:var(--y-line)!important}
+html:root:not(#y):not(#w) body .hyouki_g *{font-size:1em!important;font-family:var(--y-mincho)!important;color:var(--y-line)!important}
 html:root:not(#y):not(#w) body :is(.midashi_pri3,.midashi_pri2,.midashi_pri1,.koumoku>.midashi,.HeadG,.item_midashi,div.head:has(>h),.dc-entry>.midashi,.mjrhsjcd-entry>.head,.tkbt-entry>.head,.dic_item>.head){
  position:relative;border-bottom:0!important;padding-bottom:.55em!important;margin-bottom:.8em!important}
 html:root:not(#y):not(#w) body :is(.midashi_pri3,.midashi_pri2,.midashi_pri1,.koumoku>.midashi,.HeadG,.item_midashi,div.head:has(>h),.dc-entry>.midashi,.mjrhsjcd-entry>.head,.tkbt-entry>.head,.dic_item>.head)::after{
@@ -691,7 +694,8 @@ html:root:not(#y):not(#w) body :is(.midashi_pri3,.midashi_pri2,.midashi_pri1,.ko
 html:root:not(#y) body .headword_eng{font-family:var(--y-latin)!important;font-style:normal!important;font-weight:600!important;color:var(--y-muted)!important}
 /* Sense numbers: large thin Hanken numerals. */
 html:root:not(#y):not(#w) body :is(.num,.wc,.dc-sense,.sense_no,.gogi>.num,.MeaningG .Num,.snum,.hukugi_num){
- font-family:var(--y-latin)!important;font-weight:300!important;font-size:1.55em!important;line-height:1!important;color:var(--y-line)!important;margin-right:.35em!important;vertical-align:-.12em}
+ font-family:var(--y-latin)!important;font-weight:300!important;font-size:calc(var(--e-size) * 1.3)!important;line-height:1!important;color:var(--y-line)!important;margin-right:.35em!important;vertical-align:-.1em}
+html:root:not(#y):not(#w) body :is(.num,.wc,.dc-sense,.sense_no,.gogi>.num,.MeaningG .Num,.snum,.hukugi_num) *{font-size:1em!important}
 /* Labels: muted, small; tags get a hand-drawn box. */
 html:root:not(#y):not(#w) body :is(.slabel,.label,.naihou,.note_div,.shironuki,.daikubun,.gogikubun,.tkbt-label,.type,.kg_eiyaku,.shiyouiki,.senmon_g,.white-square,.hinshi,.bunya,.yoho,.gram){
  font-family:var(--e-sans)!important;color:var(--y-muted)!important;border-radius:0!important;background:transparent!important}
