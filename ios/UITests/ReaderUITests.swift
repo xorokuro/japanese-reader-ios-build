@@ -347,13 +347,13 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(readTab.waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["readerOptions"].exists)
 
-        app.windows.firstMatch.twoFingerTap()
+        app.textViews["selectablePassage"].twoFingerTap()
         let hidden = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: readTab)
         XCTAssertEqual(XCTWaiter.wait(for: [hidden], timeout: 5), .completed, "The tab bar hides in full screen")
         XCTAssertFalse(app.buttons["readerOptions"].exists, "The page header hides in full screen")
         XCTAssertTrue(app.textViews["selectablePassage"].exists, "The passage stays on screen")
 
-        app.windows.firstMatch.twoFingerTap()
+        app.textViews["selectablePassage"].twoFingerTap()
         XCTAssertTrue(readTab.waitForExistence(timeout: 5), "A second two-finger tap brings the tabs back")
         XCTAssertTrue(app.buttons["readerOptions"].waitForExistence(timeout: 5))
     }
