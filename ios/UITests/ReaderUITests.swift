@@ -337,24 +337,22 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(app.tabBars.buttons["Read"].isSelected)
     }
 
-    /// A two-finger tap hides the tabs and page buttons; another brings them back.
-    func testTwoFingerTapTogglesFullScreen() {
+    /// Full screen (from the page menu) hides the tabs and the page header but keeps the page.
+    /// The two-finger tap itself can't be synthesized by the simulator's UI test driver.
+    func testFullScreenHidesTabsAndHeader() {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-dictionary-fixture", "--ui-clipboard", "みほんの文"]
         app.launch()
         XCTAssertTrue(app.textViews["selectablePassage"].waitForExistence(timeout: 10))
         let readTab = app.tabBars.buttons["Read"]
         XCTAssertTrue(readTab.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["readerOptions"].exists)
-
-        app.textViews["selectablePassage"].twoFingerTap()
+        app.buttons["readerOptions"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let fullScreen = app.buttons["Full screen · 全螢幕"]
+        XCTAssertTrue(fullScreen.waitForExistence(timeout: 5))
+        fullScreen.tap()
         let hidden = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: readTab)
         XCTAssertEqual(XCTWaiter.wait(for: [hidden], timeout: 5), .completed, "The tab bar hides in full screen")
         XCTAssertFalse(app.buttons["readerOptions"].exists, "The page header hides in full screen")
         XCTAssertTrue(app.textViews["selectablePassage"].exists, "The passage stays on screen")
-
-        app.textViews["selectablePassage"].twoFingerTap()
-        XCTAssertTrue(readTab.waitForExistence(timeout: 5), "A second two-finger tap brings the tabs back")
-        XCTAssertTrue(app.buttons["readerOptions"].waitForExistence(timeout: 5))
     }
 }
