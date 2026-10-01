@@ -477,11 +477,21 @@ struct YohakuHeader<Trailing: View>: View {
     var height: CGFloat = 118
     @ViewBuilder var trailing: () -> Trailing
 
+    /// "01 / 読む" in Yohaku, "01 · reading" in Fable.
+    private var crumb: String {
+        style.isFable ? "\(index) · \(latin.lowercased())" : "\(index) / \(title)"
+    }
+    private var subtitle: String {
+        let name = style.isFable ? latin.lowercased() : latin
+        guard let detail else { return name }
+        return style.isFable ? "\(name), \(detail)" : "\(name) · \(detail)"
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 YohakuLabel(text: "JAPANESE READER", style: style, strong: true, size: 10.5)
-                Text(style.isFable ? "\(index) · \(latin.lowercased())" : "\(index) / \(title)")
+                Text(crumb)
                     .font(YohakuFont.label(10.5)).tracking(style.isFable ? 0.3 : 1.6)
                     .foregroundStyle(style.secondary)
                 Spacer(minLength: 4)
@@ -500,8 +510,7 @@ struct YohakuHeader<Trailing: View>: View {
                     if let numeral {
                         Text(numeral).font(YohakuFont.numeral(40)).foregroundStyle(style.navy).padding(.top, -4)
                     }
-                    Text(style.isFable ? (detail.map { "\(latin.lowercased()), \($0)" } ?? latin.lowercased())
-                                       : (detail.map { "\(latin) · \($0)" } ?? latin))
+                    Text(subtitle)
                         .font(style.isFable ? .custom(YohakuFont.caption, size: 17) : .custom(YohakuFont.latin, size: 12))
                         .foregroundStyle(style.secondary)
                 }

@@ -264,7 +264,16 @@ struct ReaderTheme: Identifiable, Equatable, Hashable {
                    paper: 0x211F1B, ink: 0xEDE6D6, lines: 0xE6DFCE, muted: 0xA59E8E, spark: 0xE39A7E, sage: 0x3A3F34, thread: 0xC9A46A)
     ]
 
-    static let all: [ReaderTheme] = [system] + fable + editorial + desk + light + dark + [custom]
+    static let all: [ReaderTheme] = {
+        var themes: [ReaderTheme] = [system]
+        themes.append(contentsOf: fable)
+        themes.append(contentsOf: editorial)
+        themes.append(contentsOf: desk)
+        themes.append(contentsOf: light)
+        themes.append(contentsOf: dark)
+        themes.append(custom)
+        return themes
+    }()
 
     static func named(_ id: String) -> ReaderTheme? { all.first { $0.id == id } }
 
