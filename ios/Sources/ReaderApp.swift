@@ -1098,10 +1098,16 @@ struct ReaderHome: View {
                 model.currentTab = selectedTab
             }
             applyRedesignOnce()
+            YohakuChrome.apply(style)
             // Start WebKit once the first screen is up, so the first definition opens fast.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { DictionaryPage.prewarm() }
         }
+        .onChange(of: style.identity) { _, _ in
+            YohakuChrome.apply(style)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { YohakuChrome.apply(style) }
+        }
         .onChange(of: selectedTab) { _, tab in
+            if style.isYohaku { DispatchQueue.main.async { YohakuChrome.apply(style) } }
             // Programmatic lookup navigation must keep the keyboard hidden.
             // User tab taps are handled separately, including reselection.
             model.currentTab = tab
@@ -1169,6 +1175,16 @@ struct ReaderHome: View {
         .overlay(alignment: .top) { Rectangle().fill(style.separator).frame(height: 1) }
     }
 
+    /// Tab icon: SF Symbols normally; in 余白 Yohaku geometric line icons, the active
+    /// one with a small navy square above it.
+    @ViewBuilder private func tabLabel(_ title: String, system: String, yohaku: YohakuIcons.Kind, tag: Int) -> some View {
+        if style.isYohaku {
+            Label { Text(title) } icon: { Image(uiImage: YohakuIcons.image(yohaku, selected: selectedTab == tag)) }
+        } else {
+            Label(title, systemImage: system)
+        }
+    }
+
     // MARK: - Grammar
 
     private var grammarTab: some View {
@@ -1177,7 +1193,7 @@ struct ReaderHome: View {
                    showSize: { sizeHUD = $0 }, hideSize: hideSizeHUD)
             .toolbarBackground(paper, for: .tabBar, .navigationBar)
             .toolbarBackground(.visible, for: .tabBar, .navigationBar)
-            .tabItem { Label("Grammar", systemImage: "text.book.closed") }.tag(3)
+            .tabItem { tabLabel("Grammar", system: "text.book.closed", yohaku: .grammar, tag: 3) }.tag(3)
     }
 
     // MARK: - Read
@@ -1185,7 +1201,20 @@ struct ReaderHome: View {
     private var readerTab: some View {
         NavigationStack {
             translating(VStack(spacing: 0) {
-                if !immersive.on { readerHeader.transition(.move(edge: .top).combined(with: .opacity)) }
+                if !immersive.on {
+                    Group {
+                        if style.isYohaku {
+                            YohakuHeader(style: style, index: "01", title: "読む", latin: "Reading",
+                                         detail: model.text.isEmpty ? nil : "\(model.text.count) 字",
+                                         layout: .circleRight, drawing: .sprig, height: 112) {
+                                HStack(spacing: 2) { clearButton; translateButton; readerOptionsMenu }
+                            }
+                        } else {
+                            readerHeader
+                        }
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
                 readingView
             })
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1224,7 +1253,7 @@ struct ReaderHome: View {
         }
         .toolbarBackground(paper, for: .tabBar, .navigationBar)
         .toolbarBackground(.visible, for: .tabBar, .navigationBar)
-        .tabItem { Label("Read", systemImage: "book") }.tag(0)
+        .tabItem { tabLabel("Read", system: "book", yohaku: .read, tag: 0) }.tag(0)
     }
 
     /// Desktop-style header: ensō logo, highlighted 読む title, wavy pencil rule.
@@ -1579,7 +1608,7 @@ struct ReaderHome: View {
         .toolbarBackground(paper, for: .tabBar, .navigationBar)
         .toolbarBackground(.visible, for: .tabBar, .navigationBar)
         .background(SearchTabObserver { reselected in if reselected { activateSearchTab() } })
-        .tabItem { Label("Search", systemImage: "magnifyingglass") }.tag(1)
+        .tabItem { tabLabel("Search", system: "magnifyingglass", yohaku: .search, tag: 1) }.tag(1)
     }
 
     /// Double-tap on the right / left half of a definition = › / ‹.
@@ -1731,7 +1760,7 @@ struct ReaderHome: View {
         let visitID = model.entryID
         return ZStack(alignment: .bottom) {
             DictionaryPage(html: model.entryHTML, root: model.entryRoot ?? model.dictionaryRoot, code: model.entryCode,
-                           paperRGB: style.surfaceRGB, accentRGB: style.accentRGB,
+                           paperRGB: style.isYohaku ? style.backgroundRGB : style.surfaceRGB, accentRGB: style.accentRGB,
                            textSize: entryTextSize, sansFont: dictionarySans,
                            initialOffset: model.entryOffsets[visitID] ?? .zero,
                            bottomInset: entryPeekVisible ? 300 : 0,
@@ -1750,7 +1779,7 @@ struct ReaderHome: View {
             .id(visitID.uuidString + style.identity + "-\(dictionarySans)")
             .clipShape(SketchShape(radius: 18))
             .padding(pageMargins == .compact ? 1 : 3)
-            .sketchCard(style, radius: 20, tape: .marker, tapeTrailing: true)
+            .sketchCard(style, radius: 20, tape: .marker, tapeTrailing: true, fill: style.isYohaku ? style.background : nil)
             .padding(.horizontal, pageMargins.cardInset)
             .padding(.top, 14)
             .padding(.bottom, 8)
@@ -1877,7 +1906,10 @@ struct ReaderHome: View {
     // view, its type got so deep that decoding it at launch overflowed the main
     // thread's stack in the optimized device build (2.7 build 29 crash).
     private func searchHeader(focusSearch: Bool) -> some View {
-        VStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
+            if style.isYohaku {
+                YohakuLabel(text: "SEARCH", style: style).padding(.leading, 40).padding(.bottom, -8)
+            }
             searchFieldRow(focusSearch: focusSearch)
             searchChipsRow
         }
@@ -1917,17 +1949,15 @@ struct ReaderHome: View {
                                 .font(.system(size: 13, weight: .bold))
                                 .foregroundStyle(style.onAccent)
                                 .frame(width: 30, height: 30)
-                                .background(accent, in: Circle())
+                                .background(accent, in: RoundedRectangle(cornerRadius: style.isYohaku ? 0 : 15))
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Search dictionaries")
                         .background(KeyboardControlArea())
                     }
                 }
-                .padding(.leading, 14).padding(.trailing, 6).padding(.vertical, 3)
-                .background(style.surface, in: SketchShape(radius: 16))
-                .overlay(SketchShape(radius: 16).stroke(style.lineStrong, lineWidth: 1.5))
-                .background(SketchShape(radius: 16).fill(style.shade).offset(x: 3, y: 4))
+                .padding(.leading, style.isYohaku ? 2 : 14).padding(.trailing, 6).padding(.vertical, 3)
+                .modifier(SearchFieldChrome(style: style))
                 Menu {
                     Button { dismissKeyboard(); showingHistory = true } label: {
                         Label("Search history", systemImage: "clock.arrow.circlepath")
@@ -2150,7 +2180,7 @@ struct ReaderHome: View {
     private func resultRow(_ hit: DictionaryHit, switching: Bool) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(hit.word).font(HandFont.title(20)).foregroundStyle(ink)
+                Text(hit.word).font(style.isYohaku ? YohakuFont.headword(22) : HandFont.title(20)).foregroundStyle(ink)
                 if !hit.preview.isEmpty {
                     Text(highlighted(hit.preview, hit.match)).font(.subheadline).foregroundStyle(style.secondary)
                         .lineLimit(hit.match.isEmpty ? 2 : 3)
@@ -2249,6 +2279,13 @@ struct ReaderHome: View {
     private var libraryTab: some View {
         NavigationStack {
             List {
+                if style.isYohaku {
+                    YohakuHeader(style: style, index: "03", title: "書庫", latin: "Library",
+                                 detail: "\(model.saved.count) saved", layout: .squareRight, drawing: .teacup, height: 120) { EmptyView() }
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(style.background)
+                }
                 Group {
                     appearanceLink
                     Section("Search keyboard") {
@@ -2314,11 +2351,13 @@ struct ReaderHome: View {
                             .accessibilityIdentifier("appVersion")
                     }
                 }
-                .listRowBackground(style.surface)
+                .listRowBackground(style.isYohaku ? style.background : style.surface)
             }
+            .modifier(YohakuList(style: style))
             .scrollContentBackground(.hidden)
             .background(paperBackground)
             .navigationTitle("書庫 · Library")
+            .navigationBarTitleDisplayMode(style.isYohaku ? .inline : .automatic)
             .toolbar(immersive.on ? .hidden : .automatic, for: .navigationBar, .tabBar)
             .searchable(text: $librarySearch, prompt: "Find saved text or notes")
             .toolbar { EditButton() }
@@ -2329,7 +2368,7 @@ struct ReaderHome: View {
         }
         .toolbarBackground(paper, for: .tabBar, .navigationBar)
         .toolbarBackground(.visible, for: .tabBar, .navigationBar)
-        .tabItem { Label("Library", systemImage: "books.vertical") }.tag(2)
+        .tabItem { tabLabel("Library", system: "books.vertical", yohaku: .library, tag: 2) }.tag(2)
     }
 
     /// "2.7.3 (32)": shown at the bottom of Library, so it is easy to tell which build is installed.
@@ -2457,6 +2496,7 @@ struct ReaderHome: View {
                         }
                     }
                 } header: { Text("Automatic & custom") }
+                Section { themeGrid(ReaderTheme.editorial) } header: { Text("Editorial · 余白") }
                 Section {
                     themeGrid(ReaderTheme.desk)
                     Toggle("Paper grain & doodles", isOn: $handDrawnPaper).accessibilityIdentifier("handDrawnPaper")
@@ -2528,8 +2568,9 @@ struct ReaderHome: View {
                     }
                 }
             }
-            .listRowBackground(style.surface)
+            .listRowBackground(style.isYohaku ? style.background : style.surface)
         }
+        .modifier(YohakuList(style: style))
         .scrollContentBackground(.hidden)
         .background(paperBackground)
         .navigationTitle("Appearance")

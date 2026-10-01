@@ -35,12 +35,12 @@ struct ReaderCardModifier: ViewModifier {
         content
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(style.surface, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .background(style.surface, in: RoundedRectangle(cornerRadius: style.isYohaku ? 0 : radius, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                RoundedRectangle(cornerRadius: style.isYohaku ? 0 : radius, style: .continuous)
                     .strokeBorder(style.hairline, lineWidth: 1)
             )
-            .shadow(color: elevated ? style.shadow : .clear, radius: elevated ? 14 : 0, x: 0, y: 7)
+            .shadow(color: elevated ? style.shadow : .clear, radius: elevated && !style.isYohaku ? 14 : 0, x: 0, y: style.isYohaku ? 0 : 7)
     }
 }
 
@@ -51,9 +51,9 @@ struct ReaderInsetModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .padding(padding)
-            .background(style.raised, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .background(style.raised, in: RoundedRectangle(cornerRadius: style.isYohaku ? 0 : radius, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                RoundedRectangle(cornerRadius: style.isYohaku ? 0 : radius, style: .continuous)
                     .strokeBorder(style.hairline, lineWidth: 1)
             )
     }
@@ -84,18 +84,27 @@ struct SectionLabel: View {
         self.style = style
     }
     var body: some View {
-        HStack(spacing: 6) {
-            if let symbol {
-                Image(systemName: symbol).font(.system(size: 11, weight: .bold))
+        if style.isYohaku {
+            // RESULTS ───── : letter-spaced Hanken capitals over a navy hairline.
+            HStack(spacing: 8) {
+                Text(text.uppercased()).font(YohakuFont.label(10)).tracking(1.8).foregroundStyle(style.secondary)
+                Rectangle().fill(style.navy).frame(height: 1)
             }
-            Text(text).font(.system(size: 11, weight: .bold)).tracking(1.1)
-            Rectangle().fill(
-                LinearGradient(colors: [style.accent.opacity(0.35), .clear],
-                               startPoint: .leading, endPoint: .trailing)
-            ).frame(height: 1)
+            .accessibilityAddTraits(.isHeader)
+        } else {
+            HStack(spacing: 6) {
+                if let symbol {
+                    Image(systemName: symbol).font(.system(size: 11, weight: .bold))
+                }
+                Text(text).font(.system(size: 11, weight: .bold)).tracking(1.1)
+                Rectangle().fill(
+                    LinearGradient(colors: [style.accent.opacity(0.35), .clear],
+                                   startPoint: .leading, endPoint: .trailing)
+                ).frame(height: 1)
+            }
+            .foregroundStyle(style.accent)
+            .accessibilityAddTraits(.isHeader)
         }
-        .foregroundStyle(style.accent)
-        .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -111,7 +120,7 @@ struct StatusNote: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12).padding(.vertical, 9)
-        .background(style.accentSoft, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .background(style.accentSoft, in: RoundedRectangle(cornerRadius: style.isYohaku ? 0 : 11, style: .continuous))
     }
 }
 
@@ -153,11 +162,11 @@ struct PrimaryActionStyle: ButtonStyle {
             .padding(.horizontal, 22)
             .frame(minHeight: 44)
             .background(
-                LinearGradient(colors: [style.accent, style.accent.opacity(0.86)],
+                LinearGradient(colors: [style.accent, style.accent.opacity(style.isYohaku ? 1 : 0.86)],
                                startPoint: .top, endPoint: .bottom),
-                in: Capsule(style: .continuous)
+                in: RoundedRectangle(cornerRadius: style.isYohaku ? 0 : 99, style: .continuous)
             )
-            .shadow(color: style.accent.opacity(style.isDark ? 0.35 : 0.28), radius: 10, x: 0, y: 5)
+            .shadow(color: style.isYohaku ? .clear : style.accent.opacity(style.isDark ? 0.35 : 0.28), radius: style.isYohaku ? 0 : 10, x: 0, y: style.isYohaku ? 0 : 5)
             .scaleEffect(configuration.isPressed ? 0.975 : 1)
             .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
             .modifier(EnabledOpacity())
@@ -173,8 +182,10 @@ struct SoftActionStyle: ButtonStyle {
             .foregroundStyle(prominent ? style.accent : style.ink)
             .padding(.horizontal, 17)
             .frame(minHeight: 40)
-            .background(prominent ? style.accentSoft : style.raised, in: Capsule(style: .continuous))
-            .overlay(Capsule(style: .continuous).strokeBorder(style.hairline, lineWidth: 1))
+            .background(style.isYohaku ? (prominent ? style.accentSoft : Color.clear) : (prominent ? style.accentSoft : style.raised),
+                        in: RoundedRectangle(cornerRadius: style.isYohaku ? 0 : 99, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: style.isYohaku ? 0 : 99, style: .continuous)
+                .strokeBorder(style.isYohaku ? style.navy : style.hairline, lineWidth: 1))
             .scaleEffect(configuration.isPressed ? 0.975 : 1)
             .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
             .modifier(EnabledOpacity())
@@ -224,7 +235,21 @@ struct ThemeSwatch: View {
         let height: CGFloat = compact ? 40 : 66
         return VStack(spacing: 7) {
             ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: compact ? 10 : 14, style: .continuous).fill(colors.background)
+                RoundedRectangle(cornerRadius: theme.design == .yohaku ? 0 : (compact ? 10 : 14), style: .continuous).fill(colors.background)
+                if theme.design == .yohaku {
+                    // 余白: navy circle bleeding off the edge, sage square, a hairline and 余.
+                    ZStack(alignment: .topLeading) {
+                        Circle().fill(Palette.color(0x1C2B3F)).frame(width: height * 0.9, height: height * 0.9)
+                            .offset(x: width * 0.52, y: -height * 0.12)
+                        Rectangle().fill(Palette.color(0xA9B7A0)).frame(width: height * 0.36, height: height * 0.36)
+                            .offset(x: width * 0.36, y: height * 0.54)
+                        Rectangle().fill(Palette.color(0x1C2B3F)).frame(width: 1, height: height).offset(x: width * 0.30)
+                        Text("余").font(.custom(YohakuFont.gothicBold, size: compact ? 15 : 24)).foregroundStyle(Palette.color(0x1C2B3F))
+                            .offset(x: compact ? 5 : 8, y: compact ? 4 : 7)
+                    }
+                    .frame(width: width, height: height, alignment: .topLeading)
+                    .clipped()
+                } else {
                 VStack(alignment: .leading, spacing: compact ? 3 : 5) {
                     HStack(spacing: 4) {
                         Text("あ").font(.system(size: compact ? 12 : 17, weight: .semibold, design: .serif))
@@ -245,6 +270,7 @@ struct ThemeSwatch: View {
                         )
                 }
                 .padding(compact ? 6 : 9)
+                }
                 if theme.id == ReaderTheme.systemID && !compact {
                     Image(systemName: "circle.lefthalf.filled")
                         .font(.system(size: 13, weight: .semibold))

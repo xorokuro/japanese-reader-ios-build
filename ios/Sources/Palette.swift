@@ -75,6 +75,9 @@ enum Palette {
 /// A named iOS appearance. Desktop styling is unaffected: nothing here is shared
 /// with the Windows reader, which keeps its own CSS palette engine.
 struct ReaderTheme: Identifiable, Equatable, Hashable {
+    /// How the interface is drawn: the hand-drawn Washi look, or the flat
+    /// editorial 余白 Yohaku look (square corners, hairlines, geometric headers).
+    enum Design: String { case washi, yohaku }
     enum Family: String, CaseIterable, Identifiable {
         case system, light, dark, custom
         var id: String { rawValue }
@@ -101,6 +104,9 @@ struct ReaderTheme: Identifiable, Equatable, Hashable {
     var markerRGB: Int? = nil
     /// A warm reading ink; `nil` uses plain black or white.
     var inkRGB: Int? = nil
+    var design: Design = .washi
+    /// Yohaku: secondary text colour (Muted) and the large-shape grey-blue.
+    var mutedRGB: Int? = nil
 
     static let systemID = "system"
     static let customID = "custom"
@@ -206,7 +212,15 @@ struct ReaderTheme: Identifiable, Equatable, Hashable {
                     tapeRGB: 0x9FD0FF, markerRGB: 0xF5A0C2, inkRGB: 0xE9EDFF)
     ]
 
-    static let all: [ReaderTheme] = [system] + desk + light + dark + [custom]
+    /// New Bauhaus / Swiss editorial: cream paper, navy rules, sage and grey-blue shapes.
+    static let yohaku = ReaderTheme(
+        id: "yohaku", name: "余白 Yohaku", detail: "Editorial · cream, navy and sage",
+        family: .light, backgroundRGB: 0xF2EEE3, surfaceRGB: 0xFAF8F2, accentRGB: 0x1C2B3F,
+        tapeRGB: 0xA9B7A0, markerRGB: 0xC3CDD6, inkRGB: 0x1A1A18, design: .yohaku, mutedRGB: 0x58687A)
+
+    static let editorial: [ReaderTheme] = [yohaku]
+
+    static let all: [ReaderTheme] = [system] + editorial + desk + light + dark + [custom]
 
     static func named(_ id: String) -> ReaderTheme? { all.first { $0.id == id } }
 
@@ -238,17 +252,25 @@ struct ReaderStyle: Equatable {
     let marker: Color
 
     var usesSystemSurfaces: Bool { backgroundRGB == nil }
-    var secondary: Color { ink.opacity(0.62) }
-    var faint: Color { ink.opacity(0.42) }
-    var hairline: Color { ink.opacity(isDark ? 0.16 : 0.09) }
-    var separator: Color { ink.opacity(isDark ? 0.12 : 0.07) }
-    var accentSoft: Color { accent.opacity(isDark ? 0.22 : 0.13) }
-    var shadow: Color { Color.black.opacity(isDark ? 0.40 : 0.08) }
+    /// The flat editorial 余白 look instead of the hand-drawn one.
+    var isYohaku: Bool { theme.design == .yohaku }
+    /// Yohaku navy: titles, rules, primary buttons, active states.
+    var navy: Color { accent }
+    var secondary: Color { isYohaku ? Palette.color(theme.mutedRGB ?? 0x58687A) : ink.opacity(0.62) }
+    var faint: Color { isYohaku ? Palette.color(theme.mutedRGB ?? 0x58687A).opacity(0.75) : ink.opacity(0.42) }
+    var hairline: Color { isYohaku ? accent.opacity(0.22) : ink.opacity(isDark ? 0.16 : 0.09) }
+    var separator: Color { isYohaku ? accent : ink.opacity(isDark ? 0.12 : 0.07) }
+    var accentSoft: Color { isYohaku ? accent.opacity(0.08) : accent.opacity(isDark ? 0.22 : 0.13) }
+    var shadow: Color { isYohaku ? .clear : Color.black.opacity(isDark ? 0.40 : 0.08) }
     /// Card outline and the offset "pencil" line of hand-drawn cards.
-    var lineStrong: Color { ink.opacity(isDark ? 0.24 : 0.26) }
-    var pencil: Color { ink.opacity(0.16) }
+    var lineStrong: Color { isYohaku ? accent : ink.opacity(isDark ? 0.24 : 0.26) }
+    var pencil: Color { isYohaku ? .clear : ink.opacity(0.16) }
     /// The hard, offset shadow under sketched cards (desktop: 4px 6px 0 -1px).
-    var shade: Color { isDark ? Color.black.opacity(0.34) : ink.opacity(0.14) }
+    var shade: Color { isYohaku ? .clear : (isDark ? Color.black.opacity(0.34) : ink.opacity(0.14)) }
+    /// Yohaku shapes: sage blocks, grey-blue and light grey-blue (large shapes only).
+    var sage: Color { tape }
+    var greyBlue: Color { Palette.color(0x7F93A6) }
+    var greyBlueLight: Color { marker }
     /// Locks the interface to the theme's own mode; `nil` keeps following iOS.
     var colorScheme: ColorScheme? { usesSystemSurfaces ? nil : (isDark ? .dark : .light) }
     /// Identity for views that must be rebuilt when the palette changes.
@@ -259,11 +281,12 @@ struct ReaderStyle: Equatable {
     private static var resolved: [String: ReaderStyle] = [:]
     static func resolve(themeID: String, customPaper: Bool, paperRGB: Int, customAccentRGB: Int, systemDark: Bool) -> ReaderStyle {
         let key = "\(themeID)|\(customPaper)|\(paperRGB)|\(customAccentRGB)|\(systemDark)"
-        if let cached = resolved[key] { return cached }
+        if let cached = resolved[key] { YohakuDesign.active = cached.isYohaku; return cached }
         let style = compute(themeID: themeID, customPaper: customPaper, paperRGB: paperRGB,
                             customAccentRGB: customAccentRGB, systemDark: systemDark)
         if resolved.count > 64 { resolved.removeAll() }
         resolved[key] = style
+        YohakuDesign.active = style.isYohaku
         return style
     }
     private static func compute(themeID: String, customPaper: Bool, paperRGB: Int, customAccentRGB: Int, systemDark: Bool) -> ReaderStyle {
