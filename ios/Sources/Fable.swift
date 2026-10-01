@@ -48,11 +48,16 @@ enum FableStroke {
 
     /// Points along a quadratic curve.
     static func quad(_ a: CGPoint, _ control: CGPoint, _ b: CGPoint, steps: Int = 24) -> [CGPoint] {
-        (0...steps).map { i in
-            let t = CGFloat(i) / CGFloat(steps), u = 1 - t
-            return CGPoint(x: u * u * a.x + 2 * u * t * control.x + t * t * b.x,
-                           y: u * u * a.y + 2 * u * t * control.y + t * t * b.y)
+        var points: [CGPoint] = []
+        for i in 0...steps {
+            let t = CGFloat(i) / CGFloat(steps)
+            let u = 1 - t
+            let wa: CGFloat = u * u, wc: CGFloat = 2 * u * t, wb: CGFloat = t * t
+            let x: CGFloat = wa * a.x + wc * control.x + wb * b.x
+            let y: CGFloat = wa * a.y + wc * control.y + wb * b.y
+            points.append(CGPoint(x: x, y: y))
         }
+        return points
     }
 
     static func star(center c: CGPoint, radius r: CGFloat, points: Int = 5) -> [CGPoint] {
