@@ -284,6 +284,9 @@ struct YohakuPaper: View {
                 .scaleEffect(0.5, anchor: .topLeading)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .blendMode(.overlay)
+                // Fable keeps the grain barely there, so plain list rows and grained
+                // headers do not show a seam between them.
+                .opacity(style.isFable ? 0.35 : 1)
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
@@ -300,7 +303,7 @@ struct YohakuLabel: View {
     var size: CGFloat = 10
     var body: some View {
         Text(style.isFable ? text.lowercased() : text)
-            .font(YohakuFont.label(size))
+            .font(style.isFable ? .custom(YohakuFont.caption, size: size * 1.42) : .custom(YohakuFont.latinBold, size: size))
             .tracking(style.isFable ? size * 0.02 : size * 0.18)
             .foregroundStyle(strong ? style.navy : style.secondary)
     }
@@ -311,7 +314,7 @@ struct YohakuRule: View {
     let style: ReaderStyle
     var weight: CGFloat = 1.7
     var body: some View {
-        BrushLine(width: weight).fill(style.navy).frame(height: 6).accessibilityHidden(true)
+        BrushLine(width: weight).fill(style.isFable ? style.navy.opacity(0.6) : style.navy).frame(height: 6).accessibilityHidden(true)
     }
 }
 
@@ -479,7 +482,7 @@ struct YohakuHeader<Trailing: View>: View {
 
     /// "01 / 読む" in Yohaku, "01 · reading" in Fable.
     private var crumb: String {
-        style.isFable ? "\(index) · \(latin.lowercased())" : "\(index) / \(title)"
+        style.isFable ? "\(index) · \(FableNotes.note(for: latin))" : "\(index) / \(title)"
     }
     private var subtitle: String {
         let name = style.isFable ? latin.lowercased() : latin
@@ -492,7 +495,8 @@ struct YohakuHeader<Trailing: View>: View {
             HStack(spacing: 8) {
                 if !style.isFable { YohakuLabel(text: "JAPANESE READER", style: style, strong: true, size: 10.5) }
                 Text(crumb)
-                    .font(YohakuFont.label(10.5)).tracking(style.isFable ? 0.3 : 1.6)
+                    .font(style.isFable ? .custom(YohakuFont.caption, size: 15) : .custom(YohakuFont.latinBold, size: 10.5))
+                    .tracking(style.isFable ? 0.3 : 1.6)
                     .foregroundStyle(style.secondary)
                 Spacer(minLength: 4)
                 trailing()
@@ -871,7 +875,7 @@ struct SearchFieldChrome: ViewModifier {
     func body(content: Content) -> some View {
         if style.isYohaku {
             content.overlay(alignment: .bottom) {
-                BrushLine(width: 2.5).fill(style.navy).frame(height: 7).offset(y: 3).allowsHitTesting(false)
+                BrushLine(width: 2.5).fill(style.isFable ? style.navy.opacity(0.6) : style.navy).frame(height: 7).offset(y: 3).allowsHitTesting(false)
             }
         } else {
             content
@@ -888,7 +892,9 @@ struct YohakuList: ViewModifier {
     let style: ReaderStyle
     func body(content: Content) -> some View {
         if style.isYohaku {
-            content.listStyle(.plain).listRowSeparatorTint(style.navy.opacity(0.55))
+            // Grouped, not plain: plain lists pin section headers on a white system
+            // bar while scrolling, which shows as a white strip over the paper.
+            content.listStyle(.grouped).textCase(nil).listRowSeparatorTint(style.rule.opacity(0.55))
         } else {
             content
         }
@@ -900,7 +906,7 @@ struct YohakuRowRule: ViewModifier {
     func body(content: Content) -> some View {
         if style.isYohaku {
             content.overlay(alignment: .bottom) {
-                BrushLine(width: 1.4).fill(style.navy.opacity(0.85)).frame(height: 5).offset(y: 2).allowsHitTesting(false)
+                BrushLine(width: 1.4).fill(style.isFable ? style.rule : style.navy.opacity(0.85)).frame(height: 5).offset(y: 2).allowsHitTesting(false)
             }
         } else {
             content

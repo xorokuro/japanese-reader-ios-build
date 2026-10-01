@@ -42,6 +42,9 @@ final class FableUITests: XCTestCase {
             appearance.tap()
             sleep(1)
             shot(app, "Fable \(theme) · Appearance")
+            app.swipeUp()
+            sleep(1)
+            shot(app, "Fable \(theme) · Appearance scrolled")
             app.navigationBars.buttons.firstMatch.tap()
         }
 

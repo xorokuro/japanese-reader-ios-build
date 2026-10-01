@@ -6,6 +6,12 @@ Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuse
 
 Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.9, build 38).
 
+## 3.2.1 — Fable, quieter
+
+- No more line running down the page. Fable now takes the film's feeling rather than its pictures: a fine pen circle that never quite closes (with the small rust spark in its opening), lighter pencil rules, soft sage for chosen chips and buttons instead of black blocks, barely-there grain and a few faint specks.
+- Each header carries a small handwritten note: *one sentence at a time*, *kept, for later*, *the shapes under words*.
+- Appearance: theme swatches are clipped to their rounded corners (no square paper behind the curve), and section headers in Library and Appearance no longer turn into a white strip while scrolling.
+
 ## 3.2.0 — 糸 Fable, the Claude style
 
 - New appearance: **Library → Appearance → Fable · 糸 (Claude style)**, five papers — *Paper* (cream), *Meadow* (sage), *Blossom* (dusty pink), *Unfinished* (warm grey) and *One water* (night).

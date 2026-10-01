@@ -88,7 +88,7 @@ struct SectionLabel: View {
             // RESULTS ───── : letter-spaced Hanken capitals over a navy hairline.
             HStack(spacing: 8) {
                 Text(YohakuFont.caps(text)).font(YohakuFont.label(10)).tracking(style.isFable ? 0.3 : 1.8).foregroundStyle(style.secondary)
-                BrushLine(width: 1.5).fill(style.navy).frame(height: 6)
+                BrushLine(width: 1.5).fill(style.rule).frame(height: 6)
             }
             .accessibilityAddTraits(.isHeader)
         } else {
@@ -163,7 +163,8 @@ struct PrimaryActionStyle: ButtonStyle {
             .frame(minHeight: 44)
             .background {
                 if style.isYohaku {
-                    TornRect().fill(style.navy)
+                    if style.isFable { RoundedRectangle(cornerRadius: 12, style: .continuous).fill(style.ink.opacity(0.9)) }
+                    else { TornRect().fill(style.navy) }
                 } else {
                     Capsule(style: .continuous).fill(LinearGradient(colors: [style.accent, style.accent.opacity(0.86)],
                                                                      startPoint: .top, endPoint: .bottom))
@@ -188,7 +189,7 @@ struct SoftActionStyle: ButtonStyle {
             .background(style.isYohaku ? (prominent ? style.accentSoft : Color.clear) : (prominent ? style.accentSoft : style.raised),
                         in: RoundedRectangle(cornerRadius: style.isYohaku ? 0 : 99, style: .continuous))
             .overlay {
-                if style.isYohaku { BrushBox(width: 1.6).fill(style.navy).allowsHitTesting(false) }
+                if style.isYohaku { BrushBox(width: 1.6).fill(style.rule).allowsHitTesting(false) }
                 else { Capsule(style: .continuous).strokeBorder(style.hairline, lineWidth: 1) }
             }
             .scaleEffect(configuration.isPressed ? 0.975 : 1)
@@ -240,7 +241,7 @@ struct ThemeSwatch: View {
         let height: CGFloat = compact ? 40 : 66
         return VStack(spacing: 7) {
             ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: theme.design == .washi ? (compact ? 10 : 14) : 0, style: .continuous).fill(colors.background)
+                RoundedRectangle(cornerRadius: compact ? 10 : 14, style: .continuous).fill(colors.background)
                 if theme.design == .fable {
                     FableSwatch(theme: theme, compact: compact)
                 } else if theme.design == .yohaku {
@@ -292,6 +293,9 @@ struct ThemeSwatch: View {
                 }
             }
             .frame(width: width, height: height)
+            // Every swatch (paper, drawings, check mark) is clipped to the same rounded
+            // corners as its outline, so no square paper shows behind the curve.
+            .clipShape(RoundedRectangle(cornerRadius: compact ? 10 : 14, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: compact ? 10 : 14, style: .continuous)
                     .strokeBorder(selected ? style.accent : style.hairline, lineWidth: selected ? 2.5 : 1)

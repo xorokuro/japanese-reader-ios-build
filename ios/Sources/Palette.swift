@@ -312,6 +312,11 @@ struct ReaderStyle: Equatable {
     /// Fable: the wandering thread colour and the small rust spark.
     var thread: Color { marker }
     var spark: Color { highlight }
+    /// Rules and outlines: full line colour in Yohaku, a quieter pencil grey in Fable.
+    var rule: Color { isFable ? navy.opacity(isDark ? 0.40 : 0.36) : navy }
+    /// Fable's "chosen" fill: a soft sage wash instead of a solid ink block.
+    var chosen: Color { isFable ? sage.opacity(isDark ? 0.9 : 1) : navy }
+    var onChosen: Color { isFable ? ink : background }
     /// Yohaku navy: titles, rules, primary buttons, active states.
     var navy: Color { accent }
     var secondary: Color { isYohaku ? Palette.color(theme.mutedRGB ?? 0x58687A) : ink.opacity(0.62) }
