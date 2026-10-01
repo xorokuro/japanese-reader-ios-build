@@ -182,10 +182,11 @@ struct FableEmblem: View {
         ZStack {
             if ripples {
                 FableRipples(count: 4)
-                    .stroke(style.secondary.opacity(style.isDark ? 0.30 : 0.22), lineWidth: 0.6)
-                    .frame(width: size * 1.55, height: size * 1.55)
+                    .stroke(style.secondary.opacity(style.isDark ? 0.26 : 0.18), lineWidth: 0.55)
+                    .frame(width: size * 1.22, height: size * 1.22)
             }
             FableRing(style: style, weight: max(2.6, size * 0.036))
+                .frame(width: size * 0.86, height: size * 0.86)
             FableLineArt(drawing: art)
                 .stroke(style.ink.opacity(0.78), style: StrokeStyle(lineWidth: 0.9, lineCap: .round, lineJoin: .round))
                 .frame(width: size * 0.44, height: size * 0.44)
