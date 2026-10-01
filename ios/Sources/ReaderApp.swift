@@ -2238,14 +2238,6 @@ struct ReaderHome: View {
             List {
                 Group {
                     appearanceLink
-                    Section("Upside down · 倒過來") {
-                        Picker("Flip the screen", selection: $flipModeRaw) {
-                            ForEach(FlipMode.allCases) { Text($0.label).tag($0.rawValue) }
-                        }
-                        .accessibilityIdentifier("flipMode")
-                        Text("For using the phone upside down on a stand while it charges. iPhones with Face ID can't turn apps upside down, so the app turns its own screen. Auto flips when you turn the phone over and flips back when you turn it upright. Always keeps it flipped. While flipped, the iPhone keyboard still appears the other way up, so turn the phone upright to type (Auto flips back for you).")
-                            .font(.caption).foregroundStyle(style.secondary)
-                    }
                     Section("Search keyboard") {
                         Toggle("Show keyboard when returning from definitions", isOn: $automaticallyShowSearchKeyboard)
                             .accessibilityIdentifier("automaticallyShowSearchKeyboard")
@@ -2280,6 +2272,14 @@ struct ReaderHome: View {
                         Toggle("Auto-search inside all dictionaries", isOn: $model.dictionaryAutoSearch).accessibilityIdentifier("dictionaryAutoSearch")
                         Text("Independent of Reader auto-search. A matching selection opens results across enabled dictionaries. When off, use Search selected text.").font(.caption).foregroundStyle(style.secondary)
                         Text("Search prefers an enabled Japanese keyboard. Enable Japanese – Romaji in iPhone Settings → General → Keyboard → Keyboards. iOS controls the exact Japanese layout.").font(.caption).foregroundStyle(style.secondary)
+                    }
+                    Section("Upside down · 倒過來") {
+                        Picker("Flip the screen", selection: $flipModeRaw) {
+                            ForEach(FlipMode.allCases) { Text($0.label).tag($0.rawValue) }
+                        }
+                        .accessibilityIdentifier("flipMode")
+                        Text("For using the phone upside down on a stand while it charges. iPhones with Face ID can't turn apps upside down, so the app turns its own screen. Auto flips when you turn the phone over and flips back when you turn it upright. Always keeps it flipped. While flipped, the iPhone keyboard still appears the other way up, so turn the phone upright to type (Auto flips back for you).")
+                            .font(.caption).foregroundStyle(style.secondary)
                     }
                     Section("Keep a backup") {
                         Text("Your passages and notes are in reading-library.json in Files → On My iPhone → Japanese Reader. Copy this file before uninstalling. Dictionary files can also be copied from here.").font(.footnote).foregroundStyle(style.secondary)

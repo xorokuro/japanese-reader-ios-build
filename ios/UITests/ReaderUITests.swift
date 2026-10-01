@@ -332,7 +332,7 @@ final class ReaderUITests: XCTestCase {
             XCTAssertGreaterThanOrEqual(library.frame.minY, 48, "Tab bar buttons must stay below the Dynamic Island / notch (frame \(library.frame))")
         }
         library.tap()
-        XCTAssertTrue(app.descendants(matching: .any)["flipMode"].waitForExistence(timeout: 5), "Tapping Library while flipped opens Library")
+        XCTAssertTrue(app.navigationBars["書庫 · Library"].waitForExistence(timeout: 5), "Tapping Library while flipped opens Library")
         app.tabBars.buttons["Read"].tap()
         XCTAssertTrue(app.tabBars.buttons["Read"].isSelected)
     }
