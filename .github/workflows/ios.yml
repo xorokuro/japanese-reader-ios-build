@@ -25,7 +25,7 @@ jobs:
         run: |
           DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for devices in d["devices"].values() for x in devices if "iPhone" in x["name"]))')
           xcrun simctl boot "$DEVICE" || true
-          xcodebuild -project ios/JapaneseReader.xcodeproj -scheme JapaneseReader -configuration Release -sdk iphonesimulator -destination "id=$DEVICE" -derivedDataPath ios/build/release-sim CODE_SIGNING_ALLOWED=NO build -quiet
+          xcodebuild -project ios/JapaneseReader.xcodeproj -scheme JapaneseReader -configuration Release -sdk iphonesimulator -destination "id=$DEVICE" -derivedDataPath ios/build/release-sim CODE_SIGNING_ALLOWED=NO build -quiet 2>&1 | tee "$RUNNER_TEMP/release-sim.log"; test ${PIPESTATUS[0]} -eq 0
           APP=$(find ios/build/release-sim/Build/Products/Release-iphonesimulator -maxdepth 1 -name 'JapaneseReader.app' | head -1)
           xcrun simctl install "$DEVICE" "$APP"
           BUNDLE=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP/Info.plist")
@@ -47,7 +47,7 @@ jobs:
       - name: Report test build errors
         if: failure()
         run: |
-          grep -E "error:|\*\* TEST .* FAILED|Testing failed|crashed" "$RUNNER_TEMP/test.log" | grep -v "^note:" | sort -u | head -30 | while IFS= read -r line; do
+          cat "$RUNNER_TEMP/release-sim.log" "$RUNNER_TEMP/test.log" 2>/dev/null | grep -E "error:|\*\* TEST .* FAILED|\*\* BUILD FAILED|Testing failed|crashed" | grep -v "^note:" | sort -u | head -30 | while IFS= read -r line; do
             echo "::error title=Test log::${line:0:900}"
           done || true
       - name: Report failing tests
