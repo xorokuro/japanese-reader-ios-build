@@ -1,0 +1,45 @@
+name: Fable screenshots (temporary)
+on:
+  push:
+    branches: [fable-screens-run]
+permissions:
+  contents: write
+jobs:
+  shots:
+    if: github.event.repository.private == false
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the Fable tour
+        run: |
+          cd ios
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcodegen generate
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for devices in d["devices"].values() for x in devices if "iPhone" in x["name"] and "Pro Max" in x["name"]))' || true)
+          [ -n "$DEVICE" ] || DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for devices in d["devices"].values() for x in devices if "iPhone" in x["name"]))')
+          xcodebuild -project JapaneseReader.xcodeproj -scheme JapaneseReader -destination "platform=iOS Simulator,id=$DEVICE" -resultBundlePath build/Fable.xcresult CODE_SIGNING_ALLOWED=NO -only-testing:ReaderUITests/FableUITests test 2>&1 | tail -40 || true
+          mkdir -p build/shots
+          xcrun xcresulttool export attachments --path build/Fable.xcresult --output-path build/shots || true
+          ls build/shots
+      - name: Publish screenshots to the fable-screens branch
+        run: |
+          cd ios/build/shots
+          python3 - <<'PY'
+          import json, os, re
+          try:
+              manifest = json.load(open('manifest.json'))
+          except Exception:
+              manifest = []
+          for test in manifest:
+              for a in test.get('attachments', []):
+                  src = a.get('exportedFileName'); name = a.get('suggestedHumanReadableName', src)
+                  if src and os.path.exists(src):
+                      safe = re.sub(r'[^A-Za-z0-9._-]+', '_', name)
+                      os.rename(src, safe if safe.endswith('.png') else safe + '.png')
+          PY
+          git init -q out && mv *.png out/ 2>/dev/null || true
+          cd out
+          git config user.name "fable-screens" && git config user.email "actions@users.noreply.github.com"
+          git add -A && git commit -qm "Fable screenshots" || exit 0
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" HEAD:fable-screens
