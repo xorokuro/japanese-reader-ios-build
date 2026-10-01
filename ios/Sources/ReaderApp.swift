@@ -942,6 +942,8 @@ struct ReaderHome: View {
     @AppStorage("automaticallyShowSearchKeyboard") private var automaticallyShowSearchKeyboard = false
     @AppStorage("searchKeyboardLanguage") private var searchKeyboardLanguage = "ja"
     @AppStorage(FlipMode.key) private var flipModeRaw = FlipMode.off.rawValue
+    @AppStorage(ImmersiveController.gestureKey) private var immersiveGesture = true
+    @ObservedObject private var immersive = ImmersiveController.shared
     @State private var showingHistory = false
     @State private var clearHistoryConfirmation = false
     @State private var wantsSearchFocus = false
@@ -1080,6 +1082,14 @@ struct ReaderHome: View {
         .background(paperBackground)
         .environment(\.readerStyle, style)
         .overlay(alignment: .top) { sizeBadge }
+        .overlay(alignment: .bottom) {
+            if let hint = immersive.hint {
+                ImmersiveHint(text: hint, style: style)
+                    .padding(.bottom, 28)
+                    .transition(.opacity)
+            }
+        }
+        .background(ImmersiveGesture(enabled: immersiveGesture))
         .onAppear {
             if !restoredTab {
                 restoredTab = true
@@ -1175,13 +1185,14 @@ struct ReaderHome: View {
     private var readerTab: some View {
         NavigationStack {
             translating(VStack(spacing: 0) {
-                readerHeader
+                if !immersive.on { readerHeader.transition(.move(edge: .top).combined(with: .opacity)) }
                 readingView
             })
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(paperBackground)
             .translationPresentation(isPresented: $translation, text: model.text)
             .toolbar(.hidden, for: .navigationBar)
+            .toolbar(immersive.on ? .hidden : .automatic, for: .tabBar)
             .photosPicker(isPresented: $showingPhotoPicker, selection: $photoItem, matching: .images)
             .onChange(of: photoItem) { _, item in
                 guard let item else { return }
@@ -1260,6 +1271,7 @@ struct ReaderHome: View {
             }
             .pickerStyle(.menu)
             Button("Translate in a panel") { translation = true }.disabled(model.text.isEmpty)
+            Button { immersive.set(true) } label: { Label("Full screen · 全螢幕", systemImage: "arrow.up.left.and.arrow.down.right") }
             Button("Copy learning prompt") { UIPasteboard.general.string = model.prompt(); model.status = "Learning prompt copied." }
                 .disabled(model.text.isEmpty)
             Divider()
@@ -1508,8 +1520,8 @@ struct ReaderHome: View {
             .overlay(alignment: .trailing) { backSwipeEdge(fromLeft: false).padding(.top, model.showingEntry ? 0 : headerHeight) }
             .navigationBarTitleDisplayMode(.inline)
             // Results draw their own compact header; definitions keep the title bar.
-            .toolbar(model.showingEntry ? .visible : .hidden, for: .navigationBar)
-            .toolbar(searchChromeHidden ? .hidden : .visible, for: .tabBar)
+            .toolbar(model.showingEntry && !immersive.on ? .visible : .hidden, for: .navigationBar)
+            .toolbar(searchChromeHidden || immersive.on ? .hidden : .visible, for: .tabBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     if model.showingEntry {
@@ -1548,6 +1560,7 @@ struct ReaderHome: View {
                             }
                             Button("Copy learning prompt") { UIPasteboard.general.string = model.prompt(inDictionary: true); model.status = "Learning prompt copied." }
                             Button("Back to Main Page") { selectedTab = 0 }
+                            Button { immersive.set(true) } label: { Label("Full screen · 全螢幕", systemImage: "arrow.up.left.and.arrow.down.right") }
                         } label: { Image(systemName: "line.3.horizontal") }.accessibilityLabel("Dictionary navigation")
                     }
                 }
@@ -2281,6 +2294,12 @@ struct ReaderHome: View {
                         Text("For using the phone upside down on a stand while it charges. iPhones with Face ID can't turn apps upside down, so the app turns its own screen. Auto flips when you turn the phone over and flips back when you turn it upright. Always keeps it flipped. While flipped, the iPhone keyboard still appears the other way up, so turn the phone upright to type (Auto flips back for you).")
                             .font(.caption).foregroundStyle(style.secondary)
                     }
+                    Section("Full screen · 全螢幕") {
+                        Toggle("Two-finger tap for full screen", isOn: $immersiveGesture)
+                            .accessibilityIdentifier("immersiveGesture")
+                        Text("Tap anywhere with two fingers to hide the tabs, the title bar, the page buttons and the clock, so the page fills the screen. Tap with two fingers again to bring them back. Also in the ⋯ / ≡ menus of the Read, dictionary and grammar pages. With this switch off, only the menus turn full screen on, and a two-finger tap still turns it off.")
+                            .font(.caption).foregroundStyle(style.secondary)
+                    }
                     Section("Keep a backup") {
                         Text("Your passages and notes are in reading-library.json in Files → On My iPhone → Japanese Reader. Copy this file before uninstalling. Dictionary files can also be copied from here.").font(.footnote).foregroundStyle(style.secondary)
                     }
@@ -2300,6 +2319,7 @@ struct ReaderHome: View {
             .scrollContentBackground(.hidden)
             .background(paperBackground)
             .navigationTitle("書庫 · Library")
+            .toolbar(immersive.on ? .hidden : .automatic, for: .navigationBar, .tabBar)
             .searchable(text: $librarySearch, prompt: "Find saved text or notes")
             .toolbar { EditButton() }
             .confirmationDialog("Delete all \(model.saved.count) saved passages and their notes?", isPresented: $deleteAll, titleVisibility: .visible) {

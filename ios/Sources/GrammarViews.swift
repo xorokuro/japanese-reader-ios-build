@@ -28,11 +28,13 @@ struct GrammarTab: View {
     @State private var confirmBuiltIn = false
     @FocusState private var searchFocused: Bool
     @AppStorage("handDrawnPaper") private var handDrawnPaper = true
+    @ObservedObject private var immersive = ImmersiveController.shared
 
     var body: some View {
         NavigationStack(path: $grammar.path) {
             listScreen
                 .toolbar(.hidden, for: .navigationBar)
+                .toolbar(immersive.on ? .hidden : .automatic, for: .tabBar)
                 .navigationDestination(for: String.self) { id in
                     GrammarLessonScreen(entryID: id, path: $grammar.path, style: style, margins: margins,
                                         quietMenu: quietMenu, active: active, typeface: typeface,
@@ -424,6 +426,7 @@ struct GrammarLessonScreen: View {
     @State private var failed = false
     @State private var copiedPattern = false
     @AppStorage("handDrawnPaper") private var handDrawnPaper = true
+    @ObservedObject private var immersive = ImmersiveController.shared
 
     private var entry: GrammarEntry? { grammar.entry(id: entryID) }
     private var peekVisible: Bool { active && (model.peek?.inDictionary ?? false) }
@@ -443,7 +446,7 @@ struct GrammarLessonScreen: View {
                 }
             }
             .animation(.spring(response: 0.34, dampingFraction: 0.86), value: peekVisible)
-            if !peekVisible { bottomBar }
+            if !peekVisible && !immersive.on { bottomBar.transition(.move(edge: .bottom).combined(with: .opacity)) }
         }
         .overlay(alignment: .top) {
             if copiedPattern {
@@ -455,6 +458,7 @@ struct GrammarLessonScreen: View {
         .animation(.snappy(duration: 0.22), value: copiedPattern)
         .background(PaperBackground(style: style, texture: handDrawnPaper).equatable())
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(immersive.on ? .hidden : .automatic, for: .navigationBar, .tabBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 0) {
@@ -576,6 +580,7 @@ struct GrammarLessonScreen: View {
                     Button {
                         path = []
                     } label: { Label("Back to the list", systemImage: "list.bullet") }
+                    Button { immersive.set(true) } label: { Label("Full screen · 全螢幕", systemImage: "arrow.up.left.and.arrow.down.right") }
                 }
             }
         } label: {

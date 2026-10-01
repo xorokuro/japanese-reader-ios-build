@@ -194,13 +194,16 @@ final class FlipAppDelegate: NSObject, UIApplicationDelegate {
 /// Attaches the flip controller to the app's root view.
 struct FlipHost: ViewModifier {
     @ObservedObject private var flip = FlipController.shared
+    @ObservedObject private var immersive = ImmersiveController.shared
     @AppStorage(FlipMode.key) private var modeRaw = FlipMode.off.rawValue
     @Environment(\.scenePhase) private var scenePhase
 
     func body(content: Content) -> some View {
         content
-            // The clock and battery would be upside down while flipped.
-            .statusBarHidden(flip.flipped)
+            // The clock and battery would be upside down while flipped,
+            // and full screen hides them too.
+            .statusBarHidden(flip.flipped || immersive.on)
+            .persistentSystemOverlays(immersive.on ? .hidden : .automatic)
             .onAppear {
                 flip.setMode(modeRaw)
                 // The window may not be key yet on the first frame.
