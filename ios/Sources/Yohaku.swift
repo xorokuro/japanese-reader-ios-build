@@ -894,7 +894,7 @@ struct YohakuList: ViewModifier {
         if style.isYohaku {
             // Grouped, not plain: plain lists pin section headers on a white system
             // bar while scrolling, which shows as a white strip over the paper.
-            content.listStyle(.grouped).textCase(nil).listRowSeparatorTint(style.rule.opacity(0.55))
+            content.listStyle(.grouped).headerProminence(.increased).textCase(nil).listRowSeparatorTint(style.rule.opacity(0.55))
         } else {
             content
         }
