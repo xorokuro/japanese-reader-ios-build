@@ -14,6 +14,10 @@ enum YohakuDesign {
     nonisolated(unsafe) static var active = false
     /// The active Yohaku style (palette), for pages built outside SwiftUI.
     nonisolated(unsafe) static var style: ReaderStyle?
+    /// The Claude Fable variant (finer lines, handwritten captions; see Fable.swift).
+    nonisolated(unsafe) static var fable = false
+    /// Fable draws every rule at a little over half the brush weight.
+    static func weight(_ width: CGFloat) -> CGFloat { fable ? max(0.8, width * 0.56) : width }
 }
 
 // MARK: - Type
@@ -29,7 +33,17 @@ enum YohakuFont {
     static let latinLight = "HankenGrotesk-Light"
     static let latin = "HankenGrotesk-SemiBold"
     static let latinBold = "HankenGrotesk-Bold"
-    static let files = [gothic, gothicBold, mincho, minchoBold, latinLight, latin, latinBold]
+    /// Gaegu (Latin subset): Fable's small handwritten lowercase captions.
+    static let caption = "Gaegu-Regular"
+    static let captionLight = "Gaegu-Light"
+    static let files = [gothic, gothicBold, mincho, minchoBold, latinLight, latin, latinBold, caption, captionLight]
+
+    /// Interface faces: Zen Kaku in Yohaku, the pen-textbook Klee One in Fable.
+    static var uiRegular: String { YohakuDesign.fable ? HandFont.regular : gothic }
+    static var uiBold: String { YohakuDesign.fable ? HandFont.bold : gothicBold }
+    /// Small labels are letter-spaced capitals in Yohaku, handwritten lowercase in Fable.
+    static func caps(_ text: String) -> String { YohakuDesign.fable ? text.lowercased() : text.uppercased() }
+    static func labelTracking(_ size: CGFloat) -> CGFloat { YohakuDesign.fable ? size * 0.02 : size * 0.18 }
 
     static func register() {
         for name in files {
@@ -37,12 +51,13 @@ enum YohakuFont {
             CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
         }
     }
-    static func title(_ size: CGFloat) -> Font { .custom(gothicBold, size: size) }
-    static func body(_ size: CGFloat) -> Font { .custom(gothic, size: size) }
+    static func title(_ size: CGFloat) -> Font { .custom(uiBold, size: size) }
+    static func body(_ size: CGFloat) -> Font { .custom(uiRegular, size: size) }
     static func headword(_ size: CGFloat) -> Font { .custom(minchoBold, size: size) }
     static func example(_ size: CGFloat) -> Font { .custom(mincho, size: size) }
-    static func numeral(_ size: CGFloat) -> Font { .custom(latinLight, size: size) }
-    static func label(_ size: CGFloat = 10) -> Font { .custom(latinBold, size: size) }
+    static func numeral(_ size: CGFloat) -> Font { .custom(YohakuDesign.fable ? captionLight : latinLight, size: size) }
+    /// Gaegu has a small x-height, so Fable captions are set about 40% larger.
+    static func label(_ size: CGFloat = 10) -> Font { YohakuDesign.fable ? .custom(caption, size: size * 1.42) : .custom(latinBold, size: size) }
     static func uiFont(_ name: String, _ size: CGFloat) -> UIFont { UIFont(name: name, size: size) ?? .systemFont(ofSize: size) }
 }
 
@@ -147,7 +162,7 @@ struct BrushLine: Shape {
     var seed: UInt64 = 0
     func path(in rect: CGRect) -> Path {
         Brush.ribbon(Brush.line(CGPoint(x: rect.minX + 0.5, y: rect.midY), CGPoint(x: rect.maxX - 0.5, y: rect.midY)),
-                     width: width, seed: seed == 0 ? Brush.seed(rect) : seed)
+                     width: YohakuDesign.weight(width), seed: seed == 0 ? Brush.seed(rect) : seed)
     }
 }
 
@@ -157,7 +172,7 @@ struct BrushVLine: Shape {
     var seed: UInt64 = 0
     func path(in rect: CGRect) -> Path {
         Brush.ribbon(Brush.line(CGPoint(x: rect.midX, y: rect.minY + 0.5), CGPoint(x: rect.midX, y: rect.maxY - 0.5)),
-                     width: width, seed: seed == 0 ? Brush.seed(rect, 9) : seed)
+                     width: YohakuDesign.weight(width), seed: seed == 0 ? Brush.seed(rect, 9) : seed)
     }
 }
 
@@ -166,6 +181,7 @@ struct BrushBox: Shape {
     var width: CGFloat = 1.6
     var seed: UInt64 = 0
     func path(in rect: CGRect) -> Path {
+        let width = YohakuDesign.weight(self.width)
         let r = rect.insetBy(dx: width / 2 + 0.5, dy: width / 2 + 0.5)
         let s = seed == 0 ? Brush.seed(rect, 3) : seed
         let o: CGFloat = 1.4
@@ -183,6 +199,7 @@ struct BrushCircle: Shape {
     var width: CGFloat = 1.6
     var seed: UInt64 = 0
     func path(in rect: CGRect) -> Path {
+        let width = YohakuDesign.weight(self.width)
         let radius = min(rect.width, rect.height) / 2 - width
         return Brush.ribbon(Brush.circle(center: CGPoint(x: rect.midX, y: rect.midY), radius: radius,
                                          seed: seed == 0 ? Brush.seed(rect, 5) : seed),
@@ -282,9 +299,9 @@ struct YohakuLabel: View {
     var strong = false
     var size: CGFloat = 10
     var body: some View {
-        Text(text)
-            .font(YohakuFont.label(size))
-            .tracking(size * 0.18)
+        Text(style.isFable ? text.lowercased() : text)
+            .font(style.isFable ? .custom(YohakuFont.caption, size: size * 1.42) : .custom(YohakuFont.latinBold, size: size))
+            .tracking(style.isFable ? size * 0.02 : size * 0.18)
             .foregroundStyle(strong ? style.navy : style.secondary)
     }
 }
@@ -421,6 +438,13 @@ struct YohakuEmblem: View {
     var size: CGFloat = 118
     var disc = true
     var body: some View {
+        if style.isFable {
+            FableEmblem(style: style, drawing: drawing, size: size, ripples: size >= 70)
+        } else {
+            yohaku
+        }
+    }
+    private var yohaku: some View {
         ZStack {
             if disc {
                 Circle().fill(style.sage).frame(width: size * 0.8, height: size * 0.8).offset(x: size * 0.04, y: size * 0.03)
@@ -453,12 +477,23 @@ struct YohakuHeader<Trailing: View>: View {
     var height: CGFloat = 118
     @ViewBuilder var trailing: () -> Trailing
 
+    /// "01 / 読む" in Yohaku, "01 · reading" in Fable.
+    private var crumb: String {
+        style.isFable ? "\(index) · \(latin.lowercased())" : "\(index) / \(title)"
+    }
+    private var subtitle: String {
+        let name = style.isFable ? latin.lowercased() : latin
+        guard let detail else { return name }
+        return style.isFable ? "\(name), \(detail)" : "\(name) · \(detail)"
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                YohakuLabel(text: "JAPANESE READER", style: style, strong: true, size: 10.5)
-                Text("\(index) / \(title)")
-                    .font(YohakuFont.label(10.5)).tracking(1.6)
+                if !style.isFable { YohakuLabel(text: "JAPANESE READER", style: style, strong: true, size: 10.5) }
+                Text(crumb)
+                    .font(style.isFable ? .custom(YohakuFont.caption, size: 15) : .custom(YohakuFont.latinBold, size: 10.5))
+                    .tracking(style.isFable ? 0.3 : 1.6)
                     .foregroundStyle(style.secondary)
                 Spacer(minLength: 4)
                 trailing()
@@ -469,15 +504,15 @@ struct YohakuHeader<Trailing: View>: View {
             HStack(alignment: .center, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(YohakuFont.title(48))
-                        .tracking(-1)
+                        .font(YohakuFont.title(style.isFable ? 44 : 48))
+                        .tracking(style.isFable ? 0 : -1)
                         .foregroundStyle(style.navy)
                         .accessibilityAddTraits(.isHeader)
                     if let numeral {
                         Text(numeral).font(YohakuFont.numeral(40)).foregroundStyle(style.navy).padding(.top, -4)
                     }
-                    Text(detail.map { "\(latin) · \($0)" } ?? latin)
-                        .font(.custom(YohakuFont.latin, size: 12))
+                    Text(subtitle)
+                        .font(style.isFable ? .custom(YohakuFont.caption, size: 17) : .custom(YohakuFont.latin, size: 12))
                         .foregroundStyle(style.secondary)
                 }
                 Spacer(minLength: 8)
@@ -512,7 +547,8 @@ enum YohakuIcons {
 
     /// Brush-drawn icons; the selected one carries a small brush tick above it.
     static func image(_ kind: Kind, selected: Bool) -> UIImage {
-        let key = "\(kind.rawValue)-\(selected)"
+        let fable = YohakuDesign.fable
+        let key = "\(kind.rawValue)-\(selected)-\(fable)"
         if let cached = cache[key] { return cached }
         let size = CGSize(width: 26, height: 34)
         let format = UIGraphicsImageRendererFormat()
@@ -520,14 +556,21 @@ enum YohakuIcons {
         let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
             let cg = context.cgContext
             UIColor.black.setFill()
-            if selected {
+            if selected && fable {
+                // Fable: a small spark above the chosen tab.
+                cg.setStrokeColor(UIColor.black.cgColor)
+                cg.setLineWidth(0.9)
+                cg.setLineCap(.round)
+                cg.addPath(FableSpark().path(in: CGRect(x: 9, y: 0, width: 8, height: 8)).cgPath)
+                cg.strokePath()
+            } else if selected {
                 cg.addPath(Brush.ribbon(Brush.line(CGPoint(x: 8.5, y: 2.5), CGPoint(x: 17.5, y: 2.2), step: 1), width: 2.4, seed: 31, taper: 2.5).cgPath)
                 cg.fillPath()
             }
             cg.translateBy(x: 1, y: 9)
             for (index, stroke) in strokes(kind).enumerated() {
                 let points = stroke.count > 3 ? stroke : Brush.polyline(stroke, step: 0.8)
-                cg.addPath(Brush.ribbon(points, width: 1.9, seed: UInt64(kind.rawValue * 10 + index + 1), wobble: 0.35, taper: 2).cgPath)
+                cg.addPath(Brush.ribbon(points, width: fable ? 1.15 : 1.9, seed: UInt64(kind.rawValue * 10 + index + 1), wobble: 0.35, taper: 2).cgPath)
                 cg.fillPath()
             }
         }.withRenderingMode(.alwaysTemplate)
@@ -537,16 +580,17 @@ enum YohakuIcons {
 
     /// A wide brush rule for the top of the tab bar and the bottom of the title bar.
     static func barLine() -> UIImage {
-        if let cached = cache["bar"] { return cached }
+        let fable = YohakuDesign.fable
+        if let cached = cache["bar-\(fable)"] { return cached }
         let size = CGSize(width: 480, height: 3)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 3
         let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
             UIColor.black.setFill()
-            context.cgContext.addPath(Brush.ribbon(Brush.line(CGPoint(x: 0, y: 1.5), CGPoint(x: 480, y: 1.5)), width: 1.6, seed: 404, wobble: 0.5, taper: 0.1).cgPath)
+            context.cgContext.addPath(Brush.ribbon(Brush.line(CGPoint(x: 0, y: 1.5), CGPoint(x: 480, y: 1.5)), width: fable ? 0.9 : 1.6, seed: 404, wobble: 0.5, taper: 0.1).cgPath)
             context.cgContext.fillPath()
         }.withRenderingMode(.alwaysTemplate)
-        cache["bar"] = image
+        cache["bar-\(fable)"] = image
         return image
     }
 }
@@ -567,14 +611,14 @@ enum YohakuChrome {
             tab.shadowImage = YohakuIcons.barLine()
             for item in [tab.stackedLayoutAppearance, tab.inlineLayoutAppearance, tab.compactInlineLayoutAppearance] {
                 item.normal.iconColor = muted
-                item.normal.titleTextAttributes = [.font: YohakuFont.uiFont(YohakuFont.gothic, 10.5), .foregroundColor: muted, .kern: 0.8]
+                item.normal.titleTextAttributes = [.font: YohakuFont.uiFont(YohakuFont.uiRegular, 10.5), .foregroundColor: muted, .kern: 0.8]
                 item.selected.iconColor = navy
-                item.selected.titleTextAttributes = [.font: YohakuFont.uiFont(YohakuFont.gothicBold, 10.5), .foregroundColor: navy, .kern: 0.8]
+                item.selected.titleTextAttributes = [.font: YohakuFont.uiFont(YohakuFont.uiBold, 10.5), .foregroundColor: navy, .kern: 0.8]
             }
             nav.shadowColor = navy
             nav.shadowImage = YohakuIcons.barLine()
-            nav.titleTextAttributes = [.font: YohakuFont.uiFont(YohakuFont.gothicBold, 16), .foregroundColor: navy]
-            nav.largeTitleTextAttributes = [.font: YohakuFont.uiFont(YohakuFont.gothicBold, 30), .foregroundColor: navy]
+            nav.titleTextAttributes = [.font: YohakuFont.uiFont(YohakuFont.uiBold, 16), .foregroundColor: navy]
+            nav.largeTitleTextAttributes = [.font: YohakuFont.uiFont(YohakuFont.uiBold, 30), .foregroundColor: navy]
         } else if style.usesSystemSurfaces {
             tab.configureWithDefaultBackground()
             nav.configureWithDefaultBackground()
@@ -613,12 +657,14 @@ enum YohakuWeb {
             + face("YMincho", YohakuFont.mincho, "300 600") + face("YMincho", YohakuFont.minchoBold, "700 900")
             + face("YLatin", YohakuFont.latinLight, "100 400") + face("YLatin", YohakuFont.latin, "500 650")
             + face("YLatin", YohakuFont.latinBold, "651 900")
+            + face("YHand", HandFont.regular, "100 500") + face("YHand", HandFont.bold, "501 900")
+            + face("YCaption", YohakuFont.captionLight, "100 350") + face("YCaption", YohakuFont.caption, "351 900")
     }
 
     /// A bundled font file, if `name` is one of the theme's fonts (or Klee One).
     static func fontData(named name: String) -> Data? {
         let base = (name as NSString).deletingPathExtension
-        guard base.hasPrefix("KleeOne") || YohakuFont.files.contains(base),
+        guard base.hasPrefix("KleeOne") || base.hasPrefix("Gaegu") || YohakuFont.files.contains(base),
               let file = Bundle.main.url(forResource: base, withExtension: "ttf") else { return nil }
         return try? Data(contentsOf: file, options: .mappedIfSafe)
     }
@@ -664,7 +710,7 @@ enum YohakuWeb {
     /// definitions, Hanken sense numbers, muted labels and hand-drawn brush dividers.
     /// Written with a high specificity so it also wins over the per-dictionary overlays.
     static func dictionaryCSS(_ style: ReaderStyle) -> String {
-        palette(style) + dictionaryRules
+        palette(style) + dictionaryRules + (style.isFable ? FableWeb.palette(style) + FableWeb.dictionaryRules : "")
     }
     private static let dictionaryRules = #"""
 :root{
@@ -732,7 +778,7 @@ html:root body :is(con_table>accent){border-radius:0!important}
     /// large Mincho pattern, and each section (接續 / 例句 / 類義 …) as a two-column
     /// row with a numbered label on the left and brush dividers between rows.
     static func grammarCSS(_ style: ReaderStyle) -> String {
-        palette(style) + grammarRules
+        palette(style) + grammarRules + (style.isFable ? FableWeb.palette(style) + FableWeb.grammarRules : "")
     }
     private static let grammarRules = #"""
 :root{

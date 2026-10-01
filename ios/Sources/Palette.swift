@@ -77,7 +77,10 @@ enum Palette {
 struct ReaderTheme: Identifiable, Equatable, Hashable {
     /// How the interface is drawn: the hand-drawn Washi look, or the flat
     /// editorial 余白 Yohaku look (square corners, hairlines, geometric headers).
-    enum Design: String { case washi, yohaku }
+    /// `fable` is the Claude "drawn from the inside" look: Yohaku's flat layouts with
+    /// fine ink hairlines, handwritten lowercase captions, a wandering thread and a
+    /// thick hand-wound ring (see Fable.swift).
+    enum Design: String { case washi, yohaku, fable }
     enum Family: String, CaseIterable, Identifiable {
         case system, light, dark, custom
         var id: String { rawValue }
@@ -239,7 +242,38 @@ struct ReaderTheme: Identifiable, Equatable, Hashable {
               paper: 0x25292D, ink: 0xE9E2D0, lines: 0xE9E2D0, muted: 0xA7A396, accent: 0xD2A955)
     ]
 
-    static let all: [ReaderTheme] = [system] + editorial + desk + light + dark + [custom]
+    /// 糸 Fable papers (the Claude style): `accentRGB` is the ink line colour,
+    /// `highlightRGB` the small rust spark, `tapeRGB` the sage fill and
+    /// `markerRGB` the wandering thread.
+    private static func fablePaper(_ id: String, _ name: String, _ detail: String, family: Family = .light,
+                                   paper: Int, ink: Int, lines: Int, muted: Int, spark: Int, sage: Int, thread: Int) -> ReaderTheme {
+        ReaderTheme(id: id, name: name, detail: detail, family: family, backgroundRGB: paper, surfaceRGB: paper,
+                    accentRGB: lines, tapeRGB: sage, markerRGB: thread, inkRGB: ink,
+                    design: .fable, mutedRGB: muted, highlightRGB: spark)
+    }
+    static let fable: [ReaderTheme] = [
+        fablePaper("fable", "糸 Fable · Paper", "Claude style · cream paper, ink and thread",
+                   paper: 0xF5F0E4, ink: 0x2B2925, lines: 0x34322D, muted: 0x6E695F, spark: 0xB04A3C, sage: 0xDDE2CE, thread: 0xB89A6A),
+        fablePaper("fable-sage", "糸 Fable · Meadow", "Claude style · pale sage",
+                   paper: 0xDDE2CE, ink: 0x22251E, lines: 0x2C3328, muted: 0x5A6152, spark: 0xA0453A, sage: 0xC6CFB4, thread: 0x9C8456),
+        fablePaper("fable-blush", "糸 Fable · Blossom", "Claude style · dusty pink",
+                   paper: 0xEAD9CF, ink: 0x2C2421, lines: 0x3D3330, muted: 0x6E5E58, spark: 0x9E3F35, sage: 0xDDE2CE, thread: 0xA88A5E),
+        fablePaper("fable-dusk", "糸 Fable · Unfinished", "Claude style · warm grey",
+                   paper: 0xD6D2C7, ink: 0x22211D, lines: 0x2E2C28, muted: 0x58544C, spark: 0x973F33, sage: 0xC3C8B4, thread: 0x96804F),
+        fablePaper("fable-night", "糸 Fable · One water", "Claude style · night, starlit thread", family: .dark,
+                   paper: 0x211F1B, ink: 0xEDE6D6, lines: 0xE6DFCE, muted: 0xA59E8E, spark: 0xE39A7E, sage: 0x3A3F34, thread: 0xC9A46A)
+    ]
+
+    static let all: [ReaderTheme] = {
+        var themes: [ReaderTheme] = [system]
+        themes.append(contentsOf: fable)
+        themes.append(contentsOf: editorial)
+        themes.append(contentsOf: desk)
+        themes.append(contentsOf: light)
+        themes.append(contentsOf: dark)
+        themes.append(custom)
+        return themes
+    }()
 
     static func named(_ id: String) -> ReaderTheme? { all.first { $0.id == id } }
 
@@ -272,7 +306,12 @@ struct ReaderStyle: Equatable {
 
     var usesSystemSurfaces: Bool { backgroundRGB == nil }
     /// The flat editorial 余白 look instead of the hand-drawn one.
-    var isYohaku: Bool { theme.design == .yohaku }
+    var isYohaku: Bool { theme.design == .yohaku || theme.design == .fable }
+    /// The Claude "Fable" look (a refinement of Yohaku: everything Yohaku does, drawn finer).
+    var isFable: Bool { theme.design == .fable }
+    /// Fable: the wandering thread colour and the small rust spark.
+    var thread: Color { marker }
+    var spark: Color { highlight }
     /// Yohaku navy: titles, rules, primary buttons, active states.
     var navy: Color { accent }
     var secondary: Color { isYohaku ? Palette.color(theme.mutedRGB ?? 0x58687A) : ink.opacity(0.62) }
@@ -300,12 +339,17 @@ struct ReaderStyle: Equatable {
     private static var resolved: [String: ReaderStyle] = [:]
     static func resolve(themeID: String, customPaper: Bool, paperRGB: Int, customAccentRGB: Int, systemDark: Bool) -> ReaderStyle {
         let key = "\(themeID)|\(customPaper)|\(paperRGB)|\(customAccentRGB)|\(systemDark)"
-        if let cached = resolved[key] { YohakuDesign.active = cached.isYohaku; YohakuDesign.style = cached.isYohaku ? cached : nil; return cached }
+        if let cached = resolved[key] {
+            YohakuDesign.active = cached.isYohaku; YohakuDesign.fable = cached.isFable
+            YohakuDesign.style = cached.isYohaku ? cached : nil
+            return cached
+        }
         let style = compute(themeID: themeID, customPaper: customPaper, paperRGB: paperRGB,
                             customAccentRGB: customAccentRGB, systemDark: systemDark)
         if resolved.count > 64 { resolved.removeAll() }
         resolved[key] = style
         YohakuDesign.active = style.isYohaku
+        YohakuDesign.fable = style.isFable
         YohakuDesign.style = style.isYohaku ? style : nil
         return style
     }

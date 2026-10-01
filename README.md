@@ -6,6 +6,13 @@ Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuse
 
 Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.9, build 38).
 
+## 3.2.0 — 糸 Fable, the Claude style
+
+- New appearance: **Library → Appearance → Fable · 糸 (Claude style)**, five papers — *Paper* (cream), *Meadow* (sage), *Blossom* (dusty pink), *Unfinished* (warm grey) and *One water* (night).
+- Drawn like the "fable · drawn from the inside" film: fine ink hairlines instead of brush rules, handwritten lowercase captions (Gaegu), pen-textbook titles (Klee One), a thick hand-wound ring with a small rust spark and faint ripples in each header (a figure, a spiral, a constellation, a helix), and one thin golden thread wandering down every page with a few faint stars.
+- Dictionary pages and 文法 lessons follow it too (handwritten type, hairline dividers, the ring as the level badge). Ruled notebook lines turn thread-gold with a rust margin line.
+- The other themes are unchanged.
+
 ## 2.7.9 — one shortcut for Share and Back Tap
 
 - **Look Up in Japanese Reader** now also works with no text: run from Back Tap, Control Center or AssistiveTouch (where there is no share-sheet input), it looks up what you just copied. The same shortcut can sit in the share sheet and on Back Tap.

@@ -81,4 +81,23 @@ final class ThemeTests: XCTestCase {
         XCTAssertTrue(ReaderTheme.all.contains { $0.family == .light })
         XCTAssertTrue(ReaderTheme.all.contains { $0.family == .dark })
     }
+
+    /// 糸 Fable (Claude style) papers keep the Yohaku layouts and add the Fable look.
+    func testFablePapers() {
+        XCTAssertEqual(ReaderTheme.fable.count, 5)
+        for theme in ReaderTheme.fable {
+            let style = ReaderStyle.resolve(themeID: theme.id, customPaper: false, paperRGB: 0xFFFFFF,
+                                            customAccentRGB: 0x1F7A73, systemDark: false)
+            XCTAssertTrue(style.isFable, theme.name)
+            XCTAssertTrue(style.isYohaku, theme.name)
+            XCTAssertTrue(YohakuDesign.fable, theme.name)
+            XCTAssertNotNil(theme.markerRGB, "\(theme.name) needs a thread colour")
+        }
+        let yohaku = ReaderStyle.resolve(themeID: "yohaku", customPaper: false, paperRGB: 0xFFFFFF,
+                                         customAccentRGB: 0x1F7A73, systemDark: false)
+        XCTAssertFalse(yohaku.isFable)
+        XCTAssertFalse(YohakuDesign.fable)
+        XCTAssertEqual(ReaderStyle.resolve(themeID: "fable-night", customPaper: false, paperRGB: 0xFFFFFF,
+                                           customAccentRGB: 0x1F7A73, systemDark: false).isDark, true)
+    }
 }
