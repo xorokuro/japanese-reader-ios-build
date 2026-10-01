@@ -734,7 +734,16 @@ html:root body :is(con_table>accent){border-radius:0!important}
  --g-title:"YGothic","Hiragino Sans","PingFang TC",sans-serif;--g-zh:"YGothic","PingFang TC","Hiragino Sans",sans-serif;
  --g-jp:"YMincho","Hiragino Mincho ProN","Songti TC",serif;--y-latin:"YLatin","Helvetica Neue",sans-serif;
  --g-bg:var(--y-paper);--g-ink:var(--y-ink);--g-shade:transparent;--g-wobble:0;--g-wobble2:0;
+ --g-muted:var(--y-muted);--g-faint:color-mix(in srgb,var(--y-muted) 80%,var(--y-paper));
+ --muted:var(--y-muted);--faint:color-mix(in srgb,var(--y-muted) 80%,var(--y-paper));
 }
+/* Notes and translations stay readable at every text size: no tiny fixed sizes
+   from the lesson files, and the secondary text classes only slightly smaller. */
+section [style*="font-size"]:not(rt):not(ruby):not(.badge){font-size:inherit!important}
+.zh{font-size:.95em;line-height:1.75}
+.sn,.setsu .sn{font-size:.92em;color:var(--y-muted)}
+.hsub{font-size:1em}
+.box,.box p,.cmp .pt,.swap,li{font-size:1em}
 html,body{background:var(--y-paper) var(--y-grain) repeat;background-size:48px 48px;background-blend-mode:overlay}
 rt{color:var(--y-muted)}
 ::selection{background:color-mix(in srgb,var(--y-accent) 26%,transparent)}
