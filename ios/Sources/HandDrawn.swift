@@ -140,7 +140,7 @@ struct HandTitle: View {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text(text).font(YohakuFont.title(size)).foregroundStyle(style.navy)
                 if let subtitle {
-                    Text(subtitle.uppercased()).font(YohakuFont.label(10.5)).tracking(1.8).foregroundStyle(style.secondary)
+                    Text(YohakuFont.caps(subtitle)).font(YohakuFont.label(10.5)).tracking(style.isFable ? 0.3 : 1.8).foregroundStyle(style.secondary)
                 }
             }
             .accessibilityElement(children: .combine)
@@ -663,6 +663,8 @@ struct PaperBackground: View, Equatable {
             style.background
             // 余白 Yohaku: one flat colour with a fine, even grain.
             if style.isYohaku { YohakuPaper(style: style) }
+            // 糸 Fable: one thin thread wandering down the page, and a few faint stars.
+            if style.isFable { FableBackdrop(style: style) }
             if texture && !style.isYohaku {
                 Image(uiImage: PaperTexture.grain(dark: style.isDark))
                     .resizable(resizingMode: .tile)

@@ -87,7 +87,7 @@ struct SectionLabel: View {
         if style.isYohaku {
             // RESULTS ───── : letter-spaced Hanken capitals over a navy hairline.
             HStack(spacing: 8) {
-                Text(text.uppercased()).font(YohakuFont.label(10)).tracking(1.8).foregroundStyle(style.secondary)
+                Text(YohakuFont.caps(text)).font(YohakuFont.label(10)).tracking(style.isFable ? 0.3 : 1.8).foregroundStyle(style.secondary)
                 BrushLine(width: 1.5).fill(style.navy).frame(height: 6)
             }
             .accessibilityAddTraits(.isHeader)
@@ -240,8 +240,10 @@ struct ThemeSwatch: View {
         let height: CGFloat = compact ? 40 : 66
         return VStack(spacing: 7) {
             ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: theme.design == .yohaku ? 0 : (compact ? 10 : 14), style: .continuous).fill(colors.background)
-                if theme.design == .yohaku {
+                RoundedRectangle(cornerRadius: theme.design == .washi ? (compact ? 10 : 14) : 0, style: .continuous).fill(colors.background)
+                if theme.design == .fable {
+                    FableSwatch(theme: theme, compact: compact)
+                } else if theme.design == .yohaku {
                     // 余白 paper: 儚い in the paper's ink, a brush rule and an accent dot.
                     let line = Palette.color(theme.accentRGB)
                     VStack(alignment: .leading, spacing: compact ? 2 : 5) {
