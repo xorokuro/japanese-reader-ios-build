@@ -6,6 +6,10 @@ Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuse
 
 Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.9, build 38).
 
+## 3.5.3 — NHK accent box fixed
+
+- 3.5.2 broke the NHK accent box: the pitch mark was drawn across the first kana and the play button sat on the last one. The page fit treated the pieces of that row (kana, pitch mark, play button) as indented text and pulled them to the left. Pieces of a flex or grid row, and anything positioned by the publisher, are now left where they are.
+
 ## 3.5.2 — dictionary pages fitted by measuring them
 
 - 3.5.1 only moved the examples part of the way (with Wide page margins its allowance was 11% of the width). The fit now measures where every block of text really starts, however the publisher built the indent:

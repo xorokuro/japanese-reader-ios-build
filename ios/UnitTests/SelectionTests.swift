@@ -200,4 +200,35 @@ import WebKit
             XCTAssertLessThanOrEqual(abs(result["def"] ?? 999), 1, "The entry's own outer inset is removed: its text starts at the page edge: \(result)")
         }
     }
+
+    /// The NHK accent box is a flex row (kana, pitch mark, play button). The fit must
+    /// leave its pieces where the row put them: the mark stays after the kana.
+    func testAccentRowIsNotPulledApart() async throws {
+        let coordinator = DictionaryPage.Coordinator(root: FileManager.default.temporaryDirectory, code: "TEST") { _ in }
+        coordinator.margins = .wide
+        coordinator.textSize = 30
+        let css = "accent{display:block;padding:.6em 1.2em}accent_text{padding-left:1.5em}symbol_macron{margin-left:-1em}.body{margin-left:1.5em}"
+        let body = "<dic-item><div class='head'><headword>ほうび</headword></div><div class='body'><accent><accent_text><span id='kana'>ホービ</span>"
+            + "<symbol_macron id='mark'>￣</symbol_macron><sound id='sound'>♪</sound></accent_text></accent><div>☞ごほうび</div></div></dic-item>"
+        let view = DictionaryPage.makeWebView(html: DictionaryPage.make(body: body, css: css, code: "TEST"), coordinator: coordinator)
+        let window = host(view)
+        defer {
+            view.configuration.userContentController.removeScriptMessageHandler(forName: "readerSelection", contentWorld: DictionaryPage.selectionWorld)
+            window.isHidden = true
+        }
+        for _ in 0..<600 {
+            if !view.isLoading && view.url != nil { break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let gaps = "(() => { const k = document.getElementById('kana').getBoundingClientRect(), m = document.getElementById('mark').getBoundingClientRect(), s = document.getElementById('sound').getBoundingClientRect(); return JSON.stringify({ mark: m.left - k.left, sound: s.left - k.right }); })()"
+        func measure() async throws -> [String: Double] {
+            let raw = try await evaluate(gaps, in: view) as? String
+            return try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(raw?.data(using: .utf8))) as? [String: Double])
+        }
+        _ = try await evaluate("window.__jpIndent(1)", in: view)
+        let fitted = try await measure()
+        XCTAssertGreaterThan(fitted["mark"] ?? -1, 20, "The pitch mark stays after the kana, not on top of the first one: \(fitted)")
+        XCTAssertGreaterThanOrEqual(fitted["sound"] ?? -99, -1, "The play button does not cover the kana: \(fitted)")
+    }
 }
