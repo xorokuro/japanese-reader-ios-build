@@ -2444,7 +2444,8 @@ struct ReaderHome: View {
     private var appearanceLink: some View {
         Section {
             NavigationLink {
-                appearancePage
+                // Built only when the page is opened, not every time Library is drawn.
+                LazyPage { AnyView(appearancePage) }
             } label: {
                 HStack(spacing: 14) {
                     ThemeSwatch(theme: activeTheme, style: style, selected: false,
@@ -2483,9 +2484,32 @@ struct ReaderHome: View {
         .padding(.vertical, 6)
     }
 
+    // The page is built from five type-erased groups. As one expression its view
+    // type was nested so deeply that resolving it overflowed the main thread's stack
+    // on device at launch (the Library tab builds this page for its link).
     private var appearancePage: some View {
         List {
             Group {
+                appearanceIntro
+                appearanceFable
+                appearanceClassic
+                appearanceReading
+                appearanceDictionary
+            }
+            .listRowBackground(style.isYohaku ? style.background : style.surface)
+        }
+        .modifier(YohakuList(style: style))
+        .scrollContentBackground(.hidden)
+        .background(paperBackground)
+        .navigationTitle("Appearance")
+        .navigationBarTitleDisplayMode(.inline)
+        .tint(accent)
+        .foregroundStyle(ink)
+        .preferredColorScheme(style.colorScheme)
+    }
+
+    private var appearanceIntro: AnyView {
+        AnyView(Group {
                 Section {
                     appearancePreview
                         .listRowInsets(EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12))
@@ -2500,6 +2524,11 @@ struct ReaderHome: View {
                         }
                     }
                 } header: { Text("Automatic & custom").textCase(nil) }
+        })
+    }
+
+    private var appearanceFable: AnyView {
+        AnyView(Group {
                 Section {
                     themeGrid(ReaderTheme.fableFilm)
                 } header: { Text("Fable · 糸 (Claude style)").textCase(nil) } footer: {
@@ -2515,6 +2544,11 @@ struct ReaderHome: View {
                 } header: { Text("Self-portraits · 自画像").textCase(nil) } footer: {
                     Text("One figure, a different craft each time: sashiko stitching, marbling, cyanotype, a route map, a single line, truck-art flowers, gold-tooled leather.")
                 }
+        })
+    }
+
+    private var appearanceClassic: AnyView {
+        AnyView(Group {
                 Section { themeGrid(ReaderTheme.editorial) } header: { Text("Editorial · 余白 (choose a paper)").textCase(nil) }
                 Section {
                     themeGrid(ReaderTheme.desk)
@@ -2522,6 +2556,11 @@ struct ReaderHome: View {
                 } header: { Text("Hand-drawn · 手描き (same as desktop)").textCase(nil) }
                 Section { themeGrid(ReaderTheme.light) } header: { Text("Light · 昼").textCase(nil) }
                 Section { themeGrid(ReaderTheme.dark) } header: { Text("Dark · 夜").textCase(nil) }
+        })
+    }
+
+    private var appearanceReading: AnyView {
+        AnyView(Group {
                 Section {
                     Picker("Typeface", selection: $readerTypefaceRaw) {
                         ForEach(ReaderTypeface.allCases) { face in
@@ -2566,6 +2605,11 @@ struct ReaderHome: View {
                         Text("For the ruled lines on the Read page and in grammar lessons.").font(.caption).foregroundStyle(style.secondary)
                     }
                 } header: { Text("Reading text · 本文").textCase(nil) }
+        })
+    }
+
+    private var appearanceDictionary: AnyView {
+        AnyView(Group {
                 Section {
                     Picker("Page margins", selection: $pageMarginsRaw) {
                         ForEach(PageMargins.allCases) { margin in Text(margin.title).tag(margin.rawValue) }
@@ -2605,17 +2649,7 @@ struct ReaderHome: View {
                         dictionaryTextSize = 19; dictionaryTextSizes = ""; dictionarySans = false
                     }
                 }
-            }
-            .listRowBackground(style.isYohaku ? style.background : style.surface)
-        }
-        .modifier(YohakuList(style: style))
-        .scrollContentBackground(.hidden)
-        .background(paperBackground)
-        .navigationTitle("Appearance")
-        .navigationBarTitleDisplayMode(.inline)
-        .tint(accent)
-        .foregroundStyle(ink)
-        .preferredColorScheme(style.colorScheme)
+        })
     }
 
     private var appearancePreview: some View {
