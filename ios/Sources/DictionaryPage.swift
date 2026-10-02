@@ -234,6 +234,50 @@ struct DictionaryPage: UIViewRepresentable {
                     hanging.push(element);
                 }
             }
+            // An indent budget for the whole page. Scaling each indent is not enough:
+            // publishers nest them (entry > sense > examples > translation), and with
+            // large text four small indents add up to a third of the screen, pushing
+            // the examples to the right. So the *total* left indent of any block, added
+            // up from the page edge through its ancestors, may not exceed a small share
+            // of the page width. Padding that holds a marker (list bullets, a sense
+            // number placed with position:absolute) is left alone.
+            const share = scale <= 0.45 ? 0.045 : scale <= 0.75 ? 0.075 : 0.11;
+            const budget = Math.max(8, window.innerWidth * share);
+            const holdsMarker = (element, style) => {
+                if (style.display === "list-item") return true;
+                if ((element.tagName === "UL" || element.tagName === "OL") && style.listStyleType !== "none") return true;
+                for (const pseudo of ["::before", "::after"]) {
+                    const mark = getComputedStyle(element, pseudo);
+                    if (mark.content && mark.content !== "none" && mark.position === "absolute") return true;
+                }
+                let seen = 0;
+                for (const child of element.children) {
+                    if (getComputedStyle(child).position === "absolute") return true;
+                    if (++seen >= 3) break;
+                }
+                return false;
+            };
+            const cap = (element, used) => {
+                const style = getComputedStyle(element), display = style.display || "";
+                if (display === "none") return;
+                let own = 0;
+                const block = !display.startsWith("inline") && display !== "contents" && !display.startsWith("table") && !display.startsWith("ruby");
+                if (block) {
+                    let margin = parseFloat(style.marginLeft) || 0, padding = parseFloat(style.paddingLeft) || 0;
+                    const room = Math.max(0, budget - used);
+                    if (margin > room + 0.5) { element.style.setProperty("margin-left", room.toFixed(1) + "px", "important"); margin = room; }
+                    const left = Math.max(0, budget - used - Math.max(0, margin));
+                    if (padding > left + 0.5 && !holdsMarker(element, style)) {
+                        element.style.setProperty("padding-left", left.toFixed(1) + "px", "important");
+                        padding = left;
+                        // A hanging first line may not hang out further than the padding that is left.
+                        if ((parseFloat(style.textIndent) || 0) < -left) element.style.setProperty("text-indent", (-left).toFixed(1) + "px", "important");
+                    }
+                    own = Math.max(0, margin) + padding;
+                }
+                for (const child of element.children) cap(child, used + own);
+            };
+            for (const child of document.body.children) cap(child, 0);
             if (!hanging.length) return true;
             const bodyStyle = getComputedStyle(document.body);
             const edge = document.body.getBoundingClientRect().left + (parseFloat(bodyStyle.paddingLeft) || 0);
@@ -393,7 +437,8 @@ struct DictionaryPage: UIViewRepresentable {
         }
         if context.coordinator.textSize != textSize {
             context.coordinator.textSize = textSize
-            Self.evaluateSelectionScript("document.documentElement.style.setProperty('--e-size', '\(Int(textSize.rounded()))px'); true", in: view) { _, _ in }
+            // Indents are in em, so they grow with the text: fit them to the budget again.
+            Self.evaluateSelectionScript("document.documentElement.style.setProperty('--e-size', '\(Int(textSize.rounded()))px'); window.__jpIndent && window.__jpIndent(\(margins.indentScale)); true", in: view) { _, _ in }
         }
         view.backgroundColor = paperRGB.map { UIColor(Palette.color($0)) } ?? .systemBackground
         view.scrollView.backgroundColor = view.backgroundColor
