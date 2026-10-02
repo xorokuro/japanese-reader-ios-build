@@ -1,0 +1,66 @@
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' started.
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (59.288 seconds).
+	 Executed 1 test, with 0 failures (0 unexpected) in 59.288 (59.289) seconds
+	 Executed 1 test, with 0 failures (0 unexpected) in 59.288 (59.291) seconds
+	 Executed 1 test, with 0 failures (0 unexpected) in 59.288 (59.292) seconds
+** TEST SUCCEEDED **
+    t =    39.94s Terminate com.xorokuro.JapaneseReader:12691
+    t =    40.97s Open com.xorokuro.JapaneseReader
+    t =    40.97s     Launch com.xorokuro.JapaneseReader
+    t =    41.21s         Setting up automation session
+    t =    42.71s         Wait for com.xorokuro.JapaneseReader to idle
+    t =    44.75s Waiting 20.0s for "grammarLessonPage" WebView to exist
+    t =    45.85s     Checking `Expect predicate `existsNoRetry == 1` for object "grammarLessonPage" WebView`
+    t =    45.85s         Checking existence of `"grammarLessonPage" WebView`
+    t =    46.11s Waiting 20.0s for "意思" StaticText to exist
+    t =    47.15s     Checking `Expect predicate `existsNoRetry == 1` for object "意思" StaticText`
+    t =    47.15s         Checking existence of `"意思" StaticText`
+    t =    50.29s Find the Target Application 'com.xorokuro.JapaneseReader'
+    t =    50.52s Added attachment named 'Lesson after relaunch'
+    t =    50.52s Find the "意思" StaticText
+    t =    50.67s Tap Button (Element at index 0)
+    t =    50.67s     Wait for com.xorokuro.JapaneseReader to idle
+    t =    50.67s     Find the Button (Element at index 0)
+    t =    50.73s     Check for interrupting elements affecting "Back" Button
+    t =    50.81s     Synthesize event
+    t =    51.14s     Wait for com.xorokuro.JapaneseReader to idle
+    t =    51.25s Waiting 10.0s for "grammarLevel_N2" Button to exist
+    t =    52.30s     Checking `Expect predicate `existsNoRetry == 1` for object "grammarLevel_N2" Button`
+    t =    52.30s         Checking existence of `"grammarLevel_N2" Button`
+    t =    52.37s Tap "grammarLevel_N2" Button
+    t =    52.37s     Wait for com.xorokuro.JapaneseReader to idle
+    t =    52.38s     Find the "grammarLevel_N2" Button
+    t =    52.41s     Check for interrupting elements affecting "grammarLevel_N2" Button
+    t =    52.45s     Synthesize event
+    t =    52.76s     Wait for com.xorokuro.JapaneseReader to idle
+    t =    52.77s Waiting 10.0s for "grammarEntry_N2|〜ぬく" Button to exist
+    t =    53.80s     Checking `Expect predicate `existsNoRetry == 1` for object "grammarEntry_N2|〜ぬく" Button`
+    t =    53.80s         Checking existence of `"grammarEntry_N2|〜ぬく" Button`
+    t =    53.83s Tap "grammarEntry_N2|〜ぬく" Button
+    t =    53.83s     Wait for com.xorokuro.JapaneseReader to idle
+    t =    53.83s     Find the "grammarEntry_N2|〜ぬく" Button
+    t =    53.86s     Check for interrupting elements affecting "grammarEntry_N2|〜ぬく" Button
+    t =    53.88s     Synthesize event
+    t =    54.20s     Wait for com.xorokuro.JapaneseReader to idle
+    t =    54.60s Waiting 20.0s for "意思" StaticText to exist
+    t =    55.63s     Checking `Expect predicate `existsNoRetry == 1` for object "意思" StaticText`
+    t =    55.63s         Checking existence of `"意思" StaticText`
+    t =    58.79s Find the "意思" StaticText
+    t =    58.96s Tear Down
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (59.288 seconds).
+Test Suite 'GrammarUITests' passed at 2026-10-02 15:37:51.301.
+	 Executed 1 test, with 0 failures (0 unexpected) in 59.288 (59.289) seconds
+Test Suite 'ReaderUITests.xctest' passed at 2026-10-02 15:37:51.302.
+	 Executed 1 test, with 0 failures (0 unexpected) in 59.288 (59.291) seconds
+Test Suite 'Selected tests' passed at 2026-10-02 15:37:51.302.
+	 Executed 1 test, with 0 failures (0 unexpected) in 59.288 (59.292) seconds
+2026-10-02 15:37:52.392 xcodebuild[1625:7989] [MT] IDETestOperationsObserverDebug: 347.884 elapsed -- Testing started completed.
+2026-10-02 15:37:52.392 xcodebuild[1625:7989] [MT] IDETestOperationsObserverDebug: 0.000 sec, +0.000 sec -- start
+2026-10-02 15:37:52.392 xcodebuild[1625:7989] [MT] IDETestOperationsObserverDebug: 347.884 sec, +347.884 sec -- end
+
+Test session results, code coverage, and logs:
+	/Users/runner/work/japanese-reader-ios-build/japanese-reader-ios-build/ios/build/PageTurn.xcresult
+
+** TEST SUCCEEDED **
+
+Testing started
