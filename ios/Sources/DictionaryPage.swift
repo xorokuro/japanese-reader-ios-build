@@ -250,8 +250,9 @@ struct DictionaryPage: UIViewRepresentable {
             //   2. no block of text may start further in than a small share of the page
             //      width; blocks beyond it are pulled back to that line.
             // Left alone: text that sits right of something on the same row (a table
-            // cell, a column next to a number) and blocks whose padding holds a marker
-            // (list bullets, a sense number placed with position:absolute).
+            // cell, a column next to a number), the pieces of a flex or grid row (an
+            // accent box with its pitch mark and play button), and blocks whose padding
+            // holds a marker (list bullets, a sense number placed with position:absolute).
             const share = scale <= 0.45 ? 0.03 : scale <= 0.75 ? 0.045 : 0.06;
             const budget = Math.max(6, window.innerWidth * share);
             const record = (element, property) => {
@@ -299,7 +300,11 @@ struct DictionaryPage: UIViewRepresentable {
                 if (!element || element === document.body) return false;
                 if (fixedCache.has(element)) return fixedCache.get(element);
                 const style = getComputedStyle(element), display = style.display || "";
-                let result = display.startsWith("table") || style.float === "right" || holdsMarker(element, style);
+                // Pieces of a flex or grid row (the NHK accent box: kana, pitch mark, play
+                // button) are placed by that row, not indented; so is anything positioned.
+                const row = element.parentElement ? (getComputedStyle(element.parentElement).display || "") : "";
+                let result = display.startsWith("table") || style.float === "right" || holdsMarker(element, style)
+                    || row.includes("flex") || row.includes("grid") || style.position === "absolute" || style.position === "fixed";
                 if (!result) {
                     const box = element.getBoundingClientRect();
                     let sibling = element.previousElementSibling, looked = 0;
