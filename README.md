@@ -6,6 +6,10 @@ Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuse
 
 Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.9, build 38).
 
+## 3.6.0 — Paste button in Search
+
+- A **Paste** button sits inside the search field, left of the → button. Tap it after copying a word anywhere: the copied text replaces what is in the field and the results open, with no typing. It is the system paste button, so iOS does not ask "Allow Paste".
+
 ## 3.5.3 — NHK accent box fixed
 
 - 3.5.2 broke the NHK accent box: the pitch mark was drawn across the first kana and the play button sat on the last one. The page fit treated the pieces of that row (kana, pitch mark, play button) as indented text and pulled them to the left. Pieces of a flex or grid row, and anything positioned by the publisher, are now left where they are.
