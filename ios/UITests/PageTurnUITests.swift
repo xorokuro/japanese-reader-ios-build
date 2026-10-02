@@ -98,14 +98,30 @@ final class PageTurnUITests: XCTestCase {
     /// Upside down (the window is turned by the app) and on a dark theme: the sheet
     /// still starts at the page's own left edge and the pictures stay the right way up.
     func testUpsideDownOnADarkTheme() {
-        let app = launch(theme: "hand-matcha", extra: ["--ui-flip-on"])
-        sleep(2)
-        openDefinition(app)
+        // The word arrives the way the share-sheet shortcut sends it, so nothing is typed.
+        let app = launch(theme: "hand-matcha", extra: ["--ui-flip-on", "--ui-external-lookup", "みほん"])
+        let result = app.buttons["dictionaryResult_みほん"].firstMatch
+        XCTAssertTrue(result.waitForExistence(timeout: 20))
+        result.tap()
+        XCTAssertTrue(app.webViews.links["実物"].waitForExistence(timeout: 30))
+        sleep(1)
         // The page's left edge is at the right of the upside-down screen.
         turn(app, from: 0.988, to: 0.4, height: 0.55)
-        shot(app, "Page turn · upside down, dark theme")
+        shot(app, "Page turn · upside down, definition over results")
         sleep(4)
-        XCTAssertTrue(app.buttons["dictionaryResult_みほん"].firstMatch.waitForExistence(timeout: 8), "The turn goes back to the results")
+        XCTAssertTrue(result.waitForExistence(timeout: 8), "The turn goes back to the results")
+
+        app.tabBars.buttons["Grammar"].tap()
+        app.buttons["grammarLevel_N2"].tap()
+        let nuku = app.buttons["grammarEntry_N2|〜ぬく"]
+        XCTAssertTrue(nuku.waitForExistence(timeout: 15))
+        nuku.tap()
+        XCTAssertTrue(app.webViews["grammarLessonPage"].staticTexts["意思"].waitForExistence(timeout: 20))
+        sleep(1)
+        turn(app, from: 0.988, to: 0.45, height: 0.4)
+        shot(app, "Page turn · upside down, lesson over the list")
+        sleep(4)
+        XCTAssertTrue(nuku.waitForExistence(timeout: 8), "The lesson turns back to the list")
     }
 
     func testGrammarLessonTurnsBackToTheList() {
