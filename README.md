@@ -6,6 +6,11 @@ Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuse
 
 Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.9, build 38).
 
+## 3.5.1 — dictionary examples no longer pushed to the right
+
+- Dictionary pages (Takoboto, ウィズダム and every other dictionary) now have an **indent budget**. Publishers nest their indents (entry → sense → examples → translation); each one was already scaled down, but with large text they still added up and pushed the examples far to the right. The total left indent of any block is now limited to a small share of the page width: about 4.5% at Compact page margins, 7.5% at Normal, 11% at Wide (Library → Appearance → Dictionary pages → Page margins).
+- The budget is applied again when the text size changes. Padding that holds a marker (list bullets, a sense number placed in the margin) is kept.
+
 ## 3.5.0 — section button, new app icon, plain themes removed
 
 - **目次, the section button.** A small drawn icon at the top of Library, Appearance, the 文法 list and every 文法 lesson. Tap it for the list of sections on that page (in a lesson: 意思, 接續, 例句 …; in the 文法 list: every category of the level), tap a section to jump to it.
