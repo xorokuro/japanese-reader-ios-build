@@ -10,9 +10,9 @@ final class PageTurnUITests: XCTestCase {
         add(attachment)
     }
 
-    private func launch(on: Bool = true, extra: [String] = []) -> XCUIApplication {
+    private func launch(on: Bool = true, theme: String = "fable", extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard", "-readerThemePreset", "fable"] + extra
+        app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard", "-readerThemePreset", theme] + extra
         // Holding: the turn stays where the finger left it for 3 s, so it can be photographed.
         if on { app.launchArguments += ["--ui-page-turn", "--ui-page-turn-hold"] }
         app.launch()
@@ -93,6 +93,19 @@ final class PageTurnUITests: XCTestCase {
         XCTAssertTrue(app.textViews["selectablePassage"].waitForExistence(timeout: 10), "The turn ends on the Read tab")
         sleep(2)
         shot(app, "Page turn · back on Read")
+    }
+
+    /// Upside down (the window is turned by the app) and on a dark theme: the sheet
+    /// still starts at the page's own left edge and the pictures stay the right way up.
+    func testUpsideDownOnADarkTheme() {
+        let app = launch(theme: "hand-matcha", extra: ["--ui-flip-on"])
+        sleep(2)
+        openDefinition(app)
+        // The page's left edge is at the right of the upside-down screen.
+        turn(app, from: 0.988, to: 0.4, height: 0.55)
+        shot(app, "Page turn · upside down, dark theme")
+        sleep(4)
+        XCTAssertTrue(app.buttons["dictionaryResult_みほん"].firstMatch.waitForExistence(timeout: 8), "The turn goes back to the results")
     }
 
     func testGrammarLessonTurnsBackToTheList() {
