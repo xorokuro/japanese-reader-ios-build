@@ -1,6 +1,6 @@
 # Japanese Reader (iOS) — notes for anyone working on this repo
 
-- **`main` is the app.** Start every change from the latest `main` (currently 3.7.0, build 59).
+- **`main` is the app.** Start every change from the latest `main` (currently 3.7.0, build 60).
   Do not start from older branches (`ruled-lines`, `grammar-tab`, `fix/…`, `claude/…`): they are
   snapshots of past versions, and building from one of them drops features such as the 文法 tab.
 - The app has four tabs: Read, Search, Library and **文法 (Grammar)**. A build without the Grammar tab
@@ -19,3 +19,7 @@
   previous screen under the turning sheet. Pictures are taken just before a screen is left (`remember` in the
   model, the tab change in `ReaderHome`, `PageTurnStackHook` on NavigationStack pages) and only while the
   setting is on. A new page pushed in a NavigationStack needs `.pageTurnStackPage()` to take part.
+  While the setting is off nothing of it is in the view tree (no hook, the plain swipe strips in Search).
+- Do not add `CADisableMinimumFrameDurationOnPhone` to `Info.plist` (it lets the page turn run at 120 Hz;
+  without it the turn runs at 60). With the key, a lesson or definition page came up blank in 3 of 12 full
+  simulator test runs; without it, 0 of 9, and 0 of 4 on the code before the page turn.

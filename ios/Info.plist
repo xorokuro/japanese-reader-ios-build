@@ -3,7 +3,6 @@
 <plist version="1.0"><dict>
     <key>UIFileSharingEnabled</key><true/>
     <key>LSSupportsOpeningDocumentsInPlace</key><true/>
-    <key>CADisableMinimumFrameDurationOnPhone</key><true/>
     <key>CFBundleURLTypes</key>
     <array><dict>
         <key>CFBundleURLName</key><string>com.xorokuro.JapaneseReader.lookup</string>
