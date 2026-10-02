@@ -6,6 +6,13 @@ Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuse
 
 Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.9, build 38).
 
+## 3.5.0 — section button, new app icon, plain themes removed
+
+- **目次, the section button.** A small drawn icon at the top of Library, Appearance, the 文法 list and every 文法 lesson. Tap it for the list of sections on that page (in a lesson: 意思, 接續, 例句 …; in the 文法 list: every category of the level), tap a section to jump to it.
+- **Choose its drawing**: Appearance → *Section button · 目次* has eight presets (Lines, Spark, Ring, Thread, Figure, Stitches, Compass, Moon), drawn in the theme's colours.
+- **New app icon**: cream paper, the wound ring with its opening, a gold figure in sashiko dots, the thread and the rust spark (`ios/tools/app_icon.py` draws it).
+- **Removed the plain Light · 昼 and Dark · 夜 themes** (29 flat one-colour presets). An install that was using one falls back to System.
+
 ## 3.4.1 — launch crash fix
 
 - 3.4.0 closed as soon as it opened on the iPhone. The Appearance page had grown (three Fable sections) into one view expression so large that building it overflowed the main thread's stack; Library builds that page for its link at launch. The page is now built in five separate pieces, and only when it is opened. The simulator has a larger stack, which is why the tests did not catch it.

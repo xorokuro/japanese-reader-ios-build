@@ -96,6 +96,7 @@ struct GrammarTab: View {
                          detail: grammar.entries.isEmpty ? nil : "\(grammar.learned.count) / \(grammar.entries.count) 已讀",
                          drawing: .pen, height: 112) {
                 if grammar.busy || grammar.loading { ProgressView().controlSize(.small) }
+                listJump
                 optionsMenu
             }
         } else {
@@ -110,11 +111,32 @@ struct GrammarTab: View {
                 HandTitle(text: "文法", subtitle: "Grammar", style: style, size: 25)
                 Spacer(minLength: 6)
                 if grammar.busy || grammar.loading { ProgressView().controlSize(.small) }
+                listJump
                 optionsMenu
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
             HandRule(style: style).padding(.horizontal, 12)
+        }
+    }
+
+    /// 目次: one entry per category of the level on screen; jumps the list to it.
+    private var jumpGroups: [(title: String, id: String)] {
+        guard !searching else { return [] }
+        var groups: [(title: String, id: String)] = []
+        for item in GrammarListItem.build(visibleEntries, grouped: true) {
+            if case .header(let title, let count, let itemLevel) = item.kind {
+                groups.append((title: (level == "ALL" ? itemLevel + " " : "") + title + "　\(count)", id: item.id))
+            }
+        }
+        return groups
+    }
+    @ViewBuilder private var listJump: some View {
+        let groups = jumpGroups
+        if groups.count > 1 {
+            SectionJump(style: style, titles: groups.map(\.title)) { index in
+                withAnimation(.easeInOut(duration: 0.25)) { topItem = groups[index].id }
+            }
         }
     }
 
@@ -488,6 +510,7 @@ struct GrammarLessonScreen: View {
                     }
                 }
             }
+            ToolbarItem(placement: .topBarTrailing) { lessonJump }
             ToolbarItem(placement: .topBarTrailing) { relatedMenu }
         }
         .task(id: entryID) { load() }
@@ -531,6 +554,22 @@ struct GrammarLessonScreen: View {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+    }
+
+    /// 目次 of the lesson on screen: its sections (意思, 接續, 例句 …), read from the page.
+    private var lessonJump: some View {
+        SectionJump(style: style, sections: { done in
+            guard let view = SelectionBridge.shared.dictionaryView else { done([]); return }
+            DictionaryPage.evaluateSelectionScript(LessonOutline.titles, in: view) { value, _ in
+                var titles: [String] = []
+                if let text = value as? String, let data = text.data(using: .utf8),
+                   let list = try? JSONSerialization.jsonObject(with: data) as? [String] { titles = list }
+                DispatchQueue.main.async { done(titles) }
+            }
+        }, jump: { index in
+            guard let view = SelectionBridge.shared.dictionaryView else { return }
+            DictionaryPage.evaluateSelectionScript(LessonOutline.jump(index), in: view) { _, _ in }
+        })
     }
 
     private var bottomBar: some View {
