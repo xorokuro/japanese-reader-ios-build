@@ -1,0 +1,66 @@
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (117.021 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (73.774 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (46.871 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (62.527 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (58.709 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (95.287 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (56.847 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (56.349 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (47.027 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (55.275 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (103.268 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (94.208 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (55.387 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (54.776 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (55.089 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (55.051 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (55.040 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (55.448 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (57.241 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (51.246 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (56.824 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (51.058 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' started (Iteration 1 of 22).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (117.021 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' started (Iteration 2 of 22).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (73.774 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' started (Iteration 3 of 22).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (46.871 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' started (Iteration 4 of 22).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (62.527 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' started (Iteration 5 of 22).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (58.709 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' started (Iteration 6 of 22).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (95.287 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' started (Iteration 7 of 22).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (56.847 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' started (Iteration 8 of 22).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (56.349 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' started (Iteration 9 of 22).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (47.027 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' started (Iteration 10 of 22).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (55.275 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' started (Iteration 11 of 22).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (103.268 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' started (Iteration 12 of 22).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (94.208 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' started (Iteration 13 of 22).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (55.387 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' started (Iteration 14 of 22).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (54.776 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' started (Iteration 15 of 22).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (55.089 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' started (Iteration 16 of 22).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (55.051 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' started (Iteration 17 of 22).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (55.040 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' started (Iteration 18 of 22).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (55.448 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' started (Iteration 19 of 22).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (57.241 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' started (Iteration 20 of 22).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (51.246 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' started (Iteration 21 of 22).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (56.824 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' started (Iteration 22 of 22).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (51.058 seconds).
