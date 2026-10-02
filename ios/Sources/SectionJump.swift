@@ -118,8 +118,13 @@ struct SectionJump: View {
     let sections: (@escaping ([String]) -> Void) -> Void
     let jump: (Int) -> Void
     @AppStorage("sectionJumpIcon") private var iconRaw = JumpIcon.lines.rawValue
-    @State private var titles: [String] = []
-    @State private var showing = false
+    /// The list on show. Passed to the sheet as its item, so the sheet is always
+    /// built with the titles that were just fetched.
+    private struct Listing: Identifiable {
+        let id = UUID()
+        let titles: [String]
+    }
+    @State private var listing: Listing?
 
     init(style: ReaderStyle, titles: [String], jump: @escaping (Int) -> Void) {
         self.style = style
@@ -135,8 +140,7 @@ struct SectionJump: View {
     var body: some View {
         Button {
             sections { found in
-                titles = found
-                showing = !found.isEmpty
+                listing = found.isEmpty ? nil : Listing(titles: found)
             }
         } label: {
             JumpIconView(icon: JumpIcon.resolve(iconRaw), style: style, size: 26)
@@ -146,13 +150,13 @@ struct SectionJump: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Sections")
         .accessibilityIdentifier("sectionJump")
-        .sheet(isPresented: $showing) {
-            SectionJumpList(style: style, titles: titles) { index in
-                showing = false
+        .sheet(item: $listing) { shown in
+            SectionJumpList(style: style, titles: shown.titles) { index in
+                listing = nil
                 // After the sheet starts closing, so the page underneath can scroll.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { jump(index) }
             }
-            .presentationDetents(titles.count > 7 ? [.medium, .large] : [.medium])
+            .presentationDetents(shown.titles.count > 7 ? [.medium, .large] : [.medium])
             .presentationDragIndicator(.visible)
         }
     }
