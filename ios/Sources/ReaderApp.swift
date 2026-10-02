@@ -1924,6 +1924,17 @@ struct ReaderHome: View {
         .overlay(alignment: .bottom) { HandRule(style: style).offset(y: 4) }
     }
 
+    /// The Paste button beside the search field: the copied text (its first line)
+    /// replaces the search and the results open straight away.
+    private func pasteIntoSearch(_ strings: [String]) {
+        let pasted = ExternalLookup.clean(strings.joined(separator: " "))
+        let line = pasted.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+        let query = String(line.trimmingCharacters(in: .whitespaces).prefix(200))
+        guard !query.isEmpty else { return }
+        model.typedSearch(query, clearSelection: true)
+        model.search()
+    }
+
     private func searchFieldRow(focusSearch: Bool) -> AnyView {
         AnyView(
             HStack(spacing: 6) {
@@ -1947,6 +1958,15 @@ struct ReaderHome: View {
                                         changed: { model.typedSearch($0, clearSelection: true) }) { model.search() }
                         .frame(height: 38)
                     if model.lookupBusy { ProgressView().controlSize(.small) }
+                    // Paste what was copied and search for it, replacing what is in the
+                    // field. The system paste button needs no "Allow Paste" question.
+                    PasteButton(payloadType: String.self) { strings in pasteIntoSearch(strings) }
+                        .labelStyle(.iconOnly)
+                        .buttonBorderShape(style.isYohaku ? .roundedRectangle(radius: 2) : .capsule)
+                        .controlSize(.small)
+                        .tint(accent)
+                        .accessibilityIdentifier("pasteSearch")
+                        .background(KeyboardControlArea())
                     if !model.word.isEmpty {
                         Button { model.search() } label: {
                             Image(systemName: "arrow.forward")

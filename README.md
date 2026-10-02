@@ -6,6 +6,27 @@ Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuse
 
 Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.9, build 38).
 
+## 3.6.0 — Paste button in Search
+
+- A **Paste** button sits inside the search field, left of the → button. Tap it after copying a word anywhere: the copied text replaces what is in the field and the results open, with no typing. It is the system paste button, so iOS does not ask "Allow Paste".
+
+## 3.5.3 — NHK accent box fixed
+
+- 3.5.2 broke the NHK accent box: the pitch mark was drawn across the first kana and the play button sat on the last one. The page fit treated the pieces of that row (kana, pitch mark, play button) as indented text and pulled them to the left. Pieces of a flex or grid row, and anything positioned by the publisher, are now left where they are.
+
+## 3.5.2 — dictionary pages fitted by measuring them
+
+- 3.5.1 only moved the examples part of the way (with Wide page margins its allowance was 11% of the width). The fit now measures where every block of text really starts, however the publisher built the indent:
+  - an entry whose text all starts away from the page edge (ウィズダム) is moved back to the edge;
+  - no block of text starts further in than 3% of the page width at Compact page margins, 4.5% at Normal, 6% at Wide (Takoboto's examples and translations now sit just inside the definitions);
+  - table cells, columns beside a number, and blocks whose padding holds a bullet or sense number are left alone.
+- Refitted when the text size or the page width changes.
+
+## 3.5.1 — dictionary examples no longer pushed to the right
+
+- Dictionary pages (Takoboto, ウィズダム and every other dictionary) now have an **indent budget**. Publishers nest their indents (entry → sense → examples → translation); each one was already scaled down, but with large text they still added up and pushed the examples far to the right. The total left indent of any block is now limited to a small share of the page width: about 4.5% at Compact page margins, 7.5% at Normal, 11% at Wide (Library → Appearance → Dictionary pages → Page margins).
+- The budget is applied again when the text size changes. Padding that holds a marker (list bullets, a sense number placed in the margin) is kept.
+
 ## 3.5.0 — section button, new app icon, plain themes removed
 
 - **目次, the section button.** A small drawn icon at the top of Library, Appearance, the 文法 list and every 文法 lesson. Tap it for the list of sections on that page (in a lesson: 意思, 接續, 例句 …; in the 文法 list: every category of the level), tap a section to jump to it.

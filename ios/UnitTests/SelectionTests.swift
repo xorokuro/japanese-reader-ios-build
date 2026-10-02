@@ -155,4 +155,80 @@ import WebKit
         await fulfillment(of: [posted], timeout: 5)
         XCTAssertEqual(words.last, "之前的那个")
     }
+
+    /// Nested publisher indents (entry > sense > examples) may not push the examples
+    /// to the right: every line starts within a small share of the page width, at
+    /// large text sizes too. Padding that holds a sense number is kept.
+    func testNestedIndentsStayWithinTheBudget() async throws {
+        let coordinator = DictionaryPage.Coordinator(root: FileManager.default.temporaryDirectory, code: "TEST") { _ in }
+        coordinator.margins = .compact
+        coordinator.textSize = 30
+        let css = ".w{margin-left:3em}.s{padding-left:2.5em}.ex{margin-left:4em}.tr{margin-left:1.5em}dd{margin-left:40px}"
+            + ".n{position:relative;padding-left:2.2em}.n::before{content:'1';position:absolute;left:0}.h{text-indent:-2em;padding-left:3em}"
+        let body = "<div class='w'><div class='s'><p id='def'>definition of the word</p><div class='ex'><p>彼らは森の中で道に迷った</p>"
+            + "<p class='tr'>They got lost in the woods.</p></div><dl><dd>dd text</dd></dl><div class='h'>hanging sense text that wraps onto a second line for sure, yes</div></div>"
+            + "<div class='n' id='num'>numbered sense</div></div>"
+        let view = DictionaryPage.makeWebView(html: DictionaryPage.make(body: body, css: css, code: "TEST"), coordinator: coordinator)
+        let window = host(view)
+        defer {
+            view.configuration.userContentController.removeScriptMessageHandler(forName: "readerSelection", contentWorld: DictionaryPage.selectionWorld)
+            window.isHidden = true
+        }
+        for _ in 0..<600 {
+            if !view.isLoading && view.url != nil { break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let measure = """
+        (() => { const edge = document.body.getBoundingClientRect().left + parseFloat(getComputedStyle(document.body).paddingLeft);
+          let right = 0, leftOf = 0; const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); let node;
+          while ((node = walker.nextNode())) { if (!node.data.trim() || node.parentElement.closest('#num')) continue; const range = document.createRange(); range.selectNodeContents(node);
+            const first = range.getClientRects()[0]; if (first) { right = Math.max(right, first.left - edge); leftOf = Math.max(leftOf, edge - first.left); } }
+          const def = document.getElementById('def').getBoundingClientRect().left - edge;
+          return JSON.stringify({ right, leftOf, def, width: innerWidth, number: parseFloat(getComputedStyle(document.getElementById('num')).paddingLeft) }); })()
+        """
+        for scale in [0.4, 1.0] {
+            _ = try await evaluate("window.__jpIndent(\(scale))", in: view)
+            let raw = try await evaluate(measure, in: view) as? String
+            let data = try XCTUnwrap(raw?.data(using: .utf8))
+            let result = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Double])
+            let width = result["width"] ?? 390
+            let budget = width * (scale < 0.5 ? 0.03 : 0.06)
+            XCTAssertLessThanOrEqual(result["right"] ?? 999, budget + 1, "Indents add up to at most the budget at scale \(scale): \(result)")
+            XCTAssertLessThanOrEqual(result["leftOf"] ?? 999, 0.5, "Nothing starts left of the page padding: \(result)")
+            XCTAssertGreaterThan(result["number"] ?? 0, 8, "Padding that holds a sense number is kept: \(result)")
+            XCTAssertLessThanOrEqual(abs(result["def"] ?? 999), 1, "The entry's own outer inset is removed: its text starts at the page edge: \(result)")
+        }
+    }
+
+    /// The NHK accent box is a flex row (kana, pitch mark, play button). The fit must
+    /// leave its pieces where the row put them: the mark stays after the kana.
+    func testAccentRowIsNotPulledApart() async throws {
+        let coordinator = DictionaryPage.Coordinator(root: FileManager.default.temporaryDirectory, code: "TEST") { _ in }
+        coordinator.margins = .wide
+        coordinator.textSize = 30
+        let css = "accent{display:block;padding:.6em 1.2em}accent_text{padding-left:1.5em}symbol_macron{margin-left:-1em}.body{margin-left:1.5em}"
+        let body = "<dic-item><div class='head'><headword>ほうび</headword></div><div class='body'><accent><accent_text><span id='kana'>ホービ</span>"
+            + "<symbol_macron id='mark'>￣</symbol_macron><sound id='sound'>♪</sound></accent_text></accent><div>☞ごほうび</div></div></dic-item>"
+        let view = DictionaryPage.makeWebView(html: DictionaryPage.make(body: body, css: css, code: "TEST"), coordinator: coordinator)
+        let window = host(view)
+        defer {
+            view.configuration.userContentController.removeScriptMessageHandler(forName: "readerSelection", contentWorld: DictionaryPage.selectionWorld)
+            window.isHidden = true
+        }
+        for _ in 0..<600 {
+            if !view.isLoading && view.url != nil { break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let gaps = "(() => { const k = document.getElementById('kana').getBoundingClientRect(), m = document.getElementById('mark').getBoundingClientRect(), s = document.getElementById('sound').getBoundingClientRect(); return JSON.stringify({ mark: m.left - k.left, sound: s.left - k.right }); })()"
+        func measure() async throws -> [String: Double] {
+            let raw = try await evaluate(gaps, in: view) as? String
+            return try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(raw?.data(using: .utf8))) as? [String: Double])
+        }
+        _ = try await evaluate("window.__jpIndent(1)", in: view)
+        let fitted = try await measure()
+        XCTAssertGreaterThan(fitted["mark"] ?? -1, 20, "The pitch mark stays after the kana, not on top of the first one: \(fitted)")
+        XCTAssertGreaterThanOrEqual(fitted["sound"] ?? -99, -1, "The play button does not cover the kana: \(fitted)")
+    }
 }

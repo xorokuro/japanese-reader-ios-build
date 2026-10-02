@@ -73,4 +73,24 @@ final class SectionJumpUITests: XCTestCase {
         sleep(2)
         shot(app, "Jump · Lesson at last section")
     }
+
+    /// The Paste button beside the search field replaces the search with the copied
+    /// text and shows the results, without typing.
+    func testPasteButtonSearchesTheCopiedText() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard", "--ui-clipboard", "みほん", "-readerThemePreset", "fable"]
+        app.launch()
+        app.tabBars.buttons["Search"].tap()
+        let field = app.textFields["dictionarySearchField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.tap()
+        field.typeText("あ")
+        let paste = app.buttons["pasteSearch"]
+        XCTAssertTrue(paste.waitForExistence(timeout: 5))
+        shot(app, "Search · paste button")
+        paste.tap()
+        XCTAssertTrue(app.buttons["dictionaryResult_みほん"].firstMatch.waitForExistence(timeout: 15), "The copied word is searched")
+        XCTAssertEqual(field.value as? String, "みほん", "The copied text replaces what was typed")
+        shot(app, "Search · pasted results")
+    }
 }
