@@ -280,12 +280,30 @@ struct ReaderTheme: Identifiable, Equatable, Hashable {
         fablePaper("fable-echo", "応 Echo", "A dot calls out; rings and small worlds answer", motif: .echo,
                    paper: 0xF6F0DA, ink: 0x1F2130, lines: 0x272A3B, muted: 0x60616F, spark: 0xD04A2F, sage: 0xF1DD8E, thread: 0xE2C24C),
         fablePaper("fable-roots", "根 Roots", "White roots on slate, one red line", family: .dark, motif: .roots,
-                   paper: 0x1E2328, ink: 0xECE8DE, lines: 0xE3DED2, muted: 0x9BA3A8, spark: 0xD9584A, sage: 0x323C45, thread: 0xD8D2C4)
+                   paper: 0x1E2328, ink: 0xECE8DE, lines: 0xE3DED2, muted: 0x9BA3A8, spark: 0xD9584A, sage: 0x323C45, thread: 0xD8D2C4),
+        fablePaper("fable-evening", "夕 Evening", "Watercolour dusk, a pylon and its wires", motif: .evening,
+                   paper: 0xF2E7E6, ink: 0x2B2340, lines: 0x382E52, muted: 0x6A5F7A, spark: 0xD46A3A, sage: 0xE6D4E8, thread: 0x8D76C2),
+        // 自画像 Self-portraits: the same figure, a different craft each time.
+        fablePaper("fable-still", "刺し子 Still", "Indigo cloth, running stitches, a figure in gold", family: .dark, motif: .sashiko,
+                   paper: 0x1F2947, ink: 0xEEE7D3, lines: 0xE5DDC6, muted: 0xA0A7BE, spark: 0xE0B54E, sage: 0x35416B, thread: 0xD9D2BC),
+        fablePaper("fable-ebru", "墨流し Ebru", "Marbled stones in navy and gold", motif: .ebru,
+                   paper: 0xF3EDDD, ink: 0x1F2A5C, lines: 0x26336B, muted: 0x5C6486, spark: 0xC0902E, sage: 0xEBDCA8, thread: 0x24306B),
+        fablePaper("fable-cyanotype", "青写真 Cyanotype", "White sprigs on blue", motif: .cyanotype,
+                   paper: 0xF2EEE0, ink: 0x21367C, lines: 0x2B4594, muted: 0x5F6C96, spark: 0xBF553B, sage: 0xD6DFF3, thread: 0x3554A8),
+        fablePaper("fable-transit", "路線図 Transit", "A route map and a figure in stripes", motif: .transit,
+                   paper: 0xE9F0EA, ink: 0x1F2A2E, lines: 0x2A373C, muted: 0x5A676B, spark: 0xD8492F, sage: 0xF3DD98, thread: 0x2F6FB3),
+        fablePaper("fable-oneline", "一筆 One line", "Mustard ground, one wandering line", motif: .oneline,
+                   paper: 0xF4ECD6, ink: 0x241E12, lines: 0x2E2616, muted: 0x6B604A, spark: 0xB5701F, sage: 0xEFCF83, thread: 0xD9A036),
+        fablePaper("fable-phool", "花 Phool patti", "Truck-art green, yellow figure, red flowers", family: .dark, motif: .phool,
+                   paper: 0x21402C, ink: 0xF3EAD0, lines: 0xEFE3C2, muted: 0xAABDA7, spark: 0xF0B43A, sage: 0x36593F, thread: 0xD9483B),
+        fablePaper("fable-doublure", "見返し Doublure", "Gold-tooled leather", family: .dark, motif: .doublure,
+                   paper: 0x25170F, ink: 0xEFE2C4, lines: 0xDDBD6C, muted: 0xAB987C, spark: 0xE3C26A, sage: 0x3F2B1D, thread: 0xC9A24B)
     ]
 
     /// The five papers of the film, and the variations after Kengo Works.
     static var fableFilm: [ReaderTheme] { fable.filter { $0.motif == .film } }
-    static var fableVariations: [ReaderTheme] { fable.filter { $0.motif != .film } }
+    static var fableVariations: [ReaderTheme] { fable.filter { $0.motif != .film && (!$0.motif.isPortrait || $0.motif == .evening) } }
+    static var fablePortraits: [ReaderTheme] { fable.filter { $0.motif.isPortrait && $0.motif != .evening } }
 
     static let all: [ReaderTheme] = {
         var themes: [ReaderTheme] = [system]
@@ -373,6 +391,7 @@ struct ReaderStyle: Equatable {
         let key = "\(themeID)|\(customPaper)|\(paperRGB)|\(customAccentRGB)|\(systemDark)"
         if let cached = resolved[key] {
             YohakuDesign.active = cached.isYohaku; YohakuDesign.fable = cached.isFable
+            YohakuDesign.stitched = cached.isFable && cached.theme.motif == .sashiko
             YohakuDesign.style = cached.isYohaku ? cached : nil
             return cached
         }
@@ -382,6 +401,7 @@ struct ReaderStyle: Equatable {
         resolved[key] = style
         YohakuDesign.active = style.isYohaku
         YohakuDesign.fable = style.isFable
+        YohakuDesign.stitched = style.isFable && style.theme.motif == .sashiko
         YohakuDesign.style = style.isYohaku ? style : nil
         return style
     }

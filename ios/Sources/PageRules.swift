@@ -43,6 +43,17 @@ enum PageRules {
             while (el && el !== document.body && !isBlock(el)) el = el.parentElement;
             return el || document.body;
         };
+        // Text that is not shown gets no rule. The answer inside a closed <details>
+        // is still laid out by newer WebKit (content-visibility) and reports boxes
+        // on top of whatever follows it, which drew rules through the visible text.
+        const hidden = (el) => {
+            const closed = el.closest("details:not([open])");
+            if (closed && !(el.closest("summary") && el.closest("summary").parentElement === closed)) return true;
+            if (typeof el.checkVisibility === "function") {
+                try { return !el.checkVisibility({ contentVisibilityAuto: true, visibilityProperty: true }); } catch (e) { return false; }
+            }
+            return false;
+        };
         const sameLine = (a, b) => {
             const overlap = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
             return overlap > 0.5 * Math.min(a.bottom - a.top, b.bottom - b.top);
@@ -73,12 +84,14 @@ enum PageRules {
                 if (!node.data.trim()) continue;
                 const parent = node.parentElement;
                 if (!parent || parent.closest("rt,svg,script,style")) continue;
+                if (hidden(parent)) continue;
                 range.selectNodeContents(node);
                 const block = blockOf(node);
                 for (const r of range.getClientRects()) if (r.width > 0 && r.height > 0) add(block, r, false);
             }
             // Furigana is drawn by CSS (rt::before), so it has boxes but no text nodes.
             for (const rt of document.querySelectorAll("rt")) {
+                if (hidden(rt)) continue;
                 const r = rt.getBoundingClientRect();
                 if (r.height > 0) add(blockOf(rt), r, true);
             }
@@ -160,6 +173,8 @@ enum PageRules {
         resized.observe(document.body);
         window.addEventListener("resize", schedule);
         window.addEventListener("load", schedule);
+        // Opening or closing an answer moves everything below it.
+        document.addEventListener("toggle", schedule, true);
         if (document.fonts) {
             if (document.fonts.ready) document.fonts.ready.then(schedule);
             document.fonts.addEventListener && document.fonts.addEventListener("loadingdone", schedule);
