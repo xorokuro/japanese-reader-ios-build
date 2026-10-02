@@ -6,6 +6,10 @@ Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuse
 
 Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.9, build 38).
 
+## 3.4.1 — launch crash fix
+
+- 3.4.0 closed as soon as it opened on the iPhone. The Appearance page had grown (three Fable sections) into one view expression so large that building it overflowed the main thread's stack; Library builds that page for its link at launch. The page is now built in five separate pieces, and only when it is opened. The simulator has a larger stack, which is why the tests did not catch it.
+
 ## 3.4.0 — Self-portraits, and no more rules through the text
 
 - **Fix: ruled lines no longer cut through lesson text.** The answer inside a closed 看答案與解說 box is hidden but still laid out by newer iOS, and it was being ruled on top of the quiz text that follows. Hidden text now gets no rules, and opening or closing an answer redraws them.
