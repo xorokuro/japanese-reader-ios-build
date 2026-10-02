@@ -63,9 +63,10 @@ final class FableUITests: XCTestCase {
     func testFablePaperTour() { tour(theme: "fable") }
     func testFableNightTour() { tour(theme: "fable-night") }
 
-    /// One quick look at each variation: Read, Grammar and Library.
-    func testFableVariationsGallery() {
-        for theme in ["fable-graph", "fable-sundown", "fable-midnight", "fable-mist", "fable-ballpoint", "fable-echo", "fable-roots"] {
+    /// One quick look at each theme: Read, Grammar and Library. Split into groups
+    /// so each test stays inside its time allowance.
+    private func gallery(_ themes: [String]) {
+        for theme in themes {
             let app = XCUIApplication()
             app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard", "--ui-clipboard",
                                    "みほんの文章です。ゆっくり読んで、知らない言葉を調べましょう。", "-readerThemePreset", theme]
@@ -84,4 +85,9 @@ final class FableUITests: XCTestCase {
             app.terminate()
         }
     }
+
+    func testFableVariationsGalleryA() { gallery(["fable-graph", "fable-sundown", "fable-midnight", "fable-mist"]) }
+    func testFableVariationsGalleryB() { gallery(["fable-ballpoint", "fable-echo", "fable-roots", "fable-evening"]) }
+    func testSelfPortraitsGalleryA() { gallery(["fable-still", "fable-ebru", "fable-cyanotype", "fable-transit"]) }
+    func testSelfPortraitsGalleryB() { gallery(["fable-oneline", "fable-phool", "fable-doublure"]) }
 }

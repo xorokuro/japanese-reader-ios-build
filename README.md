@@ -6,6 +6,19 @@ Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuse
 
 Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.9, build 38).
 
+## 3.4.0 — Self-portraits, and no more rules through the text
+
+- **Fix: ruled lines no longer cut through lesson text.** The answer inside a closed 看答案與解說 box is hidden but still laid out by newer iOS, and it was being ruled on top of the quiz text that follows. Hidden text now gets no rules, and opening or closing an answer redraws them.
+- **Self-portraits · 自画像**, seven new themes after Kengo Works' *self-portraits* and *still*: one head-and-shoulders figure, worked in a different craft each time. Each header carries a small square tile (a patterned ground, the figure in another pattern):
+  - **刺し子 Still** (dark): indigo cloth, a figure in gold dots, and every divider in the app sewn as a running stitch.
+  - **墨流し Ebru**: marbled stones in navy and gold.
+  - **青写真 Cyanotype**: white sprigs on blue.
+  - **路線図 Transit**: a route map and a figure in coloured stripes.
+  - **一筆 One line**: a mustard ground walked over by one wandering line.
+  - **花 Phool patti** (dark): truck-art green, a yellow figure, red flowers.
+  - **見返し Doublure** (dark): gold-tooled leather.
+- **夕 Evening** joins the variations: a watercolour dusk sky, violet to peach, with a pylon and its wires.
+
 ## 3.3.0 — Fable variations
 
 - **The film, as drawn** (Library → Appearance → *Fable · 糸*): Paper, Meadow, Blossom, Unfinished and One water keep the wound ring, figure, ripples and spark. The thread now only passes through the header emblem and fades out; nothing runs down the page any more.

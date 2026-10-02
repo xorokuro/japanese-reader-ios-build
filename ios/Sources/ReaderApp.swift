@@ -2508,7 +2508,12 @@ struct ReaderHome: View {
                 Section {
                     themeGrid(ReaderTheme.fableVariations)
                 } header: { Text("Fable variations · 変奏").textCase(nil) } footer: {
-                    Text("Same hand, other pictures: a graph-paper notebook, a linocut sunset, a moon and a lit window, watercolour rain, blue biro, an echo of rings, roots on slate.")
+                    Text("Same hand, other pictures: a graph-paper notebook, a linocut sunset, a moon and a lit window, watercolour rain and dusk, blue biro, an echo of rings, roots on slate.")
+                }
+                Section {
+                    themeGrid(ReaderTheme.fablePortraits)
+                } header: { Text("Self-portraits · 自画像").textCase(nil) } footer: {
+                    Text("One figure, a different craft each time: sashiko stitching, marbling, cyanotype, a route map, a single line, truck-art flowers, gold-tooled leather.")
                 }
                 Section { themeGrid(ReaderTheme.editorial) } header: { Text("Editorial · 余白 (choose a paper)").textCase(nil) }
                 Section {
