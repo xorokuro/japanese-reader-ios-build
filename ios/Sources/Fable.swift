@@ -24,6 +24,16 @@ import UIKit
 
 enum FableMotif: String, Hashable {
     case film, graph, sundown, midnight, mist, ballpoint, echo, roots
+    // 自画像 Self-portraits (FablePortraits.swift), and the dusk sky.
+    case sashiko, ebru, cyanotype, transit, phool, doublure, oneline, evening
+
+    /// Themes whose emblem is a square tile rather than a loose drawing.
+    var isPortrait: Bool {
+        switch self {
+        case .sashiko, .ebru, .cyanotype, .transit, .phool, .doublure, .oneline, .evening: return true
+        default: return false
+        }
+    }
 }
 
 // MARK: - Strokes
@@ -292,6 +302,7 @@ enum FableArt {
         case .ballpoint: ballpoint(&ctx, P, u: u, line: line, style: style, seed: seed)
         case .echo: echo(&ctx, P, u: u, line: line, style: style, art: art, seed: seed)
         case .roots: roots(&ctx, P, u: u, line: line, style: style, seed: seed)
+        default: portrait(&ctx, P, u: u, line: line, style: style, seed: seed)
         }
     }
 
@@ -691,6 +702,8 @@ enum FableArt {
                 y += 14
             }
             ctx.fill(dots, with: .color(style.thread.opacity(0.18)))
+        case .sashiko, .ebru, .cyanotype, .transit, .phool, .doublure, .oneline, .evening:
+            portraitBackdrop(&ctx, size, style: style)
         case .roots:
             var random = SeededRandom(seed: 88)
             var lines = Path()
@@ -708,7 +721,7 @@ enum FableArt {
         }
     }
 
-    private static func specks(_ ctx: inout GraphicsContext, _ size: CGSize, count: Int, seed: UInt64, colour: Color) {
+    static func specks(_ ctx: inout GraphicsContext, _ size: CGSize, count: Int, seed: UInt64, colour: Color) {
         var random = SeededRandom(seed: seed)
         var path = Path()
         for _ in 0..<count {
@@ -811,7 +824,18 @@ enum FableWeb {
             + "--y-frame:var(--y-rule) top/100% 5px no-repeat,var(--y-rule) bottom/100% 5px no-repeat,var(--y-vrule) left/5px 100% no-repeat,var(--y-vrule) right/5px 100% no-repeat;"
             + "--y-hand:\"YHand\",\"YGothic\",\"Hiragino Sans\",sans-serif;--y-caption:\"YCaption\",\"YHand\",sans-serif}"
             + (style.theme.motif == .graph ? graphPaper : "")
+            + (style.theme.motif == .sashiko ? ":root{--y-rule:\(stitchMask)}" : "")
     }
+    /// 刺し子: dividers sewn as running stitches.
+    static let stitchMask: String = {
+        var path = Path()
+        var x: CGFloat = 2
+        while x < 396 {
+            path.addPath(Brush.ribbon(Brush.line(CGPoint(x: x, y: 4), CGPoint(x: x + 7, y: 4), step: 1), width: 1.2, seed: UInt64(x) &+ 3, wobble: 0.3, taper: 1.5))
+            x += 11.5
+        }
+        return svgURI("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 8' preserveAspectRatio='none'><path d='\(SVGPath.data(path))'/></svg>")
+    }()
     /// 方眼: the pages sit on the same graph paper as the app.
     private static let graphPaper = "html:root,html:root body{background-image:linear-gradient(color-mix(in srgb,var(--y-thread) 26%,transparent) .6px,transparent .6px),linear-gradient(90deg,color-mix(in srgb,var(--y-thread) 26%,transparent) .6px,transparent .6px)!important;background-size:18px 18px!important;background-blend-mode:normal!important}"
 

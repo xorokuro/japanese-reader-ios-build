@@ -68,7 +68,8 @@ import WebKit
         }
     }
 
-    private func loadPage(size: Int) async throws -> WKWebView {
+    private func loadPage(size: Int, html source: String? = nil) async throws -> WKWebView {
+        let page = source ?? self.page
         let configuration = WKWebViewConfiguration()
         configuration.userContentController.addUserScript(WKUserScript(source: PageRules.initial(on: true, color: "rgba(0,0,0,.3)"), injectionTime: .atDocumentStart, forMainFrameOnly: true, in: DictionaryPage.selectionWorld))
         configuration.userContentController.addUserScript(WKUserScript(source: PageRules.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: DictionaryPage.selectionWorld))
@@ -155,5 +156,28 @@ import WebKit
         try await Task.sleep(nanoseconds: 300_000_000)
         let hidden = await run("document.getElementById('jpRules').style.display", in: view) as? String
         XCTAssertEqual(hidden, "none")
+    }
+
+    /// The answer inside a closed <details> is not shown, so it gets no rules (they
+    /// used to be drawn through the text that follows); opening it rules it.
+    func testClosedAnswersGetNoRules() async throws {
+        defer { closeWindows() }
+        let quiz = """
+        <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+        <style>body{margin:0;padding:12px;font:20px/1.78 -apple-system,sans-serif}p{margin:0 0 14px}details{padding:10px 14px}</style></head><body>
+        <p id="a">問題の文。</p>
+        <details id="d"><summary>看答案與解說</summary><p>答えは二。</p><p>解説その一。</p><p>解説その二。</p></details>
+        <p id="b">次の問題。</p>
+        </body></html>
+        """
+        let view = try await loadPage(size: 20, html: quiz)
+        let count = "(() => (document.querySelector('#jpRules path')?.getAttribute('d') || '').split('M').length - 1)()"
+        let closed = await run(count, in: view) as? Int
+        XCTAssertEqual(closed, 3, "Only the two questions and the summary line are ruled while the answer is closed")
+        let before = await drawnCount(view)
+        _ = await run("document.getElementById('d').open = true; true", in: view)
+        try await waitForRules(view, after: before)
+        let open = await run(count, in: view) as? Int
+        XCTAssertEqual(open, 6, "An opened answer is ruled like any other text")
     }
 }

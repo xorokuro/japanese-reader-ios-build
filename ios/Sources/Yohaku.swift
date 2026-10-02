@@ -16,6 +16,8 @@ enum YohakuDesign {
     nonisolated(unsafe) static var style: ReaderStyle?
     /// The Claude Fable variant (finer lines, handwritten captions; see Fable.swift).
     nonisolated(unsafe) static var fable = false
+    /// 刺し子: rules are sewn as running stitches instead of drawn.
+    nonisolated(unsafe) static var stitched = false
     /// Fable draws every rule at a little over half the brush weight.
     static func weight(_ width: CGFloat) -> CGFloat { fable ? max(0.8, width * 0.56) : width }
 }
@@ -161,7 +163,18 @@ struct BrushLine: Shape {
     var width: CGFloat = 1.7
     var seed: UInt64 = 0
     func path(in rect: CGRect) -> Path {
-        Brush.ribbon(Brush.line(CGPoint(x: rect.minX + 0.5, y: rect.midY), CGPoint(x: rect.maxX - 0.5, y: rect.midY)),
+        if YohakuDesign.stitched {
+            var sewn = Path()
+            var x = rect.minX + 2
+            while x < rect.maxX - 3 {
+                let end = min(rect.maxX - 1, x + 7)
+                sewn.addPath(Brush.ribbon(Brush.line(CGPoint(x: x, y: rect.midY), CGPoint(x: end, y: rect.midY), step: 1),
+                                          width: YohakuDesign.weight(width) * 1.2, seed: UInt64(max(0, x)) &+ 3, wobble: 0.3, taper: 1.5))
+                x += 11.5
+            }
+            return sewn
+        }
+        return Brush.ribbon(Brush.line(CGPoint(x: rect.minX + 0.5, y: rect.midY), CGPoint(x: rect.maxX - 0.5, y: rect.midY)),
                      width: YohakuDesign.weight(width), seed: seed == 0 ? Brush.seed(rect) : seed)
     }
 }

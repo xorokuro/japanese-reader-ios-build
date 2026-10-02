@@ -84,7 +84,8 @@ final class ThemeTests: XCTestCase {
 
     /// 糸 Fable (Claude style) papers keep the Yohaku layouts and add the Fable look.
     func testFablePapers() {
-        XCTAssertEqual(ReaderTheme.fable.count, 12)
+        XCTAssertEqual(ReaderTheme.fable.count, 20)
+        XCTAssertEqual(ReaderTheme.fablePortraits.count, 7)
         XCTAssertEqual(ReaderTheme.fableFilm.count, 5)
         for theme in ReaderTheme.fable {
             let style = ReaderStyle.resolve(themeID: theme.id, customPaper: false, paperRGB: 0xFFFFFF,
