@@ -1,0 +1,10 @@
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (66.038 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (40.083 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (56.417 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (52.270 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (39.357 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (39.689 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (40.283 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (39.524 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (49.554 seconds).
+Test Case '-[ReaderUITests.GrammarUITests testGrammarLessonReopensWhereItWasLeftAfterRelaunch]' passed (48.391 seconds).
