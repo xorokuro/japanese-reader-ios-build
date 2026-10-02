@@ -767,7 +767,7 @@ html:root:not(#y):not(#w) body :is(.num,.wc,.dc-sense,.sense_no,.gogi>.num,.Mean
 html:root:not(#y):not(#w) body :is(.slabel,.label,.naihou,.note_div,.shironuki,.daikubun,.gogikubun,.tkbt-label,.type,.kg_eiyaku,.shiyouiki,.senmon_g,.white-square,.hinshi,.bunya,.yoho,.gram){
  font-family:var(--e-sans)!important;color:var(--y-muted)!important;border-radius:0!important;background:transparent!important}
 html:root:not(#y):not(#w) body :is(.tkbt-label,.white-square,.hinshi,.shiyouiki,.senmon_g,.mjrhsjcd-entry .type){position:relative;border:0!important;padding:0 .45em!important}
-html:root:not(#y):not(#w) body :is(.tkbt-label,.white-square,.hinshi,.shiyouiki,.senmon_g,.mjrhsjcd-entry .type)::after{content:"";position:absolute;inset:0;background:var(--y-muted);
+html:root:not(#y):not(#w) body :is(.tkbt-label,.white-square,.hinshi,.shiyouiki,.senmon_g,.mjrhsjcd-entry .type)::after{content:"";position:absolute;inset:0;pointer-events:none;background:var(--y-muted);
  -webkit-mask:var(--y-frame);mask:var(--y-frame)}
 html:root:not(#y):not(#w) body :is(.tyuuki_rogo,.kaiwa_rogo,.kakomi_4_title_rogo,.tyuuki_kanren_rogo){background:var(--y-sage)!important;color:#1A1A18!important;border-radius:0!important}
 /* Definitions and examples. */
@@ -820,7 +820,7 @@ header.h::after{content:"";position:absolute;left:0;right:0;bottom:0;top:auto;he
  -webkit-mask:var(--y-rule) center/100% 100% no-repeat;mask:var(--y-rule) center/100% 100% no-repeat}
 .badge{position:absolute;right:0;top:18px;width:66px;height:66px;padding:0;border-radius:0;display:flex;align-items:center;justify-content:center;
  background:transparent;color:var(--y-line);font:700 20px/1 var(--y-latin);letter-spacing:0;transform:none;box-shadow:none}
-.badge::before{content:"";position:absolute;inset:0;background:var(--y-line);-webkit-mask:var(--y-ring) center/100% 100% no-repeat;mask:var(--y-ring) center/100% 100% no-repeat}
+.badge::before{content:"";position:absolute;inset:0;pointer-events:none;background:var(--y-line);-webkit-mask:var(--y-ring) center/100% 100% no-repeat;mask:var(--y-ring) center/100% 100% no-repeat}
 h1{font:800 2.2em/1.18 var(--g-jp);margin:0 0 .3em;letter-spacing:0;color:var(--y-ink)}
 h1 rt{font-family:var(--g-zh)}
 .hsub{color:var(--y-ink);font-size:.95em;font-weight:700;line-height:1.6}
@@ -850,7 +850,7 @@ section:first-of-type .box::before{display:none}
 .ety{background:transparent;border:0;border-radius:0;padding:8px 0 0;margin-top:10px}
 .setsu{font-family:var(--g-zh);font-size:.95em;line-height:1.9}
 .setsu b{position:relative;display:inline-block;margin:2px 0;padding:1px 11px;font:800 1.05em/1.6 var(--g-jp);color:var(--y-line)}
-.setsu b::after{content:"";position:absolute;inset:0;background:var(--y-line);-webkit-mask:var(--y-frame);mask:var(--y-frame)}
+.setsu b::after{content:"";position:absolute;inset:0;pointer-events:none;background:var(--y-line);-webkit-mask:var(--y-frame);mask:var(--y-frame)}
 .ex{margin:0 0 12px;padding:0}
 .ex:last-child{margin-bottom:0}
 .ex::after{display:none}
@@ -861,12 +861,15 @@ section:first-of-type .box::before{display:none}
 mark{background:none;color:var(--y-accent);font-weight:800;border-radius:0}
 .cmp{margin-bottom:12px}
 .cmp .vs{position:relative;border:0;border-radius:0;color:var(--y-line);background:transparent;font-family:var(--y-latin)}
-.cmp .vs::after{content:"";position:absolute;inset:0;background:var(--y-line);-webkit-mask:var(--y-frame);mask:var(--y-frame)}
+.cmp .vs::after{content:"";position:absolute;inset:0;pointer-events:none;background:var(--y-line);-webkit-mask:var(--y-frame);mask:var(--y-frame)}
 .cmp h3{font:800 1.05em/1.5 var(--g-jp);color:var(--y-line)}
 .cmp .pt b,.swap b{color:var(--y-line)}
 .swap{background:transparent;border:0;border-radius:0;padding:4px 0 0}
+/* The drawn frames are overlays on top of the text. They must not take touches:
+   a long press that lands on the frame instead of the kanji cannot select a word
+   with furigana (it picked the plain character next to it, e.g. the ／). */
 .chip{position:relative;border:0;border-radius:0;box-shadow:none;background:transparent;font-family:var(--g-jp)}
-.chip::after{content:"";position:absolute;inset:0;background:var(--y-line);-webkit-mask:var(--y-frame);mask:var(--y-frame)}
+.chip::after{content:"";position:absolute;inset:0;pointer-events:none;background:var(--y-line);-webkit-mask:var(--y-frame);mask:var(--y-frame)}
 li::marker{color:var(--y-accent)}
 .q{margin-bottom:12px}
 details{position:relative;background:transparent;border:0;border-radius:0;padding:10px 14px}

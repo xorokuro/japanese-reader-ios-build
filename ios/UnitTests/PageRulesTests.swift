@@ -180,4 +180,27 @@ import WebKit
         let open = await run(count, in: view) as? Int
         XCTAssertEqual(open, 6, "An opened answer is ruled like any other text")
     }
+
+    /// The drawn frame of a chip lies over its text. A touch on a kanji with furigana
+    /// has to reach the kanji, not the frame, or the word cannot be selected.
+    func testChipFrameDoesNotTakeTouches() async throws {
+        defer { closeWindows() }
+        let style = ReaderStyle.resolve(themeID: "fable", customPaper: false, paperRGB: 0xFFFFFF, customAccentRGB: 0x1F7A73, systemDark: false)
+        let page = """
+        <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+        <style>body{margin:0;padding:12px;font:20px/1.78 -apple-system,sans-serif}.chip{display:inline-block;padding:4px 10px}rt::before{content:attr(data-r)}</style>
+        <style>\(YohakuWeb.grammarCSS(style))</style></head><body>
+        <section><h2>表現</h2><span class="chip" id="chip"><ruby id="base">口論<rt>こうろん</rt></ruby>／<ruby>議論<rt>ぎろん</rt></ruby>のあげく</span>
+        <div class="setsu"><b id="setsu"><ruby id="word">動詞<rt>どうし</rt></ruby>た形</b></div></section>
+        </body></html>
+        """
+        let view = try await loadPage(size: 20, html: page)
+        let probe = """
+        (() => { const hit = (id) => { const r = document.getElementById(id).getBoundingClientRect();
+            const e = document.elementFromPoint(r.left + r.width / 2, r.bottom - 6); return e ? (e.closest('ruby') ? 'ruby' : e.tagName + '.' + e.className) : 'none'; };
+          return hit('base') + ' ' + hit('word'); })()
+        """
+        let hits = await run(probe, in: view) as? String
+        XCTAssertEqual(hits, "ruby ruby", "A touch on the kanji reaches the kanji, not the frame drawn over it")
+    }
 }

@@ -6,6 +6,10 @@ Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuse
 
 Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.9, build 38).
 
+## 3.6.1 — selecting kanji with furigana inside framed boxes
+
+- In 文法 lessons (余白 and Fable themes), a word with furigana inside a framed chip, such as 口論 in 口論／議論のあげく, could not be selected: a long press picked the plain character beside it (the ／). The hand-drawn frame is an overlay on top of the text and was taking the touch. Frames (chips, 接續 boxes, VS labels, dictionary tags) no longer take touches.
+
 ## 3.6.0 — Paste button in Search
 
 - A **Paste** button sits inside the search field, left of the → button. Tap it after copying a word anywhere: the copied text replaces what is in the field and the results open, with no typing. It is the system paste button, so iOS does not ask "Allow Paste".
