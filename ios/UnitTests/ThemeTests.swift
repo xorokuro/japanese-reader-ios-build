@@ -71,9 +71,9 @@ final class ThemeTests: XCTestCase {
     }
 
     func testThemeIdentityChangesWithPalette() {
-        let first = ReaderStyle.resolve(themeID: "jade", customPaper: false, paperRGB: 0xFFFFFF,
+        let first = ReaderStyle.resolve(themeID: "hand-matcha", customPaper: false, paperRGB: 0xFFFFFF,
                                         customAccentRGB: 0x1F7A73, systemDark: true)
-        let second = ReaderStyle.resolve(themeID: "sepia", customPaper: false, paperRGB: 0xFFFFFF,
+        let second = ReaderStyle.resolve(themeID: "hand-washi", customPaper: false, paperRGB: 0xFFFFFF,
                                          customAccentRGB: 0x1F7A73, systemDark: true)
         XCTAssertNotEqual(first.identity, second.identity, "Dictionary pages rebuild when the palette changes")
     }
