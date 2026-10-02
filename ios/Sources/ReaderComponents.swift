@@ -429,3 +429,11 @@ struct PullRelease: UIViewRepresentable {
         }
     }
 }
+
+/// A navigation destination that is built when it is shown. A NavigationLink
+/// evaluates its destination closure with the row, so a large page placed there
+/// directly is constructed (on the caller's stack) every time the list is drawn.
+struct LazyPage: View {
+    let build: () -> AnyView
+    var body: some View { build() }
+}

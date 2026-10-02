@@ -2280,8 +2280,13 @@ struct ReaderHome: View {
 
     // MARK: - Library
 
+    /// Section titles of Library, in page order (目次).
+    static let librarySections = ["Search keyboard", "Keyboard language", "Saved passages", "Offline dictionaries", "Dictionary search",
+                                  "Upside down · 倒過來", "Full screen · 全螢幕", "Keep a backup", "Translation"]
+
     private var libraryTab: some View {
         NavigationStack {
+          ScrollViewReader { proxy in
             List {
                 if style.isYohaku {
                     YohakuHeader(style: style, index: "03", title: "書庫", latin: "Library",
@@ -2291,13 +2296,50 @@ struct ReaderHome: View {
                         .listRowBackground(style.background)
                 }
                 Group {
+                    librarySettingsTop
+                    savedSection
+                    dictionariesSection
+                    librarySettingsRest
+                }
+                .listRowBackground(style.isYohaku ? style.background : style.surface)
+            }
+            .modifier(YohakuList(style: style))
+            .scrollContentBackground(.hidden)
+            .background(paperBackground)
+            .navigationTitle("書庫 · Library")
+            .navigationBarTitleDisplayMode(style.isYohaku ? .inline : .automatic)
+            .toolbar(immersive.on ? .hidden : .automatic, for: .navigationBar, .tabBar)
+            .searchable(text: $librarySearch, prompt: "Find saved text or notes")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { EditButton() }
+                ToolbarItem(placement: .topBarLeading) {
+                    SectionJump(style: style, titles: Self.librarySections) { index in
+                        withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo("jump." + Self.librarySections[index], anchor: .top) }
+                    }
+                }
+            }
+            .confirmationDialog("Delete all \(model.saved.count) saved passages and their notes?", isPresented: $deleteAll, titleVisibility: .visible) {
+                Button("Delete all", role: .destructive) { model.delete(ids: Set(model.saved.map(\.id))) }
+                Button("Cancel", role: .cancel) {}
+            }
+          }
+        }
+        .toolbarBackground(paper, for: .tabBar, .navigationBar)
+        .toolbarBackground(.visible, for: .tabBar, .navigationBar)
+        .tabItem { tabLabel("Library", system: "books.vertical", yohaku: .library, tag: 2) }.tag(2)
+    }
+
+    // Library's settings in two type-erased groups (see the note on appearancePage:
+    // one long expression here is built on the main thread's stack at launch).
+    private var librarySettingsTop: AnyView {
+        AnyView(Group {
                     appearanceLink
                     Section {
                         Toggle("Show keyboard when returning from definitions", isOn: $automaticallyShowSearchKeyboard)
                             .accessibilityIdentifier("automaticallyShowSearchKeyboard")
                         Text("Tapping the Search tab always opens the keyboard and selects the previous search. Tap blank space to hide the keyboard.")
                             .font(.caption).foregroundStyle(style.secondary)
-                    } header: { Text("Search keyboard").textCase(nil) }
+                    } header: { Text("Search keyboard").textCase(nil).id("jump.Search keyboard") }
                     Section {
                         Picker("Search keyboard", selection: $searchKeyboardLanguage) {
                             Text("Japanese").tag("ja")
@@ -2305,9 +2347,11 @@ struct ReaderHome: View {
                             Text("System keyboard").tag("system")
                         }
                         Text("Enable your preferred language in iPhone Settings → General → Keyboard → Keyboards. System keyboard lets you choose any installed language.").font(.caption)
-                    } header: { Text("Keyboard language").textCase(nil) }
-                    savedSection
-                    dictionariesSection
+                    } header: { Text("Keyboard language").textCase(nil).id("jump.Keyboard language") }
+        })
+    }
+    private var librarySettingsRest: AnyView {
+        AnyView(Group {
                     Section {
                         Toggle("Show selection results in a card", isOn: $model.selectionPeek).accessibilityIdentifier("librarySelectionPeek")
                         Stepper(value: $selectionLimit, in: SelectionLimit.range, step: 5) {
@@ -2326,7 +2370,7 @@ struct ReaderHome: View {
                         Toggle("Auto-search inside all dictionaries", isOn: $model.dictionaryAutoSearch).accessibilityIdentifier("dictionaryAutoSearch")
                         Text("Independent of Reader auto-search. A matching selection opens results across enabled dictionaries. When off, use Search selected text.").font(.caption).foregroundStyle(style.secondary)
                         Text("Search prefers an enabled Japanese keyboard. Enable Japanese – Romaji in iPhone Settings → General → Keyboard → Keyboards. iOS controls the exact Japanese layout.").font(.caption).foregroundStyle(style.secondary)
-                    } header: { Text("Dictionary search").textCase(nil) }
+                    } header: { Text("Dictionary search").textCase(nil).id("jump.Dictionary search") }
                     Section {
                         Picker("Flip the screen", selection: $flipModeRaw) {
                             ForEach(FlipMode.allCases) { Text($0.label).tag($0.rawValue) }
@@ -2334,19 +2378,19 @@ struct ReaderHome: View {
                         .accessibilityIdentifier("flipMode")
                         Text("For using the phone upside down on a stand while it charges. iPhones with Face ID can't turn apps upside down, so the app turns its own screen. Auto flips when you turn the phone over and flips back when you turn it upright. Always keeps it flipped. While flipped, the iPhone keyboard still appears the other way up, so turn the phone upright to type (Auto flips back for you).")
                             .font(.caption).foregroundStyle(style.secondary)
-                    } header: { Text("Upside down · 倒過來").textCase(nil) }
+                    } header: { Text("Upside down · 倒過來").textCase(nil).id("jump.Upside down · 倒過來") }
                     Section {
                         Toggle("Two-finger tap for full screen", isOn: $immersiveGesture)
                             .accessibilityIdentifier("immersiveGesture")
                         Text("Tap anywhere with two fingers to hide the tabs, the title bar, the page buttons and the clock, so the page fills the screen. Tap with two fingers again to bring them back. Also in the ⋯ / ≡ menus of the Read, dictionary and grammar pages. With this switch off, only the menus turn full screen on, and a two-finger tap still turns it off.")
                             .font(.caption).foregroundStyle(style.secondary)
-                    } header: { Text("Full screen · 全螢幕").textCase(nil) }
+                    } header: { Text("Full screen · 全螢幕").textCase(nil).id("jump.Full screen · 全螢幕") }
                     Section {
                         Text("Your passages and notes are in reading-library.json in Files → On My iPhone → Japanese Reader. Copy this file before uninstalling. Dictionary files can also be copied from here.").font(.footnote).foregroundStyle(style.secondary)
-                    } header: { Text("Keep a backup").textCase(nil) }
+                    } header: { Text("Keep a backup").textCase(nil).id("jump.Keep a backup") }
                     Section {
                         Text("Translate opens Apple's translation panel. Apple may ask you to download languages. Argos and LM Studio from the Windows app are not included in this iPhone edition. Copy learning prompt works with any AI app you choose.").font(.footnote).foregroundStyle(style.secondary)
-                    } header: { Text("Translation").textCase(nil) }
+                    } header: { Text("Translation").textCase(nil).id("jump.Translation") }
                     if model.busy { ProgressView("Working…") }
                     if !model.status.isEmpty { Text(model.status).font(.footnote).foregroundStyle(style.secondary) }
                     Section {
@@ -2354,25 +2398,7 @@ struct ReaderHome: View {
                             .font(.footnote).foregroundStyle(style.secondary)
                             .accessibilityIdentifier("appVersion")
                     }
-                }
-                .listRowBackground(style.isYohaku ? style.background : style.surface)
-            }
-            .modifier(YohakuList(style: style))
-            .scrollContentBackground(.hidden)
-            .background(paperBackground)
-            .navigationTitle("書庫 · Library")
-            .navigationBarTitleDisplayMode(style.isYohaku ? .inline : .automatic)
-            .toolbar(immersive.on ? .hidden : .automatic, for: .navigationBar, .tabBar)
-            .searchable(text: $librarySearch, prompt: "Find saved text or notes")
-            .toolbar { EditButton() }
-            .confirmationDialog("Delete all \(model.saved.count) saved passages and their notes?", isPresented: $deleteAll, titleVisibility: .visible) {
-                Button("Delete all", role: .destructive) { model.delete(ids: Set(model.saved.map(\.id))) }
-                Button("Cancel", role: .cancel) {}
-            }
-        }
-        .toolbarBackground(paper, for: .tabBar, .navigationBar)
-        .toolbarBackground(.visible, for: .tabBar, .navigationBar)
-        .tabItem { tabLabel("Library", system: "books.vertical", yohaku: .library, tag: 2) }.tag(2)
+        })
     }
 
     /// "2.7.3 (32)": shown at the bottom of Library, so it is easy to tell which build is installed.
@@ -2420,7 +2446,7 @@ struct ReaderHome: View {
                 ShareLink(item: model.libraryURL) { Label("Export saved texts", systemImage: "square.and.arrow.up") }
                 Button("Delete all saved passages", role: .destructive) { deleteAll = true }
             }
-        } header: { Text("Saved passages · \(model.saved.count)").textCase(nil) }
+        } header: { Text("Saved passages · \(model.saved.count)").textCase(nil).id("jump.Saved passages") }
     }
 
     private var dictionariesSection: some View {
@@ -2436,7 +2462,7 @@ struct ReaderHome: View {
             ForEach(model.dictionaries) { item in
                 Toggle(item.name, isOn: Binding(get: { !model.disabledDictionaries.contains(item.id) }, set: { model.enableDictionary(item.id, enabled: $0) })).font(.footnote)
             }.onMove { model.moveDictionaries(from: $0, to: $1) }
-        } header: { Text("Offline dictionaries · \(model.dictionaries.count)").textCase(nil) }
+        } header: { Text("Offline dictionaries · \(model.dictionaries.count)").textCase(nil).id("jump.Offline dictionaries") }
     }
 
     // MARK: - Appearance
@@ -2444,7 +2470,8 @@ struct ReaderHome: View {
     private var appearanceLink: some View {
         Section {
             NavigationLink {
-                appearancePage
+                // Built only when the page is opened, not every time Library is drawn.
+                LazyPage { AnyView(appearancePage) }
             } label: {
                 HStack(spacing: 14) {
                     ThemeSwatch(theme: activeTheme, style: style, selected: false,
@@ -2483,9 +2510,46 @@ struct ReaderHome: View {
         .padding(.vertical, 6)
     }
 
+    // The page is built from five type-erased groups. As one expression its view
+    // type was nested so deeply that resolving it overflowed the main thread's stack
+    // on device at launch (the Library tab builds this page for its link).
+    /// Section titles of Appearance, in page order (目次).
+    static let appearanceSections = ["Automatic & custom", "Fable · 糸 (Claude style)", "Fable variations · 変奏", "Self-portraits · 自画像",
+                                     "Editorial · 余白 (choose a paper)", "Hand-drawn · 手描き (same as desktop)", "Section button · 目次",
+                                     "Reading text · 本文", "Dictionary pages · 辞書"]
+
     private var appearancePage: some View {
+      ScrollViewReader { proxy in
         List {
             Group {
+                appearanceIntro
+                appearanceFable
+                appearanceClassic
+                appearanceReading
+                appearanceDictionary
+            }
+            .listRowBackground(style.isYohaku ? style.background : style.surface)
+        }
+        .modifier(YohakuList(style: style))
+        .scrollContentBackground(.hidden)
+        .background(paperBackground)
+        .navigationTitle("Appearance")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                SectionJump(style: style, titles: Self.appearanceSections) { index in
+                    withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo("jump." + Self.appearanceSections[index], anchor: .top) }
+                }
+            }
+        }
+        .tint(accent)
+        .foregroundStyle(ink)
+        .preferredColorScheme(style.colorScheme)
+      }
+    }
+
+    private var appearanceIntro: AnyView {
+        AnyView(Group {
                 Section {
                     appearancePreview
                         .listRowInsets(EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12))
@@ -2499,29 +2563,47 @@ struct ReaderHome: View {
                             ColorPicker("App background", selection: colorBinding($paperRGB), supportsOpacity: false)
                         }
                     }
-                } header: { Text("Automatic & custom").textCase(nil) }
+                } header: { Text("Automatic & custom").textCase(nil).id("jump.Automatic & custom") }
+        })
+    }
+
+    private var appearanceFable: AnyView {
+        AnyView(Group {
                 Section {
                     themeGrid(ReaderTheme.fableFilm)
-                } header: { Text("Fable · 糸 (Claude style)").textCase(nil) } footer: {
+                } header: { Text("Fable · 糸 (Claude style)").textCase(nil).id("jump.Fable · 糸 (Claude style)") } footer: {
                     Text("The film, as drawn: cream paper, a hand-wound ring, a thread through the header, handwritten notes.")
                 }
                 Section {
                     themeGrid(ReaderTheme.fableVariations)
-                } header: { Text("Fable variations · 変奏").textCase(nil) } footer: {
+                } header: { Text("Fable variations · 変奏").textCase(nil).id("jump.Fable variations · 変奏") } footer: {
                     Text("Same hand, other pictures: a graph-paper notebook, a linocut sunset, a moon and a lit window, watercolour rain and dusk, blue biro, an echo of rings, roots on slate.")
                 }
                 Section {
                     themeGrid(ReaderTheme.fablePortraits)
-                } header: { Text("Self-portraits · 自画像").textCase(nil) } footer: {
+                } header: { Text("Self-portraits · 自画像").textCase(nil).id("jump.Self-portraits · 自画像") } footer: {
                     Text("One figure, a different craft each time: sashiko stitching, marbling, cyanotype, a route map, a single line, truck-art flowers, gold-tooled leather.")
                 }
-                Section { themeGrid(ReaderTheme.editorial) } header: { Text("Editorial · 余白 (choose a paper)").textCase(nil) }
+        })
+    }
+
+    private var appearanceClassic: AnyView {
+        AnyView(Group {
+                Section { themeGrid(ReaderTheme.editorial) } header: { Text("Editorial · 余白 (choose a paper)").textCase(nil).id("jump.Editorial · 余白 (choose a paper)") }
                 Section {
                     themeGrid(ReaderTheme.desk)
                     Toggle("Paper grain & doodles", isOn: $handDrawnPaper).accessibilityIdentifier("handDrawnPaper")
-                } header: { Text("Hand-drawn · 手描き (same as desktop)").textCase(nil) }
-                Section { themeGrid(ReaderTheme.light) } header: { Text("Light · 昼").textCase(nil) }
-                Section { themeGrid(ReaderTheme.dark) } header: { Text("Dark · 夜").textCase(nil) }
+                } header: { Text("Hand-drawn · 手描き (same as desktop)").textCase(nil).id("jump.Hand-drawn · 手描き (same as desktop)") }
+        })
+    }
+
+    private var appearanceReading: AnyView {
+        AnyView(Group {
+                Section {
+                    JumpIconPicker(style: style)
+                } header: { Text("Section button · 目次").textCase(nil).id("jump.Section button · 目次") } footer: {
+                    Text("The small button at the top of Library, Appearance, the 文法 list and every lesson. It opens the list of sections on that page; tap one to jump to it. Choose its drawing here.")
+                }
                 Section {
                     Picker("Typeface", selection: $readerTypefaceRaw) {
                         ForEach(ReaderTypeface.allCases) { face in
@@ -2565,7 +2647,12 @@ struct ReaderHome: View {
                         }
                         Text("For the ruled lines on the Read page and in grammar lessons.").font(.caption).foregroundStyle(style.secondary)
                     }
-                } header: { Text("Reading text · 本文").textCase(nil) }
+                } header: { Text("Reading text · 本文").textCase(nil).id("jump.Reading text · 本文") }
+        })
+    }
+
+    private var appearanceDictionary: AnyView {
+        AnyView(Group {
                 Section {
                     Picker("Page margins", selection: $pageMarginsRaw) {
                         ForEach(PageMargins.allCases) { margin in Text(margin.title).tag(margin.rawValue) }
@@ -2596,7 +2683,7 @@ struct ReaderHome: View {
                     }
                     Text("Dictionary pages keep each publisher's layout and use your theme: large headwords, muted labels, and examples as an indented phrase with the translation underneath.")
                         .font(.caption).foregroundStyle(style.secondary)
-                } header: { Text("Dictionary pages · 辞書").textCase(nil) }
+                } header: { Text("Dictionary pages · 辞書").textCase(nil).id("jump.Dictionary pages · 辞書") }
                 Section {
                     Button("Reset appearance", role: .destructive) {
                         themeID = "hand-washi"; accentRGB = 0x1F7A73; paperRGB = 0xFFFFFF; customPaper = false
@@ -2605,17 +2692,7 @@ struct ReaderHome: View {
                         dictionaryTextSize = 19; dictionaryTextSizes = ""; dictionarySans = false
                     }
                 }
-            }
-            .listRowBackground(style.isYohaku ? style.background : style.surface)
-        }
-        .modifier(YohakuList(style: style))
-        .scrollContentBackground(.hidden)
-        .background(paperBackground)
-        .navigationTitle("Appearance")
-        .navigationBarTitleDisplayMode(.inline)
-        .tint(accent)
-        .foregroundStyle(ink)
-        .preferredColorScheme(style.colorScheme)
+        })
     }
 
     private var appearancePreview: some View {
