@@ -43,7 +43,9 @@ final class ThemeTests: XCTestCase {
         XCTAssertEqual(ReaderTheme.resolve("", hasCustomPaper: false).id, ReaderTheme.systemID)
         XCTAssertEqual(ReaderTheme.resolve("", hasCustomPaper: true).id, ReaderTheme.customID)
         XCTAssertEqual(ReaderTheme.resolve("removed-theme", hasCustomPaper: false).id, ReaderTheme.systemID)
-        XCTAssertEqual(ReaderTheme.resolve("midnight", hasCustomPaper: true).id, "midnight")
+        XCTAssertEqual(ReaderTheme.resolve("hand-hoshi", hasCustomPaper: true).id, "hand-hoshi")
+        // The plain Light / Dark presets were removed in 3.5.0; an install that had one falls back.
+        XCTAssertEqual(ReaderTheme.resolve("midnight", hasCustomPaper: false).id, ReaderTheme.systemID)
 
         let legacy = ReaderStyle.resolve(themeID: "", customPaper: true, paperRGB: 0x2D3443,
                                          customAccentRGB: 0x1F7A73, systemDark: false)
