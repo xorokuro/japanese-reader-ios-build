@@ -184,7 +184,8 @@ import WebKit
           let right = 0, leftOf = 0; const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); let node;
           while ((node = walker.nextNode())) { if (!node.data.trim() || node.parentElement.closest('#num')) continue; const range = document.createRange(); range.selectNodeContents(node);
             const first = range.getClientRects()[0]; if (first) { right = Math.max(right, first.left - edge); leftOf = Math.max(leftOf, edge - first.left); } }
-          return JSON.stringify({ right, leftOf, width: innerWidth, number: parseFloat(getComputedStyle(document.getElementById('num')).paddingLeft) }); })()
+          const def = document.getElementById('def').getBoundingClientRect().left - edge;
+          return JSON.stringify({ right, leftOf, def, width: innerWidth, number: parseFloat(getComputedStyle(document.getElementById('num')).paddingLeft) }); })()
         """
         for scale in [0.4, 1.0] {
             _ = try await evaluate("window.__jpIndent(\(scale))", in: view)
@@ -192,10 +193,11 @@ import WebKit
             let data = try XCTUnwrap(raw?.data(using: .utf8))
             let result = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Double])
             let width = result["width"] ?? 390
-            let budget = width * (scale < 0.5 ? 0.045 : 0.11)
+            let budget = width * (scale < 0.5 ? 0.03 : 0.06)
             XCTAssertLessThanOrEqual(result["right"] ?? 999, budget + 1, "Indents add up to at most the budget at scale \(scale): \(result)")
             XCTAssertLessThanOrEqual(result["leftOf"] ?? 999, 0.5, "Nothing starts left of the page padding: \(result)")
             XCTAssertGreaterThan(result["number"] ?? 0, 8, "Padding that holds a sense number is kept: \(result)")
+            XCTAssertLessThanOrEqual(abs(result["def"] ?? 999), 1, "The entry's own outer inset is removed: its text starts at the page edge: \(result)")
         }
     }
 }

@@ -217,6 +217,12 @@ struct DictionaryPage: UIViewRepresentable {
         // Takoboto's senses) are scaled with them, and no first line may start left
         // of the page's own padding, so nothing is cut off at the left edge.
         window.__jpIndent = (scale) => {
+            // Undo the last fit first, so every run starts from the publisher's layout.
+            for (const [element, property, value, priority] of (window.__jpFitted || []).reverse()) {
+                if (value) element.style.setProperty(property, value, priority); else element.style.removeProperty(property);
+            }
+            const fitted = window.__jpFitted = [];
+            window.__jpIndentLast = scale;
             const all = Array.from(document.body.querySelectorAll("*"));
             const hanging = [];
             for (const element of all) {
@@ -234,15 +240,23 @@ struct DictionaryPage: UIViewRepresentable {
                     hanging.push(element);
                 }
             }
-            // An indent budget for the whole page. Scaling each indent is not enough:
-            // publishers nest them (entry > sense > examples > translation), and with
-            // large text four small indents add up to a third of the screen, pushing
-            // the examples to the right. So the *total* left indent of any block, added
-            // up from the page edge through its ancestors, may not exceed a small share
-            // of the page width. Padding that holds a marker (list bullets, a sense
-            // number placed with position:absolute) is left alone.
-            const share = scale <= 0.45 ? 0.045 : scale <= 0.75 ? 0.075 : 0.11;
-            const budget = Math.max(8, window.innerWidth * share);
+            // Fit the page by measuring it. Scaling each indent is not enough: publishers
+            // nest them (entry > sense > examples > translation) and build them in many
+            // ways (margins, padding, wrappers), so with large text the examples end up
+            // a third of the way across the screen. Instead of reasoning about the CSS,
+            // look at where every block of text actually starts:
+            //   1. an entry whose text all starts away from the page edge is moved back
+            //      to the edge (the publisher's outer inset is wasted width here);
+            //   2. no block of text may start further in than a small share of the page
+            //      width; blocks beyond it are pulled back to that line.
+            // Left alone: text that sits right of something on the same row (a table
+            // cell, a column next to a number) and blocks whose padding holds a marker
+            // (list bullets, a sense number placed with position:absolute).
+            const share = scale <= 0.45 ? 0.03 : scale <= 0.75 ? 0.045 : 0.06;
+            const budget = Math.max(6, window.innerWidth * share);
+            const record = (element, property) => {
+                fitted.push([element, property, element.style.getPropertyValue(property), element.style.getPropertyPriority(property)]);
+            };
             const holdsMarker = (element, style) => {
                 if (style.display === "list-item") return true;
                 if ((element.tagName === "UL" || element.tagName === "OL") && style.listStyleType !== "none") return true;
@@ -257,27 +271,97 @@ struct DictionaryPage: UIViewRepresentable {
                 }
                 return false;
             };
-            const cap = (element, used) => {
-                const style = getComputedStyle(element), display = style.display || "";
-                if (display === "none") return;
-                let own = 0;
-                const block = !display.startsWith("inline") && display !== "contents" && !display.startsWith("table") && !display.startsWith("ruby");
-                if (block) {
-                    let margin = parseFloat(style.marginLeft) || 0, padding = parseFloat(style.paddingLeft) || 0;
-                    const room = Math.max(0, budget - used);
-                    if (margin > room + 0.5) { element.style.setProperty("margin-left", room.toFixed(1) + "px", "important"); margin = room; }
-                    const left = Math.max(0, budget - used - Math.max(0, margin));
-                    if (padding > left + 0.5 && !holdsMarker(element, style)) {
-                        element.style.setProperty("padding-left", left.toFixed(1) + "px", "important");
-                        padding = left;
-                        // A hanging first line may not hang out further than the padding that is left.
-                        if ((parseFloat(style.textIndent) || 0) < -left) element.style.setProperty("text-indent", (-left).toFixed(1) + "px", "important");
-                    }
-                    own = Math.max(0, margin) + padding;
-                }
-                for (const child of element.children) cap(child, used + own);
+            const isBlock = (element) => {
+                const display = getComputedStyle(element).display || "";
+                return display !== "none" && display !== "contents" && !display.startsWith("inline") && !display.startsWith("ruby");
             };
-            for (const child of document.body.children) cap(child, 0);
+            const pageEdge = () => document.body.getBoundingClientRect().left + (parseFloat(getComputedStyle(document.body).paddingLeft) || 0);
+            // Every block that starts a line of text, in page order.
+            const blocks = [];
+            {
+                const seen = new Set();
+                const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+                let node;
+                while ((node = walker.nextNode())) {
+                    if (!node.data.trim()) continue;
+                    let element = node.parentElement;
+                    if (!element || element.closest("rt,script,style,svg,details:not([open]) > :not(summary)")) continue;
+                    while (element && element !== document.body && !isBlock(element)) element = element.parentElement;
+                    if (!element || element === document.body || seen.has(element)) continue;
+                    seen.add(element);
+                    blocks.push(element);
+                }
+            }
+            // Fixed: beside something on its row, inside a table, or holding a marker
+            // (checked up through its ancestors, remembered per element).
+            const fixedCache = new Map();
+            const fixed = (element) => {
+                if (!element || element === document.body) return false;
+                if (fixedCache.has(element)) return fixedCache.get(element);
+                const style = getComputedStyle(element), display = style.display || "";
+                let result = display.startsWith("table") || style.float === "right" || holdsMarker(element, style);
+                if (!result) {
+                    const box = element.getBoundingClientRect();
+                    let sibling = element.previousElementSibling, looked = 0;
+                    while (sibling && looked < 4 && !result) {
+                        const other = sibling.getBoundingClientRect();
+                        if (other.width > 0 && other.height > 0 && other.right <= box.left + 1 && other.bottom > box.top + 1 && other.top < box.bottom - 1) result = true;
+                        sibling = sibling.previousElementSibling; looked++;
+                    }
+                }
+                if (!result) result = fixed(element.parentElement);
+                fixedCache.set(element, result);
+                return result;
+            };
+            const free = blocks.filter(block => !fixed(block));
+            const startOf = (element) => {
+                const style = getComputedStyle(element);
+                return element.getBoundingClientRect().left + (parseFloat(style.borderLeftWidth) || 0) + (parseFloat(style.paddingLeft) || 0);
+            };
+            const pull = (element, amount) => {
+                const style = getComputedStyle(element);
+                const padding = parseFloat(style.paddingLeft) || 0;
+                const fromPadding = Math.min(padding, amount);
+                if (fromPadding > 0.2) {
+                    record(element, "padding-left");
+                    element.style.setProperty("padding-left", (padding - fromPadding).toFixed(1) + "px", "important");
+                    if ((parseFloat(style.textIndent) || 0) < -(padding - fromPadding)) {
+                        record(element, "text-indent");
+                        element.style.setProperty("text-indent", (-(padding - fromPadding)).toFixed(1) + "px", "important");
+                    }
+                    amount -= fromPadding;
+                }
+                if (amount > 0.2) {
+                    record(element, "margin-left");
+                    element.style.setProperty("margin-left", ((parseFloat(style.marginLeft) || 0) - amount).toFixed(1) + "px", "important");
+                }
+            };
+            // 1. Each entry (a top-level part of the page) back to the page edge.
+            let pageLeft = pageEdge();
+            const parts = Array.from(document.body.children).filter(isBlock);
+            for (const part of parts) {
+                let nearest = Infinity;
+                for (const block of free) if (part === block || part.contains(block)) nearest = Math.min(nearest, startOf(block) - pageLeft);
+                if (nearest !== Infinity && nearest > 1) {
+                    record(part, "margin-left");
+                    part.style.setProperty("margin-left", ((parseFloat(getComputedStyle(part).marginLeft) || 0) - nearest).toFixed(1) + "px", "important");
+                }
+            }
+            // 2. Nothing starts beyond the budget. Outermost blocks first; what is
+            // inside them moves with them and is measured again on the next round.
+            for (let round = 0; round < 6; round++) {
+                pageLeft = pageEdge();
+                const beyond = [];
+                for (const block of free) {
+                    const excess = startOf(block) - pageLeft - budget;
+                    if (excess > 0.5) beyond.push([block, excess]);
+                }
+                if (!beyond.length) break;
+                for (const [block, excess] of beyond) {
+                    if (beyond.some(other => other[0] !== block && other[0].contains(block))) continue;
+                    pull(block, excess);
+                }
+            }
             if (!hanging.length) return true;
             const bodyStyle = getComputedStyle(document.body);
             const edge = document.body.getBoundingClientRect().left + (parseFloat(bodyStyle.paddingLeft) || 0);
@@ -293,6 +377,17 @@ struct DictionaryPage: UIViewRepresentable {
             return true;
         };
         if (typeof window.__jpIndentScale === "number") setTimeout(() => window.__jpIndent(window.__jpIndentScale), 0);
+        // The page can be laid out before it has its real width (and it changes on
+        // rotation): fit it again whenever the width changes.
+        {
+            let fitWidth = window.innerWidth, fitTimer = 0;
+            window.addEventListener("resize", () => {
+                if (window.innerWidth === fitWidth) return;
+                fitWidth = window.innerWidth;
+                clearTimeout(fitTimer);
+                fitTimer = setTimeout(() => { if (typeof window.__jpIndentLast === "number") window.__jpIndent(window.__jpIndentLast); }, 60);
+            });
+        }
         // Marks each occurrence of a full-text search in the visible text (furigana
         // skipped, matches may cross <b> and other inline tags) and scrolls to the first.
         window.__jpMark = (needle, scroll) => {

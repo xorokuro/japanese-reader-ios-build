@@ -1,6 +1,6 @@
 # Japanese Reader (iOS) — notes for anyone working on this repo
 
-- **`main` is the app.** Start every change from the latest `main` (currently 3.5.1, build 54).
+- **`main` is the app.** Start every change from the latest `main` (currently 3.5.2, build 55).
   Do not start from older branches (`ruled-lines`, `grammar-tab`, `fix/…`, `claude/…`): they are
   snapshots of past versions, and building from one of them drops features such as the 文法 tab.
 - The app has four tabs: Read, Search, Library and **文法 (Grammar)**. A build without the Grammar tab
@@ -12,3 +12,6 @@
   its sections) gets a view type so large that building it overflows the iPhone's main-thread stack at
   launch; the simulator has a bigger stack and does not show it. Split such pages into `AnyView` groups
   and put pages behind `LazyPage` in a `NavigationLink`.
+- The script in `DictionaryPage.selectionScript` is one JavaScript program: a syntax error anywhere
+  (a name declared twice, say) silently disables all of it on the phone. Before shipping a change to it,
+  run the changed function in a real browser against a sample page.
