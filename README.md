@@ -6,6 +6,15 @@ Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuse
 
 Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.9, build 38).
 
+## 3.7.0 — page-turn swipe back (optional)
+
+- **Appearance → Going back · 翻頁 → Page-turn swipe back** (off by default). With it on, swiping back from the edge of the screen turns the screen like a sheet of paper instead of jumping back:
+  - the sheet's edge stays under your finger and the page rolls over as you drag; the further you drag, the more of the previous screen shows underneath;
+  - let go past about a third of the screen (or with a quick flick) and the turn finishes and goes back; let go earlier and the page lies down again and you stay where you were;
+  - a sheet taken near the top or bottom peels from that corner, and dragging up or down leans the fold.
+- It works wherever a swipe goes back: definitions and search results on Search (either edge, back to the previous definition, the result list, or the tab the lookup came from), 文法 lessons, and Appearance.
+- The screen underneath is a picture taken when you left it. Only the last few screens keep one; going further back turns onto plain paper and the screen appears when the turn ends. No pictures are taken while the setting is off.
+
 ## 3.6.1 — selecting kanji with furigana inside framed boxes
 
 - In 文法 lessons (余白 and Fable themes), a word with furigana inside a framed chip, such as 口論 in 口論／議論のあげく, could not be selected: a long press picked the plain character beside it (the ／). The hand-drawn frame is an overlay on top of the text and was taking the touch. Frames (chips, 接續 boxes, VS labels, dictionary tags) no longer take touches.

@@ -33,6 +33,7 @@ struct GrammarTab: View {
     var body: some View {
         NavigationStack(path: $grammar.path) {
             listScreen
+                .pageTurnStackPage()
                 .toolbar(.hidden, for: .navigationBar)
                 .toolbar(immersive.on ? .hidden : .automatic, for: .tabBar)
                 .navigationDestination(for: String.self) { id in
@@ -494,6 +495,7 @@ struct GrammarLessonScreen: View {
         }
         .animation(.snappy(duration: 0.22), value: copiedPattern)
         .background(PaperBackground(style: style, texture: handDrawnPaper).equatable())
+        .pageTurnStackPage()
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(immersive.on ? .hidden : .automatic, for: .navigationBar, .tabBar)
         .toolbar {
