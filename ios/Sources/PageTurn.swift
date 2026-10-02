@@ -144,6 +144,10 @@ final class PageTurnView: UIView {
 
         var red: CGFloat = 1, green: CGFloat = 1, blue: CGFloat = 1, alpha: CGFloat = 1
         paper.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        // On dark paper the back of the sheet is a little lighter, so the roll stands out.
+        if 0.2126 * red + 0.7152 * green + 0.0722 * blue < 0.4 {
+            red += (1 - red) * 0.13; green += (1 - green) * 0.13; blue += (1 - blue) * 0.13
+        }
         // The back of the sheet: paper, with the print faintly showing through.
         func back(_ shade: CGFloat) -> CGColor {
             UIColor(red: red * (1 - shade), green: green * (1 - shade), blue: blue * (1 - shade), alpha: 0.9).cgColor
