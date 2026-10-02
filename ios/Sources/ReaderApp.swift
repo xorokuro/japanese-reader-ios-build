@@ -44,6 +44,8 @@ struct LookupSnapshot {
     let showingLookup: Bool
     /// On a results page: the result that was opened from it, scrolled back into view.
     var anchor: DictionaryHit? = nil
+    /// How the page looked when it was left, for the page-turn swipe back (nil while that is off).
+    var picture: PagePicture? = nil
 }
 
 @MainActor final class ReaderModel: ObservableObject {
@@ -120,7 +122,12 @@ struct LookupSnapshot {
     }
     /// A lookup from this selection belongs to the page on the Search tab.
     private func continuesSearch(inDictionary: Bool) -> Bool { inDictionary && onSearchTab }
+    /// The picture of the page Back leads to inside Search.
+    var backPicture: PagePicture? { lookupHistory.last?.picture }
     private func remember(_ page: LookupSnapshot) {
+        // Called just before the next page is shown, so the screen still shows this one.
+        var page = page
+        if currentTab == 1 { page.picture = PageTurn.shared.picture() }
         lookupHistory.append(page)
         if lookupHistory.count > 30 { lookupHistory.removeFirst() }
     }
@@ -877,6 +884,9 @@ struct LookupSnapshot {
         if ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--ui-") }) {
             let flip = ProcessInfo.processInfo.arguments.contains("--ui-flip-on") ? FlipMode.on : FlipMode.off
             UserDefaults.standard.set(flip.rawValue, forKey: FlipMode.key)
+            // The page-turn swipe back starts from its default (off) unless a test asks for it.
+            UserDefaults.standard.removeObject(forKey: PageTurn.key)
+            if ProcessInfo.processInfo.arguments.contains("--ui-page-turn") { UserDefaults.standard.set(true, forKey: PageTurn.key) }
         }
         if ProcessInfo.processInfo.arguments.contains("--ui-reset-search-keyboard") {
             UserDefaults.standard.removeObject(forKey: "automaticallyShowSearchKeyboard")
@@ -943,6 +953,9 @@ struct ReaderHome: View {
     @AppStorage("searchKeyboardLanguage") private var searchKeyboardLanguage = "ja"
     @AppStorage(FlipMode.key) private var flipModeRaw = FlipMode.off.rawValue
     @AppStorage(ImmersiveController.gestureKey) private var immersiveGesture = true
+    /// Appearance → Going back: swiping back turns the screen like a page.
+    @AppStorage(PageTurn.key) private var pageTurnBack = false
+    @GestureState private var edgeSwiping = false
     @ObservedObject private var immersive = ImmersiveController.shared
     @State private var showingHistory = false
     @State private var clearHistoryConfirmation = false
@@ -1102,14 +1115,18 @@ struct ReaderHome: View {
             }
             applyRedesignOnce()
             YohakuChrome.apply(style)
+            PageTurn.shared.paper = UIColor(paper); PageTurn.shared.look = style.identity
             // Start WebKit once the first screen is up, so the first definition opens fast.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { DictionaryPage.prewarm() }
         }
         .onChange(of: style.identity) { _, _ in
+            PageTurn.shared.paper = UIColor(paper); PageTurn.shared.look = style.identity
             YohakuChrome.apply(style)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { YohakuChrome.apply(style) }
         }
-        .onChange(of: selectedTab) { _, tab in
+        .onChange(of: selectedTab) { previous, tab in
+            // Still on screen at this point: the tab a swipe back from Search returns to.
+            if tab == 1 { PageTurn.shared.leaving(tab: previous) }
             if style.isYohaku { DispatchQueue.main.async { YohakuChrome.apply(style) } }
             // Programmatic lookup navigation must keep the keyboard hidden.
             // User tab taps are handled separately, including reselection.
@@ -2235,14 +2252,43 @@ struct ReaderHome: View {
     }
     private func backSwipeEdge(fromLeft: Bool) -> some View {
         // Narrow, so taps on text near the page edge still reach the page.
-        Color.clear.frame(width: 16).contentShape(Rectangle())
-            .accessibilityIdentifier(fromLeft ? "backSwipeLeftEdge" : "backSwipeRightEdge")
-            .gesture(DragGesture(minimumDistance: 25).onEnded { value in
-                let horizontal = value.translation.width
-                if abs(horizontal) > 65 && abs(horizontal) > abs(value.translation.height) * 2 && (fromLeft ? horizontal > 0 : horizontal < 0) {
-                    goBackInSearch()
-                }
-            })
+        GeometryReader { strip in
+            Color.clear.contentShape(Rectangle())
+                .accessibilityIdentifier(fromLeft ? "backSwipeLeftEdge" : "backSwipeRightEdge")
+                .gesture(DragGesture(minimumDistance: pageTurnBack ? 8 : 25)
+                    .updating($edgeSwiping) { _, swiping, _ in swiping = true }
+                    .onChanged { value in
+                        if pageTurnBack { turnPage(value, fromLeft: fromLeft, top: strip.frame(in: .global).minY) }
+                    }
+                    .onEnded { value in
+                        if PageTurn.shared.tracking {
+                            PageTurn.shared.end(velocity: value.velocity.width)
+                            return
+                        }
+                        guard !pageTurnBack else { return }
+                        let horizontal = value.translation.width
+                        if abs(horizontal) > 65 && abs(horizontal) > abs(value.translation.height) * 2 && (fromLeft ? horizontal > 0 : horizontal < 0) {
+                            goBackInSearch()
+                        }
+                    })
+        }
+        .frame(width: 16)
+        // A swipe the system takes away never reports its end: lay the page down again.
+        .onChange(of: edgeSwiping) { _, swiping in if !swiping { PageTurn.shared.fingerLifted() } }
+    }
+    /// Page-turn swipe back: the screen peels away under the finger, showing where Back leads.
+    private func turnPage(_ value: DragGesture.Value, fromLeft: Bool, top: CGFloat) {
+        let turn = PageTurn.shared
+        let width = PageTurn.window?.bounds.width ?? UIScreen.main.bounds.width
+        let start = CGPoint(x: fromLeft ? value.startLocation.x : width - 16 + value.startLocation.x, y: top + value.startLocation.y)
+        if !turn.active {
+            let across = value.translation.width * (fromLeft ? 1 : -1)
+            guard across > 4, across > abs(value.translation.height) else { return }
+            let under = model.canGoBack ? model.backPicture : turn.picture(ofTab: model.returnTab ?? 0)
+            dismissKeyboard()
+            guard turn.begin(fromLeft: fromLeft, at: start, under: under, complete: { goBackInSearch() }) else { return }
+        }
+        turn.move(to: CGPoint(x: start.x + value.translation.width, y: start.y + value.translation.height))
     }
     private func applySearchKeyboardPreference() {
         if automaticallyShowSearchKeyboard { requestSearchFocus() }
@@ -2326,6 +2372,7 @@ struct ReaderHome: View {
             .modifier(YohakuList(style: style))
             .scrollContentBackground(.hidden)
             .background(paperBackground)
+            .pageTurnStackPage()
             .navigationTitle("書庫 · Library")
             .navigationBarTitleDisplayMode(style.isYohaku ? .inline : .automatic)
             .toolbar(immersive.on ? .hidden : .automatic, for: .navigationBar, .tabBar)
@@ -2536,7 +2583,7 @@ struct ReaderHome: View {
     /// Section titles of Appearance, in page order (目次).
     static let appearanceSections = ["Automatic & custom", "Fable · 糸 (Claude style)", "Fable variations · 変奏", "Self-portraits · 自画像",
                                      "Editorial · 余白 (choose a paper)", "Hand-drawn · 手描き (same as desktop)", "Section button · 目次",
-                                     "Reading text · 本文", "Dictionary pages · 辞書"]
+                                     "Going back · 翻頁", "Reading text · 本文", "Dictionary pages · 辞書"]
 
     private var appearancePage: some View {
       ScrollViewReader { proxy in
@@ -2545,6 +2592,8 @@ struct ReaderHome: View {
                 appearanceIntro
                 appearanceFable
                 appearanceClassic
+                appearanceSectionButton
+                appearancePageTurn
                 appearanceReading
                 appearanceDictionary
             }
@@ -2553,6 +2602,7 @@ struct ReaderHome: View {
         .modifier(YohakuList(style: style))
         .scrollContentBackground(.hidden)
         .background(paperBackground)
+        .pageTurnStackPage()
         .navigationTitle("Appearance")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -2617,13 +2667,28 @@ struct ReaderHome: View {
         })
     }
 
-    private var appearanceReading: AnyView {
+    private var appearanceSectionButton: AnyView {
         AnyView(Group {
                 Section {
                     JumpIconPicker(style: style)
                 } header: { Text("Section button · 目次").textCase(nil).id("jump.Section button · 目次") } footer: {
                     Text("The small button at the top of Library, Appearance, the 文法 list and every lesson. It opens the list of sections on that page; tap one to jump to it. Choose its drawing here.")
                 }
+        })
+    }
+
+    private var appearancePageTurn: AnyView {
+        AnyView(Group {
+                Section {
+                    Toggle("Page-turn swipe back · 翻頁返回", isOn: $pageTurnBack).accessibilityIdentifier("pageTurnBack")
+                } header: { Text("Going back · 翻頁").textCase(nil).id("jump.Going back · 翻頁") } footer: {
+                    Text("Swiping back from the edge of the screen turns it like a page: the sheet curls under your finger and shows the screen you came from. Swipe far enough and let go to go back; let go early and the page lies down again. Works on definitions and search results, grammar lessons and this page.")
+                }
+        })
+    }
+
+    private var appearanceReading: AnyView {
+        AnyView(Group {
                 Section {
                     Picker("Typeface", selection: $readerTypefaceRaw) {
                         ForEach(ReaderTypeface.allCases) { face in
@@ -2709,6 +2774,7 @@ struct ReaderHome: View {
                         themeID = "hand-washi"; accentRGB = 0x1F7A73; paperRGB = 0xFFFFFF; customPaper = false
                         readerTypefaceRaw = ReaderTypeface.kyokasho.rawValue; readerTextSize = 23; readerLineSpacing = 1.35
                         handDrawnPaper = true; ruledPaper = true; ruleStrength = 1; ruleThickness = 1
+                        pageTurnBack = false
                         dictionaryTextSize = 19; dictionaryTextSizes = ""; dictionarySans = false
                     }
                 }

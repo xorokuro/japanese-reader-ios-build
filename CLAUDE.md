@@ -1,6 +1,6 @@
 # Japanese Reader (iOS) — notes for anyone working on this repo
 
-- **`main` is the app.** Start every change from the latest `main` (currently 3.6.1, build 58).
+- **`main` is the app.** Start every change from the latest `main` (currently 3.7.0, build 59).
   Do not start from older branches (`ruled-lines`, `grammar-tab`, `fix/…`, `claude/…`): they are
   snapshots of past versions, and building from one of them drops features such as the 文法 tab.
 - The app has four tabs: Read, Search, Library and **文法 (Grammar)**. A build without the Grammar tab
@@ -15,3 +15,7 @@
 - The script in `DictionaryPage.selectionScript` is one JavaScript program: a syntax error anywhere
   (a name declared twice, say) silently disables all of it on the phone. Before shipping a change to it,
   run the changed function in a real browser against a sample page.
+- The page-turn swipe back (`PageTurn.swift`, Appearance → Going back, off by default) shows a picture of the
+  previous screen under the turning sheet. Pictures are taken just before a screen is left (`remember` in the
+  model, the tab change in `ReaderHome`, `PageTurnStackHook` on NavigationStack pages) and only while the
+  setting is on. A new page pushed in a NavigationStack needs `.pageTurnStackPage()` to take part.
