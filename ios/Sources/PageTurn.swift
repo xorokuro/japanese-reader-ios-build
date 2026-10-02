@@ -623,7 +623,15 @@ struct PageTurnStackHook: UIViewControllerRepresentable {
     }
 }
 
+/// The hook is only part of the page while the setting is on.
+private struct PageTurnStackPage: ViewModifier {
+    @AppStorage(PageTurn.key) private var on = false
+    func body(content: Content) -> some View {
+        content.background { if on { PageTurnStackHook() } }
+    }
+}
+
 extension View {
     /// Marks a page of a NavigationStack for the page-turn swipe back.
-    func pageTurnStackPage() -> some View { background(PageTurnStackHook()) }
+    func pageTurnStackPage() -> some View { modifier(PageTurnStackPage()) }
 }

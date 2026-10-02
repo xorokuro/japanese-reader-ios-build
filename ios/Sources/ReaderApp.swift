@@ -2250,26 +2250,30 @@ struct ReaderHome: View {
             selectedTab = model.returnTab ?? 0
         }
     }
-    private func backSwipeEdge(fromLeft: Bool) -> some View {
+    @ViewBuilder private func backSwipeEdge(fromLeft: Bool) -> some View {
+        if pageTurnBack { pageTurnEdge(fromLeft: fromLeft) } else { plainBackSwipeEdge(fromLeft: fromLeft) }
+    }
+    private func plainBackSwipeEdge(fromLeft: Bool) -> some View {
         // Narrow, so taps on text near the page edge still reach the page.
+        Color.clear.frame(width: 16).contentShape(Rectangle())
+            .accessibilityIdentifier(fromLeft ? "backSwipeLeftEdge" : "backSwipeRightEdge")
+            .gesture(DragGesture(minimumDistance: 25).onEnded { value in
+                let horizontal = value.translation.width
+                if abs(horizontal) > 65 && abs(horizontal) > abs(value.translation.height) * 2 && (fromLeft ? horizontal > 0 : horizontal < 0) {
+                    goBackInSearch()
+                }
+            })
+    }
+    /// The same strip while Appearance → Going back is on: the swipe turns the page.
+    private func pageTurnEdge(fromLeft: Bool) -> some View {
         GeometryReader { strip in
             Color.clear.contentShape(Rectangle())
                 .accessibilityIdentifier(fromLeft ? "backSwipeLeftEdge" : "backSwipeRightEdge")
-                .gesture(DragGesture(minimumDistance: pageTurnBack ? 8 : 25)
+                .gesture(DragGesture(minimumDistance: 8)
                     .updating($edgeSwiping) { _, swiping, _ in swiping = true }
-                    .onChanged { value in
-                        if pageTurnBack { turnPage(value, fromLeft: fromLeft, top: strip.frame(in: .global).minY) }
-                    }
+                    .onChanged { value in turnPage(value, fromLeft: fromLeft, top: strip.frame(in: .global).minY) }
                     .onEnded { value in
-                        if PageTurn.shared.tracking {
-                            PageTurn.shared.end(velocity: value.velocity.width)
-                            return
-                        }
-                        guard !pageTurnBack else { return }
-                        let horizontal = value.translation.width
-                        if abs(horizontal) > 65 && abs(horizontal) > abs(value.translation.height) * 2 && (fromLeft ? horizontal > 0 : horizontal < 0) {
-                            goBackInSearch()
-                        }
+                        if PageTurn.shared.tracking { PageTurn.shared.end(velocity: value.velocity.width) }
                     })
         }
         .frame(width: 16)
