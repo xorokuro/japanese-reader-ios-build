@@ -1782,6 +1782,7 @@ struct ReaderHome: View {
         return ZStack(alignment: .bottom) {
             DictionaryPage(html: model.entryHTML, root: model.entryRoot ?? model.dictionaryRoot, code: model.entryCode,
                            paperRGB: style.isYohaku ? style.backgroundRGB : style.surfaceRGB, accentRGB: style.accentRGB,
+                           themed: style.isYohaku ? style : nil,
                            textSize: entryTextSize, sansFont: dictionarySans,
                            initialOffset: model.entryOffsets[visitID] ?? .zero,
                            bottomInset: entryPeekVisible ? 300 : 0,

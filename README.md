@@ -6,6 +6,10 @@ Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuse
 
 Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.9, build 38).
 
+## 3.7.1 — dictionary pages always in the theme
+
+- A definition sometimes opened without the 余白 / Fable look: plain background, system Mincho, no brush lines, while the next one was fine. The page took the theme from an app-wide setting that could briefly point at the fallback style. Each page is now given the theme of the screen it is on.
+
 ## 3.7.0 — page-turn swipe back (optional)
 
 - **Appearance → Going back · 翻頁 → Page-turn swipe back** (off by default). With it on, swiping back from the edge of the screen turns the screen like a sheet of paper instead of jumping back:
