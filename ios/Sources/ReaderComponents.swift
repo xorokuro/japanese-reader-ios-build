@@ -4,9 +4,11 @@ import SwiftUI
 // Nothing here is shared with the Windows desktop interface.
 
 private struct ReaderStyleKey: EnvironmentKey {
+    // A fallback only: it must not become the app's current design. It used to, so a
+    // dictionary page opened just after SwiftUI read this default came up without the theme.
     static var defaultValue: ReaderStyle {
         ReaderStyle.resolve(themeID: ReaderTheme.systemID, customPaper: false,
-                            paperRGB: 0xFFFFFF, customAccentRGB: 0x1F7A73, systemDark: false)
+                            paperRGB: 0xFFFFFF, customAccentRGB: 0x1F7A73, systemDark: false, activate: false)
     }
 }
 

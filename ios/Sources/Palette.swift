@@ -321,18 +321,21 @@ struct ReaderStyle: Equatable {
     /// Views read the style many times per frame; resolving it (with its contrast
     /// search) once per combination keeps scrolling and typing smooth.
     private static var resolved: [String: ReaderStyle] = [:]
-    static func resolve(themeID: String, customPaper: Bool, paperRGB: Int, customAccentRGB: Int, systemDark: Bool) -> ReaderStyle {
+    /// `activate: false` only looks the style up. The default (true) also makes it the app's
+    /// current design (`YohakuDesign`), which fonts and dictionary pages read; only the style
+    /// the app is actually shown in may do that.
+    static func resolve(themeID: String, customPaper: Bool, paperRGB: Int, customAccentRGB: Int, systemDark: Bool, activate: Bool = true) -> ReaderStyle {
         let key = "\(themeID)|\(customPaper)|\(paperRGB)|\(customAccentRGB)|\(systemDark)"
+        let style: ReaderStyle
         if let cached = resolved[key] {
-            YohakuDesign.active = cached.isYohaku; YohakuDesign.fable = cached.isFable
-            YohakuDesign.stitched = cached.isFable && cached.theme.motif == .sashiko
-            YohakuDesign.style = cached.isYohaku ? cached : nil
-            return cached
-        }
-        let style = compute(themeID: themeID, customPaper: customPaper, paperRGB: paperRGB,
+            style = cached
+        } else {
+            style = compute(themeID: themeID, customPaper: customPaper, paperRGB: paperRGB,
                             customAccentRGB: customAccentRGB, systemDark: systemDark)
-        if resolved.count > 64 { resolved.removeAll() }
-        resolved[key] = style
+            if resolved.count > 64 { resolved.removeAll() }
+            resolved[key] = style
+        }
+        guard activate else { return style }
         YohakuDesign.active = style.isYohaku
         YohakuDesign.fable = style.isFable
         YohakuDesign.stitched = style.isFable && style.theme.motif == .sashiko

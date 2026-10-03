@@ -64,6 +64,9 @@ struct DictionaryPage: UIViewRepresentable {
     let code: String
     var paperRGB: Int? = nil
     var accentRGB: Int? = nil
+    /// The 余白 / Fable theme the page is drawn in (nil for the other themes). Passed in by the
+    /// screen instead of read from the app-wide `YohakuDesign`, so the page always matches it.
+    var themed: ReaderStyle? = nil
     var textSize: Double = 19
     var sansFont = false
     var initialOffset: CGPoint = .zero
@@ -456,6 +459,7 @@ struct DictionaryPage: UIViewRepresentable {
         let coordinator = Coordinator(root: root, code: code, followLink: followLink, lookup: lookup)
         coordinator.paperRGB = paperRGB
         coordinator.accentRGB = accentRGB
+        coordinator.themed = themed
         coordinator.textSize = textSize
         coordinator.margins = margins
         coordinator.sansFont = sansFont
@@ -496,7 +500,7 @@ struct DictionaryPage: UIViewRepresentable {
             let script = "const s=document.createElement('style');s.textContent='\(themeCSS):root{--e-pad:\(coordinator.margins.pagePadding)px}';document.head.appendChild(s);"
             configuration.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: selectionWorld))
         }
-        if YohakuDesign.active, let yohaku = YohakuDesign.style {
+        if let yohaku = coordinator.themed {
             // 余白 Yohaku: paper grain, Mincho headwords and examples, brush dividers, Hanken numerals.
             let css = YohakuWeb.fontFaces(scheme: "jpread") + YohakuWeb.dictionaryCSS(yohaku)
             let literal = (try? String(data: JSONEncoder().encode(css), encoding: .utf8)) ?? "\"\""
@@ -566,6 +570,7 @@ struct DictionaryPage: UIViewRepresentable {
         var followLink: ((String) -> Void)?
         var paperRGB: Int?
         var accentRGB: Int?
+        var themed: ReaderStyle?
         var textSize: Double = 19
         var margins: PageMargins = .compact
         let sizeSwipe = TextSizeSwipe()

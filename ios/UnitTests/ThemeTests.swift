@@ -104,4 +104,17 @@ final class ThemeTests: XCTestCase {
         XCTAssertEqual(ReaderStyle.resolve(themeID: "fable-night", customPaper: false, paperRGB: 0xFFFFFF,
                                            customAccentRGB: 0x1F7A73, systemDark: false).isDark, true)
     }
+
+    /// The environment's fallback style is only a fallback: reading it must not switch the
+    /// app's current design, or the next dictionary page is built without its theme.
+    func testTheFallbackStyleDoesNotBecomeTheCurrentDesign() {
+        let fable = ReaderStyle.resolve(themeID: "fable", customPaper: false, paperRGB: 0xFFFFFF,
+                                        customAccentRGB: 0x1F7A73, systemDark: false)
+        XCTAssertTrue(YohakuDesign.active)
+        let fallback = EnvironmentValues().readerStyle
+        XCTAssertFalse(fallback.isYohaku)
+        XCTAssertTrue(YohakuDesign.active, "Still the theme on screen")
+        XCTAssertTrue(YohakuDesign.fable)
+        XCTAssertEqual(YohakuDesign.style?.identity, fable.identity)
+    }
 }
