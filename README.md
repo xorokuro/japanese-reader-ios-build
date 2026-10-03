@@ -6,6 +6,10 @@ Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuse
 
 Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.9, build 38).
 
+## 3.7.2 — Paste button that cannot go missing
+
+- The **Paste** buttons (Read page and Search field) are drawn by iOS, and on the phone the one on the Read page was not drawn at all, leaving only Photo. When iOS does not draw the button, the app now shows its own Paste button in the same place. That one reads the clipboard directly, so iOS may ask "Allow Paste" (Settings → Apps → Japanese Reader → Paste from Other Apps → Allow stops the question).
+
 ## 3.7.1 — dictionary pages always in the theme
 
 - A definition sometimes opened without the 余白 / Fable look: plain background, system Mincho, no brush lines, while the next one was fine. The page took the theme from an app-wide setting that could briefly point at the fallback style. Each page is now given the theme of the screen it is on.

@@ -439,3 +439,41 @@ struct LazyPage: View {
     let build: () -> AnyView
     var body: some View { build() }
 }
+
+// MARK: - Paste
+
+private struct PasteWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+/// The system Paste button with a stand-in. iOS draws that button itself (which is why it
+/// needs no "Allow Paste" question), and on some phones it comes out with no size at all:
+/// the button is simply not there. When that happens the app's own button is shown in its
+/// place; it reads the clipboard directly, so iOS may ask "Allow Paste".
+struct PasteControl<System: View, StandIn: View>: View {
+    let paste: ([String]) -> Void
+    @ViewBuilder let system: () -> System
+    @ViewBuilder let standIn: (@escaping () -> Void) -> StandIn
+    @State private var width: CGFloat = 0
+    /// The system button gets a moment to be drawn before it is counted as missing.
+    @State private var waited = false
+
+    var body: some View {
+        HStack(spacing: 0) {
+            system()
+                .background(GeometryReader { box in Color.clear.preference(key: PasteWidthKey.self, value: box.size.width) })
+                .onPreferenceChange(PasteWidthKey.self) { width = $0 }
+            if waited && width < 20 {
+                standIn {
+                    guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
+                    paste([text])
+                }
+            }
+        }
+        .task {
+            try? await Task.sleep(for: .milliseconds(900))
+            waited = true
+        }
+    }
+}

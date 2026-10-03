@@ -1528,11 +1528,19 @@ struct ReaderHome: View {
     private var readingActions: some View {
         VStack(spacing: 6) {
             HStack(spacing: 10) {
-                PasteButton(payloadType: String.self, onPaste: pastePassage)
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.capsule)
-                    .tint(accent)
-                    .accessibilityIdentifier("pastePassage")
+                PasteControl(paste: pastePassage) {
+                    PasteButton(payloadType: String.self, onPaste: pastePassage)
+                        .buttonStyle(.borderedProminent)
+                        .buttonBorderShape(.capsule)
+                        .tint(accent)
+                        .accessibilityIdentifier("pastePassage")
+                } standIn: { paste in
+                    Button(action: paste) { Label("Paste", systemImage: "doc.on.clipboard") }
+                        .buttonStyle(.borderedProminent)
+                        .buttonBorderShape(.capsule)
+                        .tint(accent)
+                        .accessibilityIdentifier("pastePassageStandIn")
+                }
                 photoMenu
                 if !model.readerSelection.isEmpty && model.peek == nil {
                     Button("Search selected text") { model.searchSelected(inDictionary: false) }
@@ -1978,13 +1986,23 @@ struct ReaderHome: View {
                     if model.lookupBusy { ProgressView().controlSize(.small) }
                     // Paste what was copied and search for it, replacing what is in the
                     // field. The system paste button needs no "Allow Paste" question.
-                    PasteButton(payloadType: String.self) { strings in pasteIntoSearch(strings) }
-                        .labelStyle(.iconOnly)
-                        .buttonBorderShape(style.isYohaku ? .roundedRectangle(radius: 2) : .capsule)
-                        .controlSize(.small)
-                        .tint(accent)
-                        .accessibilityIdentifier("pasteSearch")
-                        .background(KeyboardControlArea())
+                    PasteControl(paste: pasteIntoSearch) {
+                        PasteButton(payloadType: String.self) { strings in pasteIntoSearch(strings) }
+                            .labelStyle(.iconOnly)
+                            .buttonBorderShape(style.isYohaku ? .roundedRectangle(radius: 2) : .capsule)
+                            .controlSize(.small)
+                            .tint(accent)
+                            .accessibilityIdentifier("pasteSearch")
+                    } standIn: { paste in
+                        Button(action: paste) { Image(systemName: "doc.on.clipboard") }
+                            .buttonStyle(.borderedProminent)
+                            .buttonBorderShape(style.isYohaku ? .roundedRectangle(radius: 2) : .capsule)
+                            .controlSize(.small)
+                            .tint(accent)
+                            .accessibilityLabel("Paste")
+                            .accessibilityIdentifier("pasteSearchStandIn")
+                    }
+                    .background(KeyboardControlArea())
                     if !model.word.isEmpty {
                         Button { model.search() } label: {
                             Image(systemName: "arrow.forward")

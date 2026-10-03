@@ -1,6 +1,6 @@
 # Japanese Reader (iOS) — notes for anyone working on this repo
 
-- **`main` is the app.** Start every change from the latest `main` (currently 3.7.1, build 61).
+- **`main` is the app.** Start every change from the latest `main` (currently 3.7.2, build 62).
   Do not start from older branches (`ruled-lines`, `grammar-tab`, `fix/…`, `claude/…`): they are
   snapshots of past versions, and building from one of them drops features such as the 文法 tab.
 - The app has four tabs: Read, Search, Library and **文法 (Grammar)**. A build without the Grammar tab
@@ -26,3 +26,6 @@
 - `YohakuDesign` (the app-wide "current design") is set by `ReaderStyle.resolve` and read by fonts. Anything
   that only needs to look a style up passes `activate: false`; dictionary pages get their theme passed in
   (`DictionaryPage.themed`) instead of reading the global.
+- The Paste buttons (Read page, Search field) are the system `PasteButton`, which iOS draws itself. On the
+  owner's phone it has come out with no size (button missing) while the simulator drew it. `PasteControl`
+  shows the app's own button in its place when that happens; keep new paste buttons inside it.
