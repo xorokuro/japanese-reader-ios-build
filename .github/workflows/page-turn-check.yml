@@ -1,0 +1,42 @@
+name: Probe (temporary)
+on:
+  push:
+    branches: [page-turn-run]
+permissions:
+  contents: write
+jobs:
+  check:
+    if: github.event.repository.private == false
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the probe
+        run: |
+          cd ios
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcodegen generate
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for devices in d["devices"].values() for x in devices if "iPhone" in x["name"] and "Pro Max" in x["name"]))' || true)
+          [ -n "$DEVICE" ] || DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for devices in d["devices"].values() for x in devices if "iPhone" in x["name"]))')
+          mkdir -p build/shots
+          xcodebuild -project JapaneseReader.xcodeproj -scheme JapaneseReader -destination "platform=iOS Simulator,id=$DEVICE" -resultBundlePath build/Probe.xcresult CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -only-testing:ReaderUITests/PasteProbeUITests test > build/test.log 2>&1 || true
+          grep -E "error:|PROBE|Test Case|\*\* TEST|\*\* BUILD" build/test.log | cut -c1-400 | tail -60 > build/shots/summary.txt || true
+          xcrun simctl list devices booted >> build/shots/summary.txt || true
+          xcrun xcresulttool export attachments --path build/Probe.xcresult --output-path build/shots || true
+      - name: Publish
+        run: |
+          cd ios/build/shots
+          python3 - <<'PY'
+          import json, os, re
+          try: manifest = json.load(open('manifest.json'))
+          except Exception: manifest = []
+          for test in manifest:
+              for a in test.get('attachments', []):
+                  src = a.get('exportedFileName'); name = a.get('suggestedHumanReadableName', src)
+                  if src and os.path.exists(src) and src.lower().endswith('.png'):
+                      os.rename(src, re.sub(r'[^A-Za-z0-9._-]+', '_', name))
+          PY
+          git init -q out && mv *.png summary.txt out/ 2>/dev/null || true
+          cd out && git config user.name probe && git config user.email "actions@users.noreply.github.com"
+          git add -A && git commit -qm "Probe" || exit 0
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" HEAD:page-turn-screens
