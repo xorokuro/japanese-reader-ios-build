@@ -1,0 +1,26 @@
+Test Case '-[ReaderUITests.PasteProbeUITests testFable]' started.
+PROBE fable empty exists=true frame=(16.0, 828.0, 87.33333333333333, 34.33333333333337)
+PROBE fable cleared exists=true frame=(16.0, 803.0, 87.33333333333333, 34.33333333333337)
+Test Case '-[ReaderUITests.PasteProbeUITests testFable]' passed (75.795 seconds).
+Test Case '-[ReaderUITests.PasteProbeUITests testSundown]' started.
+PROBE fable-sundown empty exists=true frame=(16.0, 828.0, 87.33333333333333, 34.33333333333337)
+PROBE fable-sundown cleared exists=true frame=(16.0, 803.0, 87.33333333333333, 34.33333333333337)
+Test Case '-[ReaderUITests.PasteProbeUITests testSundown]' passed (26.702 seconds).
+** TEST SUCCEEDED **
+== Devices ==
+-- iOS 18.5 --
+-- iOS 18.6 --
+-- iOS 26.0 --
+-- iOS 26.1 --
+-- iOS 26.2 --
+-- tvOS 18.5 --
+-- tvOS 26.1 --
+-- tvOS 26.2 --
+-- watchOS 11.5 --
+-- watchOS 26.1 --
+-- watchOS 26.2 --
+-- visionOS 2.3 --
+-- visionOS 2.4 --
+-- visionOS 2.5 --
+-- visionOS 26.1 --
+-- visionOS 26.2 --
