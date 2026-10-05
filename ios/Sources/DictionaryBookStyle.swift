@@ -150,6 +150,14 @@ body span.mean_yorei *{color:inherit!important}
 body con_table>accent,body accent_text{white-space:nowrap}body con_table>accent{display:flex;justify-content:space-between;width:100%}
 body,body *{-webkit-user-select:text;user-select:text}
 body mark.jp-hit{background:color-mix(in srgb,var(--e-strong) 24%,transparent)!important;color:inherit!important;border-radius:3px;padding:0 1px;box-shadow:0 0 0 1px color-mix(in srgb,var(--e-strong) 35%,transparent)!important}
+html:root:not(#w):not(#x) body :is(accent,accent_text){max-width:100%!important;box-sizing:border-box!important;min-width:0!important}
+html:root:not(#w):not(#x) body accent{overflow-x:auto!important;scrollbar-width:none}
+html:root:not(#w):not(#x) body accent::-webkit-scrollbar{display:none}
+html:root:not(#w):not(#x) body con_table{max-width:100%!important;grid-template-columns:repeat(auto-fill,minmax(min(100%,12.5em),1fr))!important}
+audio:not([controls]){display:none!important}
+body sound:has(audio:not([controls])){display:none!important}
+body .jp-play{cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation;transition:background-color .18s}
+html:root:not(#w):not(#x) body .jp-play:active,html:root:not(#w):not(#x) body .jp-play.jp-playing{background-color:color-mix(in srgb,var(--e-strong) 18%,transparent)!important}
 :root[data-font="sans"]{--e-font:var(--e-sans)}
 """#
 

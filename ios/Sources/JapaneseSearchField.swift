@@ -50,7 +50,20 @@ struct JapaneseSearchField: UIViewRepresentable {
         field.delegate = context.coordinator
         field.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
         field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        // The field may always be made narrower than its text or placeholder. Left at
+        // the default it refuses to shrink below the width of "Search Japanese…", and
+        // on a narrow screen (Display Zoom, larger text sizes) that made the whole
+        // Search page wider than the screen: both edges were cut off.
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return field
+    }
+    /// Takes the width it is offered, whatever the text inside it measures.
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: JapaneseTextField, context: Context) -> CGSize? {
+        let natural = uiView.intrinsicContentSize
+        let width = proposal.width ?? natural.width
+        let height = proposal.height ?? natural.height
+        guard width.isFinite, height.isFinite else { return nil }
+        return CGSize(width: max(width, 0), height: max(height, 0))
     }
     func updateUIView(_ field: JapaneseTextField, context: Context) {
         let coordinator = context.coordinator

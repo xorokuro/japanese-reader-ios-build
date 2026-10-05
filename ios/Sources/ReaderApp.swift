@@ -1885,6 +1885,9 @@ struct ReaderHome: View {
                 .background(GeometryReader { proxy in
                     Color.clear.preference(key: SearchHeaderHeightKey.self, value: proxy.size.height)
                 })
+                // The header never decides the page's width: if its row cannot shrink
+                // enough, only the row overflows, not the result list under it.
+                .frame(minWidth: 0, maxWidth: .infinity)
                 .offset(y: searchChromeHidden ? -(headerHeight + 8) : 0)
                 .opacity(searchChromeHidden ? 0 : 1)
             if searchChromeHidden {

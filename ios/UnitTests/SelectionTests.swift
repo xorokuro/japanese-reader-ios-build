@@ -231,4 +231,76 @@ import WebKit
         XCTAssertGreaterThan(fitted["mark"] ?? -1, 20, "The pitch mark stays after the kana, not on top of the first one: \(fitted)")
         XCTAssertGreaterThanOrEqual(fitted["sound"] ?? -99, -1, "The play button does not cover the kana: \(fitted)")
     }
+
+    private func loaded(_ body: String, css: String, size: Double = 30) async throws -> (WKWebView, UIWindow) {
+        let coordinator = DictionaryPage.Coordinator(root: FileManager.default.temporaryDirectory, code: "TEST") { _ in }
+        coordinator.margins = .wide
+        coordinator.textSize = size
+        let view = DictionaryPage.makeWebView(html: DictionaryPage.make(body: body, css: css, code: "TEST"), coordinator: coordinator)
+        let window = host(view)
+        for _ in 0..<600 {
+            if !view.isLoading && view.url != nil { break }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        try await Task.sleep(nanoseconds: 400_000_000)
+        return (view, window)
+    }
+
+    /// ジーニアス「そこまで」: the headword has a drawn rule under it (so the fit leaves it
+    /// alone) and every other line is an indented example. Moving the entry left by the
+    /// examples' indent pushed the headword off the left side of the screen.
+    func testHeadwordStaysOnThePageWhenOnlyExamplesAreIndented() async throws {
+        let css = ".head{position:relative;padding-bottom:.5em}.head::after{content:'';position:absolute;left:0;right:0;bottom:0;height:4px}"
+            + ".example{margin-left:1.4em}.example span{display:block}"
+        let body = "<div class='dic_item'><div class='head' id='head'><span id='word'>そこまで</span> [そこ迄]</div>"
+            + "<div class='example'><span>そこまですることはないよ</span><span>You don't have to do that much.</span></div>"
+            + "<div class='example'><span>君がそこまで言うなら一緒に行くよ</span><span>I'll go with you if you insist.</span></div></div>"
+        let (view, window) = try await loaded(body, css: css)
+        defer {
+            view.configuration.userContentController.removeScriptMessageHandler(forName: "readerSelection", contentWorld: DictionaryPage.selectionWorld)
+            window.isHidden = true
+        }
+        let measure = "(() => { const edge = parseFloat(getComputedStyle(document.body).paddingLeft) || 0; let left = 9999; for (const e of document.body.querySelectorAll('*')) { const r = e.getBoundingClientRect(); if (r.width > 0 && r.height > 0) left = Math.min(left, r.left); } return JSON.stringify({ left: left - edge, word: document.getElementById('word').getBoundingClientRect().left - edge }); })()"
+        for scale in [0.4, 1.0] {
+            _ = try await evaluate("window.__jpIndent(\(scale))", in: view)
+            let raw = try await evaluate(measure, in: view) as? String
+            let result = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(raw?.data(using: .utf8))) as? [String: Double])
+            XCTAssertGreaterThanOrEqual(result["left"] ?? -99, -0.6, "Nothing is left of the page padding at scale \(scale): \(result)")
+            XCTAssertGreaterThanOrEqual(result["word"] ?? -99, -0.6, "The headword starts on the page at scale \(scale): \(result)")
+        }
+    }
+
+    /// NHK accent boxes: the play control is gone, the whole box is the button, and a
+    /// long reading is drawn smaller instead of running off the right side.
+    func testAccentBoxIsThePlayButtonAndFitsThePage() async throws {
+        let css = "dic-item .body>accent{display:inline-flex;align-items:center;padding:.2em .8em;font-size:1.3em;letter-spacing:.08em;white-space:nowrap}"
+            + "con_table{display:grid;grid-template-columns:repeat(auto-fill,minmax(12.5em,1fr));gap:.45em}con_table>accent{display:flex;padding:.3em .7em}"
+        let body = "<dic-item><div class='head'><headword>そうべつかい</headword></div><div class='body'>"
+            + "<accent id='first'><accent_text>ソーベツ<symbol_backslash>＼</symbol_backslash>カイ<sound><a href=\"sound://a/1.aac\">♪</a></sound></accent_text></accent>"
+            + "<con_table><accent id='long'><accent_text>ヒト<symbol_backslash>＼</symbol_backslash>ツダケノモノデスカラネエソウデスネ<sound><a href=\"sound://a/2.aac\">♪</a></sound></accent_text></accent></con_table>"
+            + "</div><p>発音 <a href=\"sound://a/3.aac\">♪</a></p></dic-item>"
+        let (view, window) = try await loaded(body, css: css)
+        defer {
+            view.configuration.userContentController.removeScriptMessageHandler(forName: "readerSelection", contentWorld: DictionaryPage.selectionWorld)
+            window.isHidden = true
+        }
+        _ = try await evaluate("window.__jpIndent(1)", in: view)
+        let measure = "(() => { let right = 0; for (const e of document.body.querySelectorAll('*')) { const r = e.getBoundingClientRect(); if (r.width > 0 && r.height > 0) right = Math.max(right, r.right); } const audios = Array.from(document.querySelectorAll('audio')); const long = document.getElementById('long'); return JSON.stringify({ over: right - innerWidth, page: document.documentElement.scrollWidth - innerWidth, inner: long.scrollWidth - long.clientWidth, audios: audios.length, controls: audios.filter(a => a.hasAttribute('controls')).length, buttons: document.querySelectorAll('accent.jp-play').length, shown: audios.filter(a => getComputedStyle(a).display !== 'none').length }); })()"
+        let raw = try await evaluate(measure, in: view) as? String
+        let result = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(raw?.data(using: .utf8))) as? [String: Double])
+        XCTAssertEqual(result["audios"], 3, "Every sound link became a recording: \(result)")
+        XCTAssertEqual(result["buttons"], 2, "Both accent boxes are play buttons: \(result)")
+        XCTAssertEqual(result["controls"], 1, "Only the recording outside an accent box keeps its control: \(result)")
+        XCTAssertEqual(result["shown"], 1, "The recordings inside accent boxes take no room: \(result)")
+        XCTAssertLessThanOrEqual(result["over"] ?? 99, 0.6, "Nothing reaches past the right edge of the page: \(result)")
+        XCTAssertLessThanOrEqual(result["page"] ?? 99, 0.6, "The page does not scroll sideways: \(result)")
+        XCTAssertLessThanOrEqual(result["inner"] ?? 99, 1.5, "The long reading is fitted inside its box: \(result)")
+        // A tap anywhere on the box starts its recording.
+        let tap = "(() => { window.__played = []; const box = document.getElementById('first'); box.__jpAudio.play = function () { window.__played.push(this.getAttribute('src')); return Promise.resolve(); }; box.dispatchEvent(new MouseEvent('click', { bubbles: true })); return JSON.stringify({ played: window.__played.length, lit: box.classList.contains('jp-playing') ? 1 : 0, src: window.__played[0] === 'jpread://dictionary/a/1.aac' ? 1 : 0 }); })()"
+        let tapped = try await evaluate(tap, in: view) as? String
+        let outcome = try XCTUnwrap(JSONSerialization.jsonObject(with: try XCTUnwrap(tapped?.data(using: .utf8))) as? [String: Double])
+        XCTAssertEqual(outcome["played"], 1, "The tap starts the recording: \(outcome)")
+        XCTAssertEqual(outcome["src"], 1, "It is the box's own recording: \(outcome)")
+        XCTAssertEqual(outcome["lit"], 1, "The box shows that it is playing: \(outcome)")
+    }
 }

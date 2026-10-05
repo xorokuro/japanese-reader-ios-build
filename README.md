@@ -6,6 +6,13 @@ Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuse
 
 Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.9, build 38).
 
+## 3.7.3 — nothing off the screen, and the NHK accent box plays on tap
+
+- **NHK 日本語発音アクセント: tap the box to hear it.** The small ▶ control after the kana is gone. The whole accent box (kana and pitch mark) is the button: tap anywhere on it and the recording plays, from the start each time; the box is tinted while it plays. Long-pressing a kana to select it still works. Recordings in other dictionaries, outside an accent box, keep their control.
+- **Accent box no longer runs off the right side.** The box was as wide as its kana plus the control, whatever the page width. It now stays inside the page, and a reading too long for one line is drawn smaller until it fits.
+- **Headword cut off on the left (ジーニアス「そこまで」).** On an entry made of a headword and indented examples only, the page fit moved the whole entry left by the examples' indent, which pushed the headword off the screen. The fit now counts the headword too, and a last check moves back anything that ends up left of the page.
+- **Search page cut off on both sides.** The search field refused to become narrower than its placeholder text, so on a narrow screen (Display Zoom, larger text sizes), with the Paste and → buttons beside it, the row was wider than the screen and the whole page (back arrow, ⋯, the result rows) was cut at both edges. The field now takes the room that is left.
+
 ## 3.7.2 — Paste button that cannot go missing
 
 - The **Paste** buttons (Read page and Search field) are drawn by iOS, and on the phone the one on the Read page was not drawn at all, leaving only Photo. When iOS does not draw the button, the app now shows its own Paste button in the same place. That one reads the clipboard directly, so iOS may ask "Allow Paste" (Settings → Apps → Japanese Reader → Paste from Other Apps → Allow stops the question).

@@ -347,9 +347,17 @@ struct DictionaryPage: UIViewRepresentable {
             // 1. Each entry (a top-level part of the page) back to the page edge.
             let pageLeft = pageEdge();
             const parts = Array.from(document.body.children).filter(isBlock);
+            // Every block counts, also the ones the fit leaves alone (a headword with a
+            // drawn rule under it, a flex row): they sit at the page edge while the
+            // examples are indented, and moving the entry by the examples' indent would
+            // push them off the left side of the screen.
+            const freeSet = new Set(free);
             for (const part of parts) {
                 let nearest = Infinity;
-                for (const block of free) if (part === block || part.contains(block)) nearest = Math.min(nearest, startOf(block) - pageLeft);
+                for (const block of blocks) {
+                    if (part !== block && !part.contains(block)) continue;
+                    nearest = Math.min(nearest, (freeSet.has(block) ? startOf(block) : block.getBoundingClientRect().left) - pageLeft);
+                }
                 if (nearest !== Infinity && nearest > 1) {
                     record(part, "margin-left");
                     part.style.setProperty("margin-left", ((parseFloat(getComputedStyle(part).marginLeft) || 0) - nearest).toFixed(1) + "px", "important");
@@ -384,7 +392,88 @@ struct DictionaryPage: UIViewRepresentable {
             }
             return true;
         };
+        // Whatever the fit did, no part of an entry may end up left of the page.
+        const keepOnPage = () => {
+            const edge = document.body.getBoundingClientRect().left;
+            for (const part of document.body.children) {
+                let left = part.getBoundingClientRect().left;
+                for (const element of part.querySelectorAll("*")) {
+                    const box = element.getBoundingClientRect();
+                    if (box.width > 0 && box.height > 0 && box.left < left) left = box.left;
+                }
+                if (left < edge - 0.5) {
+                    const margin = parseFloat(getComputedStyle(part).marginLeft) || 0;
+                    (window.__jpFitted || (window.__jpFitted = [])).push([part, "margin-left", part.style.getPropertyValue("margin-left"), part.style.getPropertyPriority("margin-left")]);
+                    part.style.setProperty("margin-left", (margin + edge - left).toFixed(1) + "px", "important");
+                }
+            }
+        };
+        // NHK accent boxes (kana with the pitch mark): a reading too long for the page
+        // is drawn smaller until it fits, instead of running off the right side.
+        window.__jpAccentFit = () => {
+            for (const box of document.querySelectorAll("accent")) {
+                box.style.removeProperty("font-size");
+                for (let pass = 0; pass < 4; pass++) {
+                    const room = box.clientWidth, need = box.scrollWidth;
+                    if (!room || need <= room + 1) break;
+                    const size = parseFloat(getComputedStyle(box).fontSize) || 16;
+                    const next = Math.max(11, size * room / need * 0.98);
+                    if (next >= size) break;
+                    box.style.setProperty("font-size", next.toFixed(2) + "px", "important");
+                }
+            }
+            return true;
+        };
+        {
+            const indent = window.__jpIndent;
+            window.__jpIndent = (scale) => {
+                const result = indent(scale);
+                try { keepOnPage(); } catch (error) {}
+                try { window.__jpAccentFit(); } catch (error) {}
+                return result;
+            };
+        }
+        // The whole accent box plays its recording: the play control is taken away and
+        // a tap anywhere on the box starts the sound (again from the beginning each
+        // time). Recordings outside an accent box keep their own control.
+        window.__jpSound = () => {
+            let bound = 0;
+            for (const audio of document.querySelectorAll("audio")) {
+                const box = audio.closest("accent") || audio.closest("accent_text");
+                if (!box) continue;
+                audio.removeAttribute("controls");
+                if (box.__jpAudio) continue;
+                box.__jpAudio = audio;
+                box.classList.add("jp-play");
+                box.setAttribute("role", "button");
+                box.addEventListener("click", () => {
+                    for (const other of document.querySelectorAll("audio")) {
+                        if (other !== audio) { try { other.pause(); } catch (error) {} }
+                    }
+                    for (const lit of document.querySelectorAll(".jp-playing")) lit.classList.remove("jp-playing");
+                    const done = () => box.classList.remove("jp-playing");
+                    box.classList.add("jp-playing");
+                    clearTimeout(box.__jpTimer);
+                    box.__jpTimer = setTimeout(done, 9000);
+                    audio.onended = done; audio.onpause = done; audio.onerror = done;
+                    try { if (audio.currentTime > 0) audio.currentTime = 0; } catch (error) {}
+                    let started;
+                    try { started = audio.play(); } catch (error) { done(); }
+                    // If the phone refuses to start it this way, give the control back.
+                    if (started && started.catch) started.catch((error) => {
+                        done();
+                        if (error && error.name === "NotAllowedError") audio.setAttribute("controls", "");
+                    });
+                });
+                bound++;
+            }
+            return bound;
+        };
+        try { window.__jpSound(); } catch (error) {}
         if (typeof window.__jpIndentScale === "number") setTimeout(() => window.__jpIndent(window.__jpIndentScale), 0);
+        else setTimeout(() => window.__jpAccentFit(), 0);
+        // Theme fonts arrive after the first layout and change every width.
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { try { window.__jpAccentFit(); } catch (error) {} });
         // The page can be laid out before it has its real width (and it changes on
         // rotation): fit it again whenever the width changes.
         {
@@ -393,7 +482,7 @@ struct DictionaryPage: UIViewRepresentable {
                 if (window.innerWidth === fitWidth) return;
                 fitWidth = window.innerWidth;
                 clearTimeout(fitTimer);
-                fitTimer = setTimeout(() => { if (typeof window.__jpIndentLast === "number") window.__jpIndent(window.__jpIndentLast); }, 60);
+                fitTimer = setTimeout(() => { if (typeof window.__jpIndentLast === "number") window.__jpIndent(window.__jpIndentLast); else window.__jpAccentFit(); }, 60);
             });
         }
         // Marks each occurrence of a full-text search in the visible text (furigana
@@ -487,6 +576,9 @@ struct DictionaryPage: UIViewRepresentable {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
         configuration.websiteDataStore = dataStore
+        // The page's own scripts are off; only the reader's script starts a recording
+        // (a tap on an accent box), so playback needs no further permission.
+        configuration.mediaTypesRequiringUserActionForPlayback = []
         if #available(iOS 18.0, *) { configuration.writingToolsBehavior = UIWritingToolsBehavior.none }
         configuration.setURLSchemeHandler(coordinator, forURLScheme: "jpread")
         configuration.userContentController.add(coordinator, contentWorld: selectionWorld, name: "readerSelection")
