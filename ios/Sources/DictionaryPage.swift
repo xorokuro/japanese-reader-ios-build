@@ -363,6 +363,19 @@ struct DictionaryPage: UIViewRepresentable {
                     part.style.setProperty("margin-left", ((parseFloat(getComputedStyle(part).marginLeft) || 0) - nearest).toFixed(1) + "px", "important");
                 }
             }
+            // An entry held in place by such a block (a numbered sense at its edge) can
+            // still have all its other text inset: that text is moved to the edge by itself.
+            pageLeft = pageEdge();
+            for (const part of parts) {
+                const inside = free.filter(block => part === block || part.contains(block));
+                let nearest = Infinity;
+                for (const block of inside) nearest = Math.min(nearest, startOf(block) - pageLeft);
+                if (nearest === Infinity || nearest <= 1) continue;
+                for (const block of inside) {
+                    if (inside.some(other => other !== block && other.contains(block))) continue;
+                    pull(block, nearest);
+                }
+            }
             // 2. Nothing starts beyond the budget. Outermost blocks first; what is
             // inside them moves with them and is measured again on the next round.
             for (let round = 0; round < 6; round++) {
