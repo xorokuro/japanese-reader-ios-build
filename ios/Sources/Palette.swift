@@ -241,8 +241,57 @@ struct ReaderTheme: Identifiable, Equatable, Hashable {
     static var fableVariations: [ReaderTheme] { fable.filter { $0.motif != .film && (!$0.motif.isPortrait || $0.motif == .evening) } }
     static var fablePortraits: [ReaderTheme] { fable.filter { $0.motif.isPortrait && $0.motif != .evening } }
 
+    /// 手繪 Hand-drawn scenes: the seventeen watercolour pictures of the desktop reader
+    /// (organic-bg.js) as Fable papers. The picture fills the page (Scenes.swift); `accentRGB`
+    /// is its ink line, `highlightRGB` and `markerRGB` its warm accent, `tapeRGB` the soft
+    /// "chosen" wash. The ids are the desktop preset names and the bundled picture names.
+    private static func scenePaper(_ id: String, _ name: String, _ detail: String, family: Family = .light,
+                                   paper: Int, line: Int, accent: Int, chosen: Int) -> ReaderTheme {
+        let dark = family == .dark
+        return ReaderTheme(id: id, name: name, detail: detail, family: family, backgroundRGB: paper, surfaceRGB: paper,
+                           accentRGB: line, tapeRGB: chosen, markerRGB: accent, inkRGB: dark ? 0xECE6D8 : 0x2E2924,
+                           design: .fable, mutedRGB: dark ? 0xB2AB9C : 0x625B51, highlightRGB: accent, motif: .scene)
+    }
+    static let scenes: [ReaderTheme] = [
+        scenePaper("organic-nohara-day", "野原 · 春の野", "Meadow · spring field",
+                   paper: 0xF2ECE0, line: 0x3E3830, accent: 0x985A41, chosen: 0xCFD6BD),
+        scenePaper("organic-nohara-night", "野原 · 蛍", "Meadow · fireflies", family: .dark,
+                   paper: 0x1F2729, line: 0xD8D0BC, accent: 0xE2C48E, chosen: 0x36433D),
+        scenePaper("organic-kirigami-night", "切り紙 · 紙の夜", "Torn paper · night", family: .dark,
+                   paper: 0x262F47, line: 0xD9D6CF, accent: 0xE6CF96, chosen: 0x3D4870),
+        scenePaper("organic-kirigami-day", "切り紙 · 紙の朝", "Torn paper · morning",
+                   paper: 0xDFE5E4, line: 0x4F5658, accent: 0x8A5440, chosen: 0xC9D1BA),
+        scenePaper("organic-shasen-day", "斜線 · 空", "Stripes · sky",
+                   paper: 0xF2ECDF, line: 0x3E3830, accent: 0x3F6475, chosen: 0xD3DDE0),
+        scenePaper("organic-shasen-sage", "斜線 · 若草", "Stripes · sage",
+                   paper: 0xF0EDDF, line: 0x3E3830, accent: 0x4D6640, chosen: 0xD6DEC9),
+        scenePaper("organic-shasen-butter", "斜線 · 菜の花", "Stripes · butter",
+                   paper: 0xF3EDE0, line: 0x3E3830, accent: 0x7D5A24, chosen: 0xE8DEB6),
+        scenePaper("organic-shasen-blush", "斜線 · 桜", "Stripes · blush",
+                   paper: 0xF3ECE2, line: 0x3E3830, accent: 0x8E4B45, chosen: 0xE7D4CC),
+        scenePaper("organic-shasen-night", "斜線 · 設計図", "Stripes · blueprint", family: .dark,
+                   paper: 0x1E2538, line: 0xC9D3EA, accent: 0xB9C8EA, chosen: 0x2F3A55),
+        scenePaper("organic-tsuru-day", "朝顔 · 朝", "Morning glory · morning",
+                   paper: 0xF2EEE4, line: 0x3F3A31, accent: 0x5D7046, chosen: 0xCFD7BD),
+        scenePaper("organic-tsuru-night", "朝顔 · 夜の温室", "Morning glory · night greenhouse", family: .dark,
+                   paper: 0x1E2522, line: 0xCDD1BB, accent: 0xD9CFA0, chosen: 0x36453B),
+        scenePaper("organic-suimon-day", "蓮池 · 昼", "Lotus pond · day",
+                   paper: 0xEDF0EA, line: 0x4F6268, accent: 0x3F6470, chosen: 0xCDD9D5),
+        scenePaper("organic-suimon-night", "蓮池 · 月の池", "Lotus pond · moon", family: .dark,
+                   paper: 0x1B232B, line: 0xD6D3C4, accent: 0xE5D6AA, chosen: 0x2D3A46),
+        scenePaper("organic-machi-day", "小町 · 昼の町", "Little town · day",
+                   paper: 0xF1E9D9, line: 0x3F382F, accent: 0x97543D, chosen: 0xE3D7BD),
+        scenePaper("organic-machi-night", "小町 · 灯りの町", "Little town · lamplight", family: .dark,
+                   paper: 0x23221F, line: 0xD9D0BD, accent: 0xE8C982, chosen: 0x3B3833),
+        scenePaper("organic-yamanami-day", "山並 · 朝の山", "Ridges · morning",
+                   paper: 0xF1ECE2, line: 0x3F3A33, accent: 0x7C4B3B, chosen: 0xD8DCD6),
+        scenePaper("organic-yamanami-night", "山並 · 月の山", "Ridges · moonlit", family: .dark,
+                   paper: 0x1C2130, line: 0xD5D0C2, accent: 0xE4D3A4, chosen: 0x2D3448)
+    ]
+
     static let all: [ReaderTheme] = {
         var themes: [ReaderTheme] = [system]
+        themes.append(contentsOf: scenes)
         themes.append(contentsOf: fable)
         themes.append(contentsOf: editorial)
         themes.append(contentsOf: desk)
@@ -284,6 +333,11 @@ struct ReaderStyle: Equatable {
     var isYohaku: Bool { theme.design == .yohaku || theme.design == .fable }
     /// The Claude "Fable" look (a refinement of Yohaku: everything Yohaku does, drawn finer).
     var isFable: Bool { theme.design == .fable }
+    /// 手繪 Hand-drawn scenes: a picture fills the page (Scenes.swift).
+    var isScene: Bool { isFable && theme.motif == .scene }
+    /// List rows: in a scene the picture shows faintly through the paper, and headers are clear.
+    var listRow: Color { isScene ? background.opacity(0.84) : (isYohaku ? background : surface) }
+    var headerRow: Color { isScene ? .clear : background }
     /// Fable: the wandering thread colour and the small rust spark.
     var thread: Color { marker }
     var spark: Color { highlight }

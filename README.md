@@ -6,6 +6,12 @@ Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuse
 
 Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.9, build 38).
 
+## 3.8.0 — hand-drawn scenes · 手繪
+
+- **17 new themes: Library → Appearance → Hand-drawn scenes · 手繪.** Soft watercolour pictures, drawn by hand in low, quiet colours, fill the whole page behind the reader: a spring meadow and its fireflies at night, torn-paper hills by night and morning, five soft stripes (sky, sage, butter, blush and a blueprint night), morning glories and a night greenhouse, a lotus pond by day and under the moon, a little town by day and by lamplight, and mountain ridges in the morning and by moonlight.
+- They are the same pictures as the new *手繪* themes of the desktop reader and the JLPT lessons reader. On the phone the picture is laid out for a tall screen (clear of the title and the tab bar); on iPad and in landscape the wide desktop picture is used.
+- Each one keeps the Fable look (Klee One titles, handwritten notes, fine rules, a soft wash for chosen things) in the colours of its picture.
+
 ## 3.7.3 — nothing off the screen, and the NHK accent box plays on tap
 
 - **NHK 日本語発音アクセント: tap the box to hear it.** The small ▶ control after the kana is gone. The whole accent box (kana and pitch mark) is the button: tap anywhere on it and the recording plays, from the start each time; the box is tinted while it plays. Long-pressing a kana to select it still works. Recordings in other dictionaries, outside an accent box, keep their control.

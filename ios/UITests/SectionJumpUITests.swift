@@ -41,9 +41,9 @@ final class SectionJumpUITests: XCTestCase {
         let pageJump = app.buttons["sectionJump"].firstMatch
         XCTAssertTrue(pageJump.waitForExistence(timeout: 10))
         pageJump.tap()
-        XCTAssertTrue(app.buttons["sectionJump_6"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["sectionJump_7"].waitForExistence(timeout: 5))
         shot(app, "Jump · Appearance sections")
-        app.buttons["sectionJump_6"].tap()
+        app.buttons["sectionJump_7"].tap()
         sleep(2)
         shot(app, "Jump · Appearance at Section button")
         let compass = app.buttons["jumpIcon_compass"]

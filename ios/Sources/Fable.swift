@@ -18,6 +18,8 @@ import UIKit
 //   ballpoint  a blue-biro crosshatched self-portrait with red-pen marks
 //   echo       a dot calls out; rings and small coloured worlds answer
 //   roots      white roots branching on slate, crossed by one red line
+//   scene      手繪: one of the seventeen watercolour pictures of the desktop reader fills the
+//              page (Scenes.swift); the header keeps no emblem, the picture is the drawing
 //
 // Page decorations stay at the edges and are kept faint, so nothing runs through
 // the passage being read.
@@ -26,6 +28,8 @@ enum FableMotif: String, Hashable {
     case film, graph, sundown, midnight, mist, ballpoint, echo, roots
     // 自画像 Self-portraits (FablePortraits.swift), and the dusk sky.
     case sashiko, ebru, cyanotype, transit, phool, doublure, oneline, evening
+    // 手繪 Hand-drawn scenes (Scenes.swift): a painted picture is the page.
+    case scene
 
     /// Themes whose emblem is a square tile rather than a loose drawing.
     var isPortrait: Bool {
@@ -232,7 +236,9 @@ struct FableEmblem: View {
     var body: some View {
         let art = FableDrawing(drawing)
         Group {
-            if style.theme.motif == .film {
+            // 手繪 scenes borrow the film's ring (without its ripples and thread) where an emblem
+            // is needed; screen headers leave the space to the picture (YohakuEmblem).
+            if style.theme.motif == .film || style.theme.motif == .scene {
                 film(art)
             } else {
                 Canvas { context, canvas in
@@ -248,7 +254,7 @@ struct FableEmblem: View {
 
     private func film(_ art: FableDrawing) -> some View {
         ZStack {
-            if decorated {
+            if decorated && style.theme.motif == .film {
                 FableRipples(count: 4)
                     .stroke(style.secondary.opacity(style.isDark ? 0.24 : 0.16), lineWidth: 0.55)
                     .frame(width: size * 1.2, height: size * 1.2)
@@ -294,7 +300,7 @@ enum FableArt {
         let seed = UInt64(art.rawValue * 97 + 13)
         let line = max(0.9, u * 0.011)
         switch style.theme.motif {
-        case .film: break
+        case .film, .scene: break
         case .graph: graph(&ctx, P, u: u, line: line, style: style, art: art, seed: seed)
         case .sundown: sundown(&ctx, P, u: u, line: line, style: style, seed: seed)
         case .midnight: midnight(&ctx, P, u: u, line: line, style: style, seed: seed)
@@ -704,6 +710,8 @@ enum FableArt {
             ctx.fill(dots, with: .color(style.thread.opacity(0.18)))
         case .sashiko, .ebru, .cyanotype, .transit, .phool, .doublure, .oneline, .evening:
             portraitBackdrop(&ctx, size, style: style)
+        case .scene:
+            break  // The picture is drawn by SceneBackdrop (Scenes.swift).
         case .roots:
             var random = SeededRandom(seed: 88)
             var lines = Path()
@@ -734,13 +742,17 @@ enum FableArt {
     }
 }
 
-/// The page decoration behind every Fable screen.
+/// The page decoration behind every Fable screen (a whole painted picture for 手繪 scenes).
 struct FableBackdrop: View {
     let style: ReaderStyle
     var body: some View {
-        Canvas { context, size in FableArt.backdrop(&context, size, style: style) }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
+        if style.theme.motif == .scene {
+            SceneBackdrop(themeID: style.theme.id)
+        } else {
+            Canvas { context, size in FableArt.backdrop(&context, size, style: style) }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
     }
 }
 
@@ -758,7 +770,8 @@ enum FableNotes {
 
 // MARK: - Swatch
 
-/// The theme-picker miniature: the paper, 儚い, and the theme's own emblem.
+/// The theme-picker miniature: the paper, 儚い, and the theme's own emblem
+/// (for a 手繪 scene, the picture itself, made small).
 struct FableSwatch: View {
     let theme: ReaderTheme
     var compact = false
@@ -767,11 +780,18 @@ struct FableSwatch: View {
         let preview = ReaderStyle.preview(theme)
         ZStack(alignment: .topLeading) {
             Rectangle().fill(preview.background)
-            Text("儚い").font(.custom(HandFont.bold, size: compact ? 11 : 16)).foregroundStyle(preview.ink)
-                .padding(compact ? 4 : 7)
-            FableEmblem(style: preview, drawing: .sprig, size: compact ? 28 : 46, decorated: false)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                .padding(compact ? 2 : 4)
+            if theme.motif == .scene, let picture = ScenePicture.swatch(theme.id) {
+                Image(uiImage: picture)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: width, height: height)
+            } else {
+                Text("儚い").font(.custom(HandFont.bold, size: compact ? 11 : 16)).foregroundStyle(preview.ink)
+                    .padding(compact ? 4 : 7)
+                FableEmblem(style: preview, drawing: .sprig, size: compact ? 28 : 46, decorated: false)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .padding(compact ? 2 : 4)
+            }
         }
         .frame(width: width, height: height)
         .clipped()

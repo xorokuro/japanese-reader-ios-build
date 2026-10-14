@@ -453,9 +453,15 @@ struct YohakuEmblem: View {
     var drawing: YohakuDrawing = .book
     var size: CGFloat = 118
     var disc = true
+    /// In a screen header, a 手繪 scene theme leaves this space to its picture.
+    var header = false
     var body: some View {
         if style.isFable {
-            FableEmblem(style: style, drawing: drawing, size: size, decorated: size >= 70)
+            if header && style.theme.motif == .scene {
+                Color.clear.frame(width: size, height: size).accessibilityHidden(true)
+            } else {
+                FableEmblem(style: style, drawing: drawing, size: size, decorated: size >= 70)
+            }
         } else {
             yohaku
         }
@@ -532,7 +538,7 @@ struct YohakuHeader<Trailing: View>: View {
                         .foregroundStyle(style.secondary)
                 }
                 Spacer(minLength: 8)
-                YohakuEmblem(style: style, drawing: drawing, size: min(height - 8, 118))
+                YohakuEmblem(style: style, drawing: drawing, size: min(height - 8, 118), header: true)
             }
             .padding(.horizontal, 16)
             .frame(height: height)

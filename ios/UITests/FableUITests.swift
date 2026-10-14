@@ -90,4 +90,5 @@ final class FableUITests: XCTestCase {
     func testFableVariationsGalleryB() { gallery(["fable-ballpoint", "fable-echo", "fable-roots", "fable-evening"]) }
     func testSelfPortraitsGalleryA() { gallery(["fable-still", "fable-ebru", "fable-cyanotype", "fable-transit"]) }
     func testSelfPortraitsGalleryB() { gallery(["fable-oneline", "fable-phool", "fable-doublure"]) }
+    func testHandDrawnScenesGallery() { gallery(["organic-nohara-day", "organic-kirigami-night", "organic-suimon-night", "organic-machi-day"]) }
 }

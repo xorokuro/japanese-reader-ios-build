@@ -105,6 +105,26 @@ final class ThemeTests: XCTestCase {
                                            customAccentRGB: 0x1F7A73, systemDark: false).isDark, true)
     }
 
+    /// 手繪 Hand-drawn scenes: Fable papers whose picture fills the page. The ids are the desktop
+    /// reader's preset names and the names of the bundled pictures (tools/render_scenes.py).
+    func testScenePapers() {
+        XCTAssertEqual(ReaderTheme.scenes.count, 17)
+        XCTAssertEqual(Set(ReaderTheme.scenes.map(\.id)).count, 17)
+        XCTAssertFalse(ReaderTheme.fable.contains { $0.motif == .scene }, "Scenes keep their own section")
+        for theme in ReaderTheme.scenes {
+            XCTAssertTrue(theme.id.hasPrefix("organic-"), theme.id)
+            XCTAssertEqual(theme.motif, .scene, theme.name)
+            XCTAssertEqual(theme.family == .dark, Palette.isDark(theme.backgroundRGB ?? 0xFFFFFF), "\(theme.name) family")
+            XCTAssertTrue(ScenePicture.isBundled(theme.id), "\(theme.id): picture missing from the app")
+            XCTAssertNotNil(ScenePicture.swatch(theme.id), theme.id)
+            let style = ReaderStyle.resolve(themeID: theme.id, customPaper: false, paperRGB: 0xFFFFFF,
+                                            customAccentRGB: 0x1F7A73, systemDark: false, activate: false)
+            XCTAssertTrue(style.isFable, theme.name)
+        }
+        XCTAssertNotNil(ScenePicture.page("organic-nohara-day", wide: false))
+        XCTAssertNotNil(ScenePicture.page("organic-nohara-day", wide: true))
+    }
+
     /// The environment's fallback style is only a fallback: reading it must not switch the
     /// app's current design, or the next dictionary page is built without its theme.
     func testTheFallbackStyleDoesNotBecomeTheCurrentDesign() {

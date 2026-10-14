@@ -2385,7 +2385,7 @@ struct ReaderHome: View {
                                  detail: "saved passages", numeral: "\(model.saved.count)", drawing: .teacup, height: 128) { EmptyView() }
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
-                        .listRowBackground(style.background)
+                        .listRowBackground(style.headerRow)
                 }
                 Group {
                     librarySettingsTop
@@ -2393,7 +2393,7 @@ struct ReaderHome: View {
                     dictionariesSection
                     librarySettingsRest
                 }
-                .listRowBackground(style.isYohaku ? style.background : style.surface)
+                .listRowBackground(style.listRow)
             }
             .modifier(YohakuList(style: style))
             .scrollContentBackground(.hidden)
@@ -2603,11 +2603,11 @@ struct ReaderHome: View {
         .padding(.vertical, 6)
     }
 
-    // The page is built from five type-erased groups. As one expression its view
+    // The page is built from type-erased groups. As one expression its view
     // type was nested so deeply that resolving it overflowed the main thread's stack
     // on device at launch (the Library tab builds this page for its link).
     /// Section titles of Appearance, in page order (目次).
-    static let appearanceSections = ["Automatic & custom", "Fable · 糸 (Claude style)", "Fable variations · 変奏", "Self-portraits · 自画像",
+    static let appearanceSections = ["Automatic & custom", "Hand-drawn scenes · 手繪", "Fable · 糸 (Claude style)", "Fable variations · 変奏", "Self-portraits · 自画像",
                                      "Editorial · 余白 (choose a paper)", "Hand-drawn · 手描き (same as desktop)", "Section button · 目次",
                                      "Going back · 翻頁", "Reading text · 本文", "Dictionary pages · 辞書"]
 
@@ -2616,6 +2616,7 @@ struct ReaderHome: View {
         List {
             Group {
                 appearanceIntro
+                appearanceScenes
                 appearanceFable
                 appearanceClassic
                 appearanceSectionButton
@@ -2623,7 +2624,7 @@ struct ReaderHome: View {
                 appearanceReading
                 appearanceDictionary
             }
-            .listRowBackground(style.isYohaku ? style.background : style.surface)
+            .listRowBackground(style.listRow)
         }
         .modifier(YohakuList(style: style))
         .scrollContentBackground(.hidden)
@@ -2660,6 +2661,16 @@ struct ReaderHome: View {
                         }
                     }
                 } header: { Text("Automatic & custom").textCase(nil).id("jump.Automatic & custom") }
+        })
+    }
+
+    private var appearanceScenes: AnyView {
+        AnyView(Group {
+                Section {
+                    themeGrid(ReaderTheme.scenes)
+                } header: { Text("Hand-drawn scenes · 手繪").textCase(nil).id("jump.Hand-drawn scenes · 手繪") } footer: {
+                    Text("Watercolour pictures that fill the page, the same as on the desktop reader: a meadow and fireflies, torn paper, soft stripes, morning glories, a lotus pond, a little town and mountain ridges, by day and by night.")
+                }
         })
     }
 

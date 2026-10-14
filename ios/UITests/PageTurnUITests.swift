@@ -46,8 +46,8 @@ final class PageTurnUITests: XCTestCase {
         let jump = app.buttons["sectionJump"].firstMatch
         XCTAssertTrue(jump.waitForExistence(timeout: 10))
         jump.tap()
-        XCTAssertTrue(app.buttons["sectionJump_7"].waitForExistence(timeout: 5))
-        app.buttons["sectionJump_7"].tap()
+        XCTAssertTrue(app.buttons["sectionJump_8"].waitForExistence(timeout: 5))
+        app.buttons["sectionJump_8"].tap()
         sleep(2)
         let toggle = app.switches["pageTurnBack"]
         XCTAssertTrue(toggle.waitForExistence(timeout: 5))

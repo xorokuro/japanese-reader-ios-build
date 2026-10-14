@@ -1,6 +1,6 @@
 # Japanese Reader (iOS) — notes for anyone working on this repo
 
-- **`main` is the app.** Start every change from the latest `main` (currently 3.7.3, build 63).
+- **`main` is the app.** Start every change from the latest `main` (currently 3.8.0, build 64).
   Do not start from older branches (`ruled-lines`, `grammar-tab`, `fix/…`, `claude/…`): they are
   snapshots of past versions, and building from one of them drops features such as the 文法 tab.
 - The app has four tabs: Read, Search, Library and **文法 (Grammar)**. A build without the Grammar tab
@@ -32,3 +32,6 @@
 - In dictionary pages an `<audio>` inside an NHK `accent` box has no control: `__jpSound` (in `selectionScript`) makes the
   box itself the play button. If that script does not run, the control stays, so sound is never lost. The Search field
   (`JapaneseSearchField`) must stay shrinkable (low compression resistance); otherwise its row widens the whole page.
+- The 手繪 scene themes (`ReaderTheme.scenes`, `Scenes.swift`) show pictures from `Sources/Backgrounds`, rendered by
+  `ios/tools/render_scenes.py` from `ios/tools/organic-bg.js` (the same file as the desktop reader's `organic-bg.js`).
+  When the desktop pictures change, copy the new file there and run the script; theme ids must match the file names.
