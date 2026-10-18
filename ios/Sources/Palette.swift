@@ -288,10 +288,48 @@ struct ReaderTheme: Identifiable, Equatable, Hashable {
         scenePaper("organic-yamanami-night", "山並 · 月の山", "Ridges · moonlit", family: .dark,
                    paper: 0x1C2130, line: 0xD5D0C2, accent: 0xE4D3A4, chosen: 0x2D3448)
     ]
+    /// 異界 Otherworld scenes: eight more pictures from the same organic-bg.js (drifting lantern
+    /// pods, wheels of eyes, glassy lattices, floating growths, ribbons, a contour map, currents and
+    /// a strange garden), by day and night. Same kind of theme as `scenes`, in a section of their own.
+    static let otherworld: [ReaderTheme] = [
+        scenePaper("organic-hyoryu-day", "漂流体 · 浅瀬", "Drifters · shallows",
+                   paper: 0xEEECE7, line: 0x3B3946, accent: 0x5D5885, chosen: 0xDAD5E7),
+        scenePaper("organic-hyoryu-night", "漂流体 · 深海", "Drifters · abyss", family: .dark,
+                   paper: 0x151925, line: 0xD6D3E2, accent: 0xC4B2E6, chosen: 0x2C3247),
+        scenePaper("organic-tenrin-day", "天輪 · 白昼", "Wheels · noon",
+                   paper: 0xF2EEE5, line: 0x3F3934, accent: 0x86603A, chosen: 0xECE2C8),
+        scenePaper("organic-tenrin-night", "天輪 · 星夜", "Wheels · starlit", family: .dark,
+                   paper: 0x121527, line: 0xE4DCC8, accent: 0xE2CF96, chosen: 0x262B45),
+        scenePaper("organic-kago-day", "籠 · 明視野", "Lattices · bright field",
+                   paper: 0xECF0EA, line: 0x2F3D3C, accent: 0x3B6362, chosen: 0xCFE1DB),
+        scenePaper("organic-kago-night", "籠 · 暗視野", "Lattices · dark field", family: .dark,
+                   paper: 0x0F1417, line: 0xD6EBE4, accent: 0xBFE6DC, chosen: 0x1F2C2C),
+        scenePaper("organic-fusei-day", "浮生 · 霧", "Floating growths · mist",
+                   paper: 0xEFECE4, line: 0x3A3530, accent: 0x7D5B46, chosen: 0xE5DCCC),
+        scenePaper("organic-fusei-night", "浮生 · 燐光", "Floating growths · phosphor", family: .dark,
+                   paper: 0x16191C, line: 0xD3CEC2, accent: 0xE6C79A, chosen: 0x2A2F33),
+        scenePaper("organic-obi-day", "帯 · 絹", "Ribbons · silk",
+                   paper: 0xF3EFE8, line: 0x4A3F3B, accent: 0x8B5C4A, chosen: 0xE8DBCD),
+        scenePaper("organic-obi-night", "帯 · 夜絹", "Ribbons · night silk", family: .dark,
+                   paper: 0x17151D, line: 0xE2D9D0, accent: 0xE0C4B0, chosen: 0x2C2733),
+        scenePaper("organic-tokosen-day", "等高線 · 砂図", "Contours · sand map",
+                   paper: 0xF1EDE4, line: 0x4A4034, accent: 0x7A5A3A, chosen: 0xE6DCC6),
+        scenePaper("organic-tokosen-night", "等高線 · 夜図", "Contours · night map", family: .dark,
+                   paper: 0x1B1E25, line: 0xCDC8BA, accent: 0xD8CB9F, chosen: 0x2B313C),
+        scenePaper("organic-uzu-day", "渦 · 昼の風", "Currents · day wind",
+                   paper: 0xEEF0EC, line: 0x38404A, accent: 0x3F5F75, chosen: 0xD6DFE4),
+        scenePaper("organic-uzu-night", "渦 · 夜の潮", "Currents · night tide", family: .dark,
+                   paper: 0x131821, line: 0xD7D3C8, accent: 0xA8C3D6, chosen: 0x232C38),
+        scenePaper("organic-ien-day", "異園 · 昼の園", "Strange garden · by day",
+                   paper: 0xF0EDE6, line: 0x3B3633, accent: 0x7A5246, chosen: 0xE7DDD0),
+        scenePaper("organic-ien-night", "異園 · 夜の園", "Strange garden · by night", family: .dark,
+                   paper: 0x151A1F, line: 0xD8D2C6, accent: 0xE8C4A8, chosen: 0x262E33)
+    ]
 
     static let all: [ReaderTheme] = {
         var themes: [ReaderTheme] = [system]
         themes.append(contentsOf: scenes)
+        themes.append(contentsOf: otherworld)
         themes.append(contentsOf: fable)
         themes.append(contentsOf: editorial)
         themes.append(contentsOf: desk)

@@ -25,10 +25,14 @@ function rng(seed) {
 }
 function hashStr(str) { let h = 2166136261 >>> 0; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h; }
 function gauss(r) { const u = r() || 1e-9, v = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(TAU * v); }
+const noiseCache = new Map(); // moving pictures redraw the same lines many times a second
 function noise1(seed) {
+  const hit = noiseCache.get(seed); if (hit) return hit;
   const r = rng(seed), v = new Float32Array(256);
   for (let i = 0; i < 256; i++) v[i] = r() * 2 - 1;
-  return t => { const i = Math.floor(t), f = t - i, a = v[i & 255], b = v[(i + 1) & 255], u = f * f * (3 - 2 * f); return a + (b - a) * u; };
+  const fn = t => { const i = Math.floor(t), f = t - i, a = v[i & 255], b = v[(i + 1) & 255], u = f * f * (3 - 2 * f); return a + (b - a) * u; };
+  if (noiseCache.size > 800) noiseCache.clear();
+  noiseCache.set(seed, fn); return fn;
 }
 function fbm(seed, oct = 3) {
   const ns = []; for (let i = 0; i < oct; i++) ns.push(noise1(seed + i * 977));
@@ -1324,6 +1328,938 @@ SCENES.yamanami = {
   }
 };
 
+
+// ================================================================== 異界 Otherworld
+// Things that are not from here: drifting beings, growths, lattices, ribbons, terrain
+// lines, currents and wheels. Same pen and papers; the middle of the page stays quiet.
+
+function inkLite(ctx, pts, w, color, alpha, seed, o) {
+  if (pts.length < 2) return;
+  ctx.fillStyle = rgba(color, alpha);
+  ctx.fill(ribbonPath(pts, w, seed, o || {}));
+}
+function edgeBias(E, x, y) { // 1 where drawings may go (edges, corners), 0 over the reading area
+  if (E.phone) { // the status-bar strip, the strip above the tab bar and the thin side margins
+    const ss = (a, b, v) => { const t = clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+    return Math.max(ss(E.H * .12, E.H * .035, y), ss(E.H * .69, E.H * .78, y), ss(E.W * .1, E.W * .015, Math.min(x, E.W - x)));
+  }
+  const nx = Math.abs(x - E.W / 2) / (E.W * .24), ny = Math.abs(y - E.H / 2) / (E.H * .3), d = Math.pow(Math.pow(nx, 3) + Math.pow(ny, 3), 1 / 3);
+  return clamp((d - 1) / .8, 0, 1);
+}
+
+function maskedLayer(ctx, E, draw, floor) {
+  // draw into a layer, then let it fade out over the reading area (soft, never a box)
+  const c = document.createElement('canvas'); c.width = Math.round(E.W * E.dpr); c.height = Math.round(E.H * E.dpr);
+  const g = c.getContext('2d'); g.setTransform(E.dpr, 0, 0, E.dpr, 0, 0);
+  draw(g);
+  const mw = 72, mh = Math.max(8, Math.round(72 * E.H / E.W)), m = document.createElement('canvas'); m.width = mw; m.height = mh;
+  const mg = m.getContext('2d'), id = mg.createImageData(mw, mh);
+  const nz = noise2(E.seed + 4);
+  for (let j = 0; j < mh; j++) for (let i = 0; i < mw; i++) { const b = edgeBias(E, (i + .5) / mw * E.W, (j + .5) / mh * E.H); id.data[(j * mw + i) * 4 + 3] = 255 * clamp(b + nz(i * .16, j * .16) * .45 * Math.sin(Math.PI * Math.min(1, b * 1.6 + .2)), floor || 0, 1); }
+  mg.putImageData(id, 0, 0);
+  g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'destination-in'; g.imageSmoothingEnabled = true; g.drawImage(m, 0, 0, c.width, c.height);
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(c, 0, 0); ctx.restore();
+}
+
+// 漂流体 Drifters: three kinds of beings that have no names --------------------
+P.hyoryu = {
+  day: { paper: '#eeece7', ink: '#3b3946', bells: ['#cfe0da', '#dcd3e6', '#ecdccc', '#d5dee8'], glows: ['#cfe0da', '#dcd3e6', '#ecdccc', '#d5dee8'], organ: '#c6a29c', snow: '#8f8c9e', ui: { accent: '#5d5885', chosen: '#dad5e7' } },
+  night: { paper: '#151925', ink: '#d6d3e2', bells: ['#29403f', '#38334f', '#46383a', '#2b394f'], glows: ['#9dd8c8', '#c4b2e6', '#ecc4a6', '#a8c4ea'], organ: '#e3b2a5', snow: '#c9c6dc', ui: { accent: '#c4b2e6', chosen: '#2c3247' } }
+};
+function teardrop(L, Wd, f) { return [L / 2 * Math.cos(f), Wd / 2 * Math.sin(f) * Math.pow((1 + Math.cos(f)) / 2, .6)]; }
+function slitEye(g, x, y, e, ang, E, o) {
+  // an almond that may be an eye, a mouth or a seam
+  const pts = []; for (let i = 0; i <= 16; i++) { const t = i / 16; pts.push([-e + 2 * e * t, -Math.sin(Math.PI * t) * e * .42]); }
+  for (let i = 15; i >= 1; i--) { const t = i / 16; pts.push([-e + 2 * e * t, Math.sin(Math.PI * t) * e * .36]); }
+  const P2 = rotPts(pts.map(([a, b]) => [x + a, y + b]), ang, x, y);
+  if (o.lit) glow(g, x, y, e * 3, o.lit, .35);
+  g.fillStyle = rgba(o.fill, .9); g.fill(poly(P2));
+  ink(g, P2, { w: 1.1 * E.lw, color: E.pal.ink, alpha: o.alpha, seed: o.seed, closed: true, amp: .2, step: 1.4 });
+  g.fillStyle = rgba(E.pal.ink, o.alpha * .9); g.beginPath(); g.arc(x + Math.cos(ang) * e * .15, y + Math.sin(ang) * e * .15, e * .2, 0, TAU); g.fill();
+}
+function paintSeed(g, d, E) {
+  // a round pod with a lattice skin, a swirl of sheer vanes on top and a ring of lights
+  const { pal } = E, night = E.dark, s = d.s, la = night ? .58 : .78, podFill = pal.bells[d.color % 4], fill = pal.bells[[3, 3, 1, 1][d.color % 4]], lit = pal.glows[d.color % 4];
+  const rx = s * .34, ry = s * .44, pod = circlePts(0, 0, rx, 48, 0, ry / rx).map(([x, y]) => [x * (1 - .12 * (y / ry)), y]);
+  if (night) glow(g, 0, -s * .3, s * 1.25, lit, .14);
+  d.vanes.forEach(([ang, len, wid], k) => {
+    const base = [Math.sin(ang) * rx * .5, -ry * Math.cos(ang) * .85], bend = (k % 2 ? 1 : -1) * .35 + ang * .4, pts = [], back = [];
+    for (let i = 0; i <= 22; i++) {
+      const q = i / 22, a = ang + bend * q * q, L = len * q, w = Math.sin(Math.PI * Math.pow(q, .75)) * wid * (1 + .12 * Math.sin(q * 13 + k));
+      const cx = base[0] + Math.sin(ang) * L * .4 + Math.sin(a) * L * .6, cy = base[1] - Math.cos(ang) * L * .4 - Math.cos(a) * L * .6;
+      pts.push([cx + Math.cos(a) * w, cy + Math.sin(a) * w]); back.push([cx - Math.cos(a) * w * .5, cy - Math.sin(a) * w * .5]);
+    }
+    const outline = pts.concat(back.reverse().slice(1, -1));
+    wash(g, outline, night ? lit : fill, { seed: d.seed + 10 + k, alpha: night ? .09 : .2, layers: 6, amt: .16 });
+    for (let j = 2; j < 20; j += 3) ink(g, [back[back.length - 1 - j], pts[j]], { w: .6 * E.lw, color: pal.ink, alpha: la * .22, seed: d.seed + 20 + j + k * 7, amp: .15, t0: 1, t1: 3 });
+    ink(g, outline, { w: 1 * E.lw, color: pal.ink, alpha: la * .72, seed: d.seed + 30 + k, closed: true, amp: .35 });
+  });
+  wash(g, pod, night ? lit : podFill, { seed: d.seed + 1, alpha: night ? .14 : .3, layers: 8, amt: .12 });
+  if (!night) hatch(g, poly(pod), { x: rx * .25, y: -ry * .2, w: rx, h: ry * 1.4 }, -1.2, 3.6, pal.ink, .12, .6, d.seed + 2);
+  wash(g, pod.map(([x, y]) => [x * .55 - rx * .15, y * .55 - ry * .2]), '#ffffff', { seed: d.seed + 6, alpha: night ? .03 : .1, layers: 5, amt: .2 });
+  ink(g, quad([rx * .05, -ry * .96], [-rx * .3, 0], [rx * .02, ry * .98], 16), { w: .7 * E.lw, color: pal.ink, alpha: la * .32, seed: d.seed + 40, amp: .2, t0: 4, t1: 4 });
+  for (let j = 0; j < 11; j++) { const a = j / 10 * Math.PI, x = -Math.cos(a) * rx, y = Math.sin(a) * ry * .1; if (night) glow(g, x, y, s * .08, lit, .5); g.fillStyle = rgba(night ? lit : pal.organ, night ? .95 : .75); g.beginPath(); g.arc(x, y, Math.max(1.2, s * .022), 0, TAU); g.fill(); }
+  ink(g, pod, { w: 1.45 * E.lw, color: pal.ink, alpha: la, seed: d.seed + 3, closed: true, amp: .5, sketch: .3 });
+}
+function paintCrown(g, d, E) {
+  const { pal } = E, night = E.dark, s = d.s, la = night ? .58 : .78, fill = pal.bells[d.color % 4], lit = pal.glows[d.color % 4];
+  if (night) glow(g, 0, -s * .1, s * 1.3, lit, .12);
+  ink(g, [[0, -s * .74], [0, s * .1 + d.veils * s * .3]], { w: .8 * E.lw, color: pal.ink, alpha: la * .35, seed: d.seed + 1, amp: .3, t0: 4, t1: 20 });
+  for (let k = d.veils - 1; k >= 0; k--) {
+    const y = -s * .38 + k * s * .3, w = s * (.3 + k * .19), h = s * .19, off = (k % 2 ? 1 : -1) * s * .06 * k, tilt = (k % 2 ? -1 : 1) * .07 * k;
+    let top = quad([-w, y + h * .5], [0, y - h * 1.1], [w, y + h * .5], 20), bottom = [];
+    for (let i = 0; i <= 30; i++) { const q = i / 30, x = w - 2 * w * q; bottom.push([x, y + h * .5 + h * .45 * Math.sin(Math.PI * q) + Math.sin(q * Math.PI * (6 + k * 2)) * h * .14]); }
+    top = rotPts(shift(top, off, 0), tilt, off, y); bottom = rotPts(shift(bottom, off, 0), tilt, off, y);
+    const outline = top.concat(bottom.slice(1, -1));
+    wash(g, outline, night ? lit : fill, { seed: d.seed + 10 + k, alpha: night ? .09 : .22, layers: 7, amt: .2 });
+    for (let j = 1; j < 9 + k * 2; j++) { const q = j / (9 + k * 2), a = top[Math.round(q * (top.length - 1))], b = bottom[Math.round((1 - q) * (bottom.length - 1))]; ink(g, [a, [b[0], b[1] - h * .1]], { w: .65 * E.lw, color: pal.ink, alpha: la * .2, seed: d.seed + 30 + j + k * 13, amp: .2, t0: 2, t1: 6 }); }
+    ink(g, top, { w: 1.2 * E.lw, color: pal.ink, alpha: la * .8, seed: d.seed + 50 + k, amp: .4, t0: 6, t1: 6 });
+    ink(g, bottom, { w: .9 * E.lw, color: pal.ink, alpha: la * .55, seed: d.seed + 60 + k, amp: .3, t0: 4, t1: 4 });
+  }
+  const oy = -s * .76;
+  if (night) glow(g, 0, oy, s * .5, lit, .4);
+  g.fillStyle = rgba(night ? lit : pal.organ, night ? .85 : .55); g.beginPath(); g.arc(0, oy, s * .1, 0, TAU); g.fill();
+  ink(g, circlePts(0, oy, s * .1, 20), { w: 1.1 * E.lw, color: pal.ink, alpha: la, seed: d.seed + 70, closed: true, amp: .2, step: 1.4 });
+  ink(g, rotPts(circlePts(0, oy, s * .3, 40, 0, .26), -.22, 0, oy), { w: .9 * E.lw, color: pal.ink, alpha: la * .6, seed: d.seed + 71, closed: true, amp: .3, sketch: .25 });
+}
+function paintRing(g, d, E) {
+  const { pal } = E, night = E.dark, s = d.s, la = night ? .55 : .7, fill = pal.bells[d.color % 4], lit = pal.glows[d.color % 4];
+  const outer = circlePts(0, 0, s, 60, 0, .42), inner = circlePts(0, -s * .03, s * .7, 60, 0, .27).reverse();
+  if (night) glow(g, 0, 0, s * 1.4, lit, .14);
+  wash(g, inner.slice().reverse(), night ? lit : fill, { seed: d.seed + 1, alpha: night ? .06 : .1, layers: 6, amt: .1 });
+  for (let k = 1; k <= 3; k++) ink(g, circlePts(0, -s * .03, s * .7 * k / 4, 40, 0, .27 / .7 * .7), { w: .7 * E.lw, color: pal.ink, alpha: la * .18, seed: d.seed + 10 + k, closed: true, amp: .3 });
+  const band = new Path2D(); band.addPath(poly(outer)); band.addPath(poly(inner));
+  g.save(); g.fillStyle = rgba(fill, night ? .85 : .9); g.fill(band, 'evenodd'); g.restore();
+  g.save(); g.clip(band, 'evenodd'); hatch(g, band, { x: -s, y: s * .05, w: s * 2, h: s * .4 }, -1.05, 3.4, pal.ink, night ? .18 : .2, .6, d.seed + 3); g.restore();
+  ink(g, outer, { w: 1.4 * E.lw, color: pal.ink, alpha: la, seed: d.seed + 4, closed: true, amp: .5, sketch: .3 });
+  ink(g, inner, { w: 1.1 * E.lw, color: pal.ink, alpha: la * .8, seed: d.seed + 5, closed: true, amp: .4 });
+  slitEye(g, 0, -s * .03, s * .17, 0, E, { fill: night ? lit : '#ffffff', lit: night ? lit : null, alpha: la, seed: d.seed + 6 });
+}
+function beingSprite(E, d) {
+  const s = d.s, pad = 34, w = s * 3 + pad * 2, h = s * 2.6 + pad * 2;
+  const spr = sprite(w, h, E.dpr, g => { g.translate(w / 2, h / 2); (d.kind === 'seed' ? paintSeed : d.kind === 'crown' ? paintCrown : paintRing)(g, d, E); });
+  spr.ox = w / 2; spr.oy = h / 2;
+  return spr;
+}
+function charm(g, x, y, kind, size, ang, E, alpha, fillCol) {
+  g.save(); g.translate(x, y); g.rotate(ang);
+  const pts = kind === 'tri' ? [[0, -size], [size * .87, size * .5], [-size * .87, size * .5]] : kind === 'dia' ? [[0, -size * 1.2], [size * .7, 0], [0, size * 1.2], [-size * .7, 0]] : circlePts(0, 0, size, 14);
+  if (kind === 'dot') { g.fillStyle = rgba(fillCol, .95); g.beginPath(); g.arc(0, 0, size * .7, 0, TAU); g.fill(); }
+  else { g.fillStyle = rgba(fillCol, .9); g.fill(poly(pts)); g.strokeStyle = rgba(E.pal.ink, alpha); g.lineWidth = .9; g.lineJoin = 'round'; g.stroke(poly(pts)); }
+  g.restore();
+}
+function drawArms(g, d, X, Y, sx, sy, rot, t, E) {
+  const { pal } = E, night = E.dark, la = night ? .5 : .62, fill = pal.bells[d.color % 4], lit = pal.glows[d.color % 4], c = Math.cos(rot), sn = Math.sin(rot);
+  d.arms.forEach((a, i) => {
+    const lx = a.lx * sx, ly = a.ly * sy, x0 = X + lx * c - ly * sn, y0 = Y + lx * sn + ly * c, ang = a.ang - rot;
+    const n = Math.max(10, a.len / 4.5 | 0), pts = [];
+    for (let k = 0; k <= n; k++) {
+      const q = k / n, L = a.len * q, sway = Math.sin(L * a.k - t * a.freq + a.ph) * a.amp * Math.pow(q, .85) + Math.sin(t * .27 + i + d.seed) * 8 * q * q;
+      pts.push([x0 + Math.sin(ang) * L + Math.cos(ang) * sway, y0 + Math.cos(ang) * L - Math.sin(ang) * sway]);
+    }
+    if (a.type === 'frill') {
+      const N = normals(pts, false), L1 = [], R1 = [];
+      pts.forEach((p, k) => {
+        const q = k / n, wv = a.wid * Math.pow(1 - q, .55) * (1 + .25 * Math.sin(q * 9 + t * .8 + i)) + 1, cl = 1 + .4 * Math.sin(q * 38 + i), cr = 1 + .4 * Math.sin(q * 41 + i + 2);
+        L1.push([p[0] + N[k][0] * wv * .5 * cl, p[1] + N[k][1] * wv * .5 * cl]); R1.push([p[0] - N[k][0] * wv * .5 * cr, p[1] - N[k][1] * wv * .5 * cr]);
+      });
+      g.fillStyle = rgba(night ? lit : fill, night ? .16 : .55); g.fill(poly(L1.concat(R1.slice().reverse())));
+      inkLite(g, L1, .9 * E.lw, pal.ink, la * .55, d.seed + 50 + i, { t0: 2, t1: 30, min: .1 });
+      inkLite(g, R1, .9 * E.lw, pal.ink, la * .55, d.seed + 60 + i, { t0: 2, t1: 30, min: .1 });
+      return;
+    }
+    inkLite(g, pts, a.lw * E.lw, pal.ink, la * a.alpha, d.seed + i, { t0: 3, t1: a.len * .4, min: .12, pressure: .25 });
+    if (a.type === 'beads') {
+      for (let k = 2; k < pts.length - 1; k += 3) {
+        const q = k / pts.length, rr = Math.max(.9, a.bead * (1 - q * .8));
+        if (night) { g.fillStyle = rgba(lit, .2 * (1 - q)); g.beginPath(); g.arc(pts[k][0], pts[k][1], rr * 3, 0, TAU); g.fill(); }
+        g.fillStyle = rgba(night ? lit : fill, night ? .85 : .95); g.beginPath(); g.arc(pts[k][0], pts[k][1], rr, 0, TAU); g.fill();
+        g.strokeStyle = rgba(pal.ink, la * .6); g.lineWidth = .7; g.stroke();
+      }
+    } else {
+      a.knots.forEach(q => { const p = pts[Math.round(q * n)]; g.fillStyle = rgba(night ? lit : pal.paper, .95); g.beginPath(); g.arc(p[0], p[1], 1.7 * E.u, 0, TAU); g.fill(); g.strokeStyle = rgba(pal.ink, la * .7); g.lineWidth = .8; g.stroke(); });
+      const e = pts[pts.length - 1];
+      if (night) glow(g, e[0], e[1], 9 * E.u, lit, .35);
+      charm(g, e[0], e[1], a.charm, 3.4 * E.u, t * .4 + i, E, la * .8, night ? lit : fill);
+    }
+  });
+}
+function makeBeing(spec, E, r) {
+  const [kind, x, y, s, color, rot, nArms, reach] = spec, u = E.u, d = { kind, x: x * E.W, y: y * E.H, s: s * u, color, rot, seed: 300 + (r() * 9000 | 0), arms: [] };
+  if (kind === 'seed') { const n = 5 + (r() * 3 | 0); d.vanes = []; for (let k = 0; k < n; k++) d.vanes.push([(k / (n - 1) - .5) * 2.4 + (r() - .5) * .15, d.s * (.75 + r() * .45) * (1 - Math.abs(k / (n - 1) - .5) * .45), d.s * (.11 + r() * .06)]); }
+  if (kind === 'crown') d.veils = 3 + (r() * 2 | 0);
+  const charms = ['ring', 'tri', 'dia', 'dot'];
+  for (let i = 0; i < nArms; i++) {
+    const q = nArms === 1 ? .5 : i / (nArms - 1);
+    let lx, ly, ang, type;
+    if (kind === 'seed') { lx = (q - .5) * d.s * .2; ly = d.s * .42; ang = (q - .5) * .5; type = i === 1 ? 'beads' : 'thread'; }
+    else if (kind === 'crown') { const w = d.s * (.3 + (d.veils - 1) * .19); lx = (q - .5) * 2 * w * .85; ly = -d.s * .38 + (d.veils - 1) * d.s * .3 + d.s * .2; ang = -(q - .5) * .35; type = ['thread', 'beads', 'thread', 'thread', 'beads', 'thread', 'thread'][i % 7]; }
+    else { lx = (q - .5) * d.s * 1.2; ly = d.s * .4 * Math.sqrt(1 - Math.pow((q - .5) * 1.2, 2)); ang = -(q - .5) * .4; type = i % 2 ? 'beads' : 'thread'; }
+    const len = d.s * reach * (type === 'frill' ? .65 + r() * .2 : .7 + r() * .5);
+    d.arms.push({ lx, ly, ang, type, len, k: .03 + r() * .03, freq: .6 + r() * .5, ph: r() * TAU, amp: (5 + r() * 9) * u, wid: d.s * (.14 + r() * .08), bead: (1.6 + r() * 1.4) * u,
+      alpha: type === 'thread' ? .8 : 1, lw: type === 'thread' ? 1 + r() * .5 : 1, charm: charms[(i + (r() * 4 | 0)) % 4], knots: [.25 + r() * .2, .55 + r() * .25].slice(0, 1 + (r() < .5 ? 1 : 0)) });
+  }
+  return d;
+}
+SCENES.hyoryu = {
+  zh: '漂流体', en: 'Drifters', variants: { day: '浅瀬 Shallows', night: '深海 Abyss' },
+  draw(ctx, E, dyn) {
+    const { W, H, pal, r, u } = E, night = E.dark, ph = E.phone;
+    // a far-off haze of colour in the corners
+    // (by day in clear tints near the paper's lightness, so it reads as colour, not shadow: a wide
+    // faint bloom with a smaller one inside it, for a soft watercolour edge)
+    const hazeDay = ['#ddd4ee', '#f1dccb', '#d5e1ef', '#e8d7e6'];
+    (ph ? [[1.02, .3, .22], [.0, .86, .28], [.3, .0, .2]] : [[.06, .2, .32], [.95, .32, .3], [.2, .95, .28], [.9, .95, .22], [.55, -.05, .2]]).forEach(([x, y, k], i) => {
+      if (night) { wash(ctx, blobPts(x * W, y * H, k * Math.max(W, H) * .55, E.seed + 60 + i, 26, .25, .7), pal.bells[i % 4], { seed: 61 + i, alpha: .035, layers: 9, amt: .6 }); return; }
+      [[1, .02], [.6, .024]].forEach(([s, a], j) => wash(ctx, blobPts(x * W, y * H, k * s * Math.max(W, H) * .55, E.seed + 60 + i + j * 7, 26, .25, .7), hazeDay[i % 4], { seed: 61 + i + j * 5, alpha: a, layers: 9, amt: .8 }));
+    });
+    const cr = rng(E.seed + 3);
+    for (let i = 0; i < (ph ? 7 : 16); i++) {
+      const left = i % 2 === 0, x0 = ph ? (left ? -20 : W * .62) : (left ? -30 : W * .74), y0 = ph ? (i < 4 ? H * (.02 + cr() * .1) : H * (.72 + cr() * .2)) : H * cr(), len = (ph ? 160 : 260) * (.6 + cr() * .6);
+      const pts = []; for (let k = 0; k <= 30; k++) { const q = k / 30; pts.push([x0 + len * q, y0 + Math.sin(q * 5 + i) * 6 * u]); }
+      ink(ctx, pts, { w: 1 * E.lw, color: pal.ink, alpha: night ? .1 : .13, seed: 40 + i, amp: .4, t0: 30, t1: 40 });
+    }
+    const flakes = []; for (let i = 0; i < Math.round((ph ? 40 : 90) * E.density); i++) { let x = r() * W; const y = r() * H; if (edgeBias(E, x, y) < .3) x = r() < .5 ? r() * W * (ph ? .12 : .2) : W - r() * W * (ph ? .12 : .2); flakes.push([x, y, .5 + r() * 1.3, r() * TAU]); }
+    dyn.push({ draw(g, t) {
+      flakes.forEach(f => { const y = (f[1] + t * 4 * f[2]) % (H + 10), x = f[0] + Math.sin(t * .3 + f[3]) * 4; g.fillStyle = rgba(pal.snow, (night ? .5 : .4) * (t ? .5 + .5 * Math.sin(t * .7 + f[3]) : .8)); g.beginPath(); g.arc(x, y, f[2] * .8, 0, TAU); g.fill(); });
+    } });
+    // beings: [kind, x, y, size, colour, tilt, arms, reach, distance]
+    const specs = ph
+      ? [['seed', .9, .05, 13, 3, .5, 2, 3, .45], ['ring', .06, .3, 9, 1, .2, 2, 2.4, .4], ['crown', .965, .3, 56, 1, 0, 5, 4.2], ['seed', .16, .79, 40, 2, -.18, 3, 2.6], ['ring', .74, .885, 22, 2, -.15, 3, 2]]
+      : [['seed', .3, .9, 18, 3, -.3, 2, 2.6, .4], ['ring', .58, .06, 12, 1, .2, 2, 2.2, .35], ['crown', .78, .9, 16, 0, 0, 3, 2.4, .4], ['seed', .985, .55, 15, 2, .6, 2, 2.4, .35],
+         ['seed', .11, .26, 112, 2, -.12, 4, 2.7], ['crown', .9, .27, 78, 1, 0, 6, 3.3], ['ring', .21, .83, 62, 2, -.15, 4, 2], ['seed', .72, .11, 40, 1, .35, 3, 2.4], ['ring', .94, .86, 30, 3, .25, 3, 2], ['crown', .04, .66, 30, 2, 0, 4, 2.4]];
+    specs.forEach((spec, i) => {
+      const d = makeBeing(spec, E, rng(E.seed + 500 + i * 17)), spr = beingSprite(E, d), ph0 = i * 1.7;
+      const sats = d.kind === 'ring' ? [0, 1, 2].map(k => ({ a: k * 2.1, rr: (1.8 + k * .5) * u })) : [];
+      const far = spec[8] || 1;
+      dyn.push({ draw(g, t) {
+        g.save(); g.globalAlpha = far;
+        const bob = t ? Math.sin(t * .35 + ph0) * 7 * u : 0, side = t ? Math.sin(t * .17 + ph0) * 5 * u : 0, pulse = t ? Math.sin(t * .9 + ph0) : 0;
+        const sx = 1 + pulse * .018, sy = 1 - pulse * .025, rot = d.rot + (t ? Math.sin(t * .2 + ph0) * .04 : 0), X = d.x + side, Y = d.y + bob;
+        drawArms(g, d, X, Y, sx, sy, rot, t, E);
+        g.save(); g.translate(X, Y); g.rotate(rot); g.scale(sx, sy); g.drawImage(spr, -spr.ox, -spr.oy, spr.cssW, spr.cssH); g.restore();
+        sats.forEach((o, k) => {
+          const a = o.a + t * (.25 + k * .07), px = Math.cos(a) * d.s * 1.25, py = Math.sin(a) * d.s * .3, c = Math.cos(rot - .35), sn = Math.sin(rot - .35);
+          const x = X + px * c - py * sn, y = Y + px * sn + py * c;
+          if (night) glow(g, x, y, o.rr * 5, pal.glows[(d.color + k + 1) % 4], .35);
+          g.fillStyle = rgba(night ? pal.glows[(d.color + k + 1) % 4] : pal.bells[(d.color + k + 1) % 4], .95); g.beginPath(); g.arc(x, y, o.rr, 0, TAU); g.fill();
+          g.strokeStyle = rgba(pal.ink, night ? .45 : .6); g.lineWidth = .8; g.stroke();
+        });
+        g.restore();
+      } });
+    });
+  }
+};
+
+// 天輪 Wheels: rings within rings, full of eyes ------------------------------
+P.tenrin = {
+  day: { paper: '#f2eee5', ink: '#3f3934', rings: ['#e8d9b4', '#d5dce3', '#e5d0c8'], iris: '#5d7286', sclera: '#fbf8f1', glow: '#f1deac', feather: '#e6dcc5', ui: { accent: '#86603a', chosen: '#ece2c8' } },
+  night: { paper: '#121527', ink: '#e4dcc8', rings: ['#5a4f38', '#3b4352', '#503b42'], iris: '#ead9a2', sclera: '#262a3d', glow: '#e9d69e', feather: '#2a2f4c', ui: { accent: '#e2cf96', chosen: '#262b45' } }
+};
+const v3 = {
+  rx(v, a) { const c = Math.cos(a), s = Math.sin(a); return [v[0], v[1] * c - v[2] * s, v[1] * s + v[2] * c]; },
+  ry(v, a) { const c = Math.cos(a), s = Math.sin(a); return [v[0] * c + v[2] * s, v[1], -v[0] * s + v[2] * c]; },
+  cross(a, b) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; },
+  norm(v) { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; }
+};
+function ringFrame(n, twist) {
+  const a = Math.abs(n[1]) < .9 ? [0, 1, 0] : [1, 0, 0], u0 = v3.norm(v3.cross(n, a)), v0 = v3.cross(n, u0), c = Math.cos(twist), s = Math.sin(twist);
+  return [[u0[0] * c + v0[0] * s, u0[1] * c + v0[1] * s, u0[2] * c + v0[2] * s], [v0[0] * c - u0[0] * s, v0[1] * c - u0[1] * s, v0[2] * c - u0[2] * s]];
+}
+function featherShape(g, x, y, len, ang, wid, E, seed, alpha, fill, bend) {
+  // a curved flight feather: a bent shaft, a wide and a narrow vane, a few splits, dense barbs
+  const r = rng(seed), N = 40, shaft = [], A = [], B = [], splits = [.35 + r() * .1, .6 + r() * .15];
+  for (let i = 0; i <= N; i++) {
+    const q = i / N, sx = q * len, sy = Math.sin(q * Math.PI * .5) * len * bend;
+    const notch = splits.reduce((m, c) => m * (1 - .38 * Math.max(0, 1 - Math.abs(q - c) / .03)), 1);
+    const w = Math.sin(Math.PI * Math.pow(q, .55)) * wid * (1 - q * .25) * notch;
+    shaft.push([sx, sy]); A.push([sx + w * .25, sy - w]); B.push([sx + w * .2, sy + w * .5]);
+  }
+  const c = Math.cos(ang), s = Math.sin(ang), tr = ([a, b]) => [x + a * c - b * s, y + a * s + b * c];
+  const S2 = shaft.map(tr), A2 = A.map(tr), B2 = B.map(tr), outline = A2.concat(B2.slice().reverse());
+  wash(g, outline, fill, { seed, alpha: E.dark ? .12 : .2, layers: 6, amt: .12 });
+  const barbs = new Path2D();
+  for (let i = 2; i < N - 1; i++) {
+    const p = S2[i], ea = A2[Math.min(N, i + 2)], eb = B2[Math.min(N, i + 2)];
+    barbs.moveTo(p[0], p[1]); barbs.quadraticCurveTo((p[0] + ea[0]) / 2 + (r() - .5) * 1.5, (p[1] + ea[1]) / 2, ea[0], ea[1]);
+    if (i % 2) { barbs.moveTo(p[0], p[1]); barbs.lineTo(eb[0], eb[1]); }
+  }
+  g.strokeStyle = rgba(E.pal.ink, alpha * .16); g.lineWidth = .55; g.stroke(barbs);
+  ink(g, S2, { w: 1.1 * E.lw, color: E.pal.ink, alpha: alpha * .55, seed: seed + 99, amp: .2, t0: 4, t1: 40 });
+  ink(g, A2, { w: .9 * E.lw, color: E.pal.ink, alpha: alpha * .45, seed: seed + 98, amp: .35, t0: 3, t1: 8 });
+  ink(g, B2, { w: .8 * E.lw, color: E.pal.ink, alpha: alpha * .35, seed: seed + 97, amp: .35, t0: 3, t1: 8 });
+}
+function drawWheel(g, w, t, E) {
+  const { pal } = E, night = E.dark, la = (night ? .62 : .78) * w.alpha, R = w.R;
+  const rings = w.rings.map((rg, i) => {
+    let n = v3.rx(rg.n, rg.tilt);
+    n = v3.ry(n, rg.yaw + (t ? t * rg.prec : 0));
+    const [U, V] = ringFrame(v3.norm(n), 0), N = 132, spin = rg.phase + (t ? t * rg.spin : 0), b = R * rg.band, pts = [];
+    for (let k = 0; k <= N; k++) {
+      const th = k / N * TAU + spin, cs = Math.cos(th), sn = Math.sin(th), rd = [U[0] * cs + V[0] * sn, U[1] * cs + V[1] * sn, U[2] * cs + V[2] * sn];
+      pts.push({ th, rd, z: rd[2], o: [w.x + rd[0] * (R + b / 2), w.y + rd[1] * (R + b / 2)], i: [w.x + rd[0] * (R - b / 2), w.y + rd[1] * (R - b / 2)], c: [w.x + rd[0] * R, w.y + rd[1] * R] });
+    }
+    return { rg, U, V, pts, b, color: pal.rings[i % pal.rings.length], idx: i };
+  });
+  const segs = (ring, front) => { const out = []; let cur = null; ring.pts.forEach(p => { if ((p.z >= 0) === front) { (cur = cur || []).push(p); } else if (cur) { out.push(cur); cur = null; } }); if (cur) out.push(cur); return out; };
+  const band = (g2, ring, sg, front) => {
+    if (sg.length < 2) return;
+    const shape = sg.map(p => p.o).concat(sg.slice().reverse().map(p => p.i));
+    g2.fillStyle = rgba(front ? ring.color : mix(ring.color, pal.paper, .45), front ? (night ? .92 : .95) * w.alpha : .55 * w.alpha); g2.fill(poly(shape));
+    inkLite(g2, sg.map(p => p.o), (front ? 1.3 : .8) * E.lw, pal.ink, la * (front ? .85 : .3), ring.idx * 7 + 3, { t0: 0, t1: 0, taper: false, pressure: .3 });
+    inkLite(g2, sg.map(p => p.i), (front ? 1 : .7) * E.lw, pal.ink, la * (front ? .7 : .25), ring.idx * 7 + 4, { t0: 0, t1: 0, taper: false, pressure: .3 });
+    if (front) {
+      inkLite(g2, sg.map(p => [(p.o[0] + p.i[0]) / 2, (p.o[1] + p.i[1]) / 2]), .6 * E.lw, night ? pal.glow : pal.ink, la * (night ? .5 : .3), ring.idx * 7 + 5, { t0: 0, t1: 0, taper: false });
+      for (let k = 0; k < sg.length; k += 6) { const p = sg[k]; g2.strokeStyle = rgba(pal.ink, la * .35); g2.lineWidth = .7; g2.beginPath(); g2.moveTo(p.o[0], p.o[1]); g2.lineTo(p.o[0] + (p.i[0] - p.o[0]) * .3, p.o[1] + (p.i[1] - p.o[1]) * .3); g2.stroke(); }
+    }
+  };
+  rings.forEach(ring => segs(ring, false).forEach(sg => band(g, ring, sg, false)));
+  // the core: a small sun no one has seen
+  glow(g, w.x, w.y, R * .9, pal.glow, (night ? .22 : .3) * w.alpha);
+  g.fillStyle = rgba(pal.glow, (night ? .9 : .8) * w.alpha); g.beginPath(); g.arc(w.x, w.y, R * .07, 0, TAU); g.fill();
+  g.strokeStyle = rgba(pal.ink, la * .6); g.lineWidth = 1; g.stroke();
+  rings.forEach(ring => segs(ring, true).forEach(sg => band(g, ring, sg, true)));
+  // eyes along each band, open where the band faces us
+  rings.forEach(ring => {
+    const m = ring.rg.eyes;
+    for (let k = 0; k < m; k++) {
+      const idx = Math.round(((k / m) * ring.pts.length)) % (ring.pts.length - 1), p = ring.pts[idx];
+      if (p.z < .08) continue;
+      const th = p.th, cs = Math.cos(th), sn = Math.sin(th), U = ring.U, V = ring.V;
+      const tg = [-U[0] * sn + V[0] * cs, -U[1] * sn + V[1] * cs], rd = p.rd, a = ring.b * .72, hh = ring.b * .34;
+      const seed = ring.idx * 31 + k, per = 7 + (seed * 7919 % 9), off = (seed * 104729 % 1000) / 1000 * per;
+      let lid = t ? 1 - Math.max(0, 1 - Math.abs(((t + off) % per) - .25) / .25) : (seed % 5 === 0 ? .35 : 1);
+      lid = Math.max(.06, lid);
+      const eye = [];
+      for (let i = 0; i <= 14; i++) { const q = i / 14, u = -1 + 2 * q, h = Math.sin(Math.PI * q) * hh * lid; eye.push([p.c[0] + tg[0] * a * u - rd[0] * h, p.c[1] + tg[1] * a * u - rd[1] * h]); }
+      for (let i = 13; i >= 1; i--) { const q = i / 14, u = -1 + 2 * q, h = Math.sin(Math.PI * q) * hh * lid * .85; eye.push([p.c[0] + tg[0] * a * u + rd[0] * h, p.c[1] + tg[1] * a * u + rd[1] * h]); }
+      const fade = Math.min(1, (p.z - .08) * 4);
+      g.fillStyle = rgba(pal.sclera, .95 * fade * w.alpha); g.fill(poly(eye));
+      if (lid > .35) {
+        const ir = hh * .62 * Math.min(1, lid), ip = [];
+        for (let i = 0; i < 14; i++) { const f = i / 14 * TAU; ip.push([p.c[0] + tg[0] * Math.cos(f) * ir + rd[0] * Math.sin(f) * ir, p.c[1] + tg[1] * Math.cos(f) * ir + rd[1] * Math.sin(f) * ir]); }
+        if (night) glow(g, p.c[0], p.c[1], ir * 3.5, pal.iris, .35 * fade * w.alpha);
+        g.fillStyle = rgba(pal.iris, .9 * fade * w.alpha); g.fill(poly(ip));
+        g.fillStyle = rgba(night ? pal.sclera : pal.ink, .85 * fade * w.alpha); g.beginPath(); g.arc(p.c[0], p.c[1], Math.max(.7, ir * .35), 0, TAU); g.fill();
+      }
+      inkLite(g, eye.concat([eye[0]]), .9 * E.lw, pal.ink, la * fade, seed, { t0: 0, t1: 0, taper: false, pressure: .2 });
+    }
+  });
+}
+function makeWheel(x, y, R, E, seed, alpha, nRings) {
+  const r = rng(seed), rings = [];
+  const base = [[0, 0, 1], [1, 0, 0], [0, 1, 0]];
+  for (let i = 0; i < nRings; i++) rings.push({ n: base[i % 3], tilt: .5 + r() * .7, yaw: r() * TAU, prec: (r() < .5 ? -1 : 1) * (.03 + r() * .04), spin: (r() < .5 ? -1 : 1) * (.05 + r() * .06), phase: r() * TAU, band: .2 - i * .025, eyes: 8 + (r() * 4 | 0) });
+  return { x, y, R, alpha, rings };
+}
+SCENES.tenrin = {
+  zh: '天輪', en: 'Wheels', variants: { day: '白昼 Noon', night: '星夜 Starlit' },
+  draw(ctx, E, dyn) {
+    const { W, H, pal, u, r } = E, night = E.dark, ph = E.phone;
+    const big = ph ? [W * .83, H * .82, 96 * u] : [W * .84, H * .25, 150 * u];
+    // rays from the great wheel, faint as pencil
+    for (let i = 0; i < (ph ? 22 : 40); i++) {
+      const a = i / (ph ? 22 : 40) * TAU + r() * .05, L1 = big[2] * (1.5 + r() * .3), L2 = big[2] * (2.6 + r() * 2.2);
+      ink(ctx, [[big[0] + Math.cos(a) * L1, big[1] + Math.sin(a) * L1], [big[0] + Math.cos(a) * L2, big[1] + Math.sin(a) * L2]], { w: .8 * E.lw, color: night ? pal.glow : pal.ink, alpha: night ? .14 : .1, seed: 20 + i, amp: .3, t0: 10, t1: 40 });
+    }
+    glow(ctx, big[0], big[1], big[2] * 3.2, pal.glow, night ? .08 : .14);
+    ink(ctx, rotPts(circlePts(big[0], big[1], big[2] * 1.62, 90, 0, .3), -.32, big[0], big[1]), { w: .8 * E.lw, color: pal.ink, alpha: night ? .3 : .3, seed: 77, closed: true, amp: .4, sketch: .3 });
+    for (let k = 0; k < 18; k++) { const a = k / 18 * TAU, [px, py] = rotPts([[big[0] + Math.cos(a) * big[2] * 1.62, big[1] + Math.sin(a) * big[2] * 1.62 * .3]], -.32, big[0], big[1])[0]; ctx.fillStyle = rgba(night ? pal.glow : pal.ink, night ? .6 : .4); ctx.beginPath(); ctx.arc(px, py, (k % 3 ? 1.2 : 2.2) * u, 0, TAU); ctx.fill(); }
+    // wings of the great wheel
+    const wings = sprite(big[2] * 6, big[2] * 6, E.dpr, g => {
+      const c = big[2] * 3;
+      [[-2.95, 1, .22], [-2.6, 1.12, .2], [-2.25, .98, .18], [-.19, 1, -.22], [-.54, 1.12, -.2], [-.89, .98, -.18], [2.35, .62, -.15], [.8, .62, .15]].forEach(([a, k, bend], i) => featherShape(g, c + Math.cos(a) * big[2] * .45, c + Math.sin(a) * big[2] * .45, big[2] * 1.9 * k, a, big[2] * .22 * k, E, 60 + i * 9, night ? .75 : .85, pal.feather, bend));
+    });
+    ctx.drawImage(wings, big[0] - wings.cssW / 2, big[1] - wings.cssH / 2, wings.cssW, wings.cssH);
+    const wheels = [makeWheel(big[0], big[1], big[2], E, 31, 1, 3)];
+    if (ph) wheels.push(makeWheel(W * .1, H * .045, 22 * u, E, 32, .85, 2), makeWheel(W * .9, H * .2, 14 * u, E, 33, .5, 2));
+    else wheels.push(makeWheel(W * .12, H * .8, 76 * u, E, 34, .95, 3), makeWheel(W * .36, H * .08, 26 * u, E, 35, .8, 2), makeWheel(W * .63, H * .93, 22 * u, E, 36, .7, 2), makeWheel(W * .04, H * .18, 16 * u, E, 37, .5, 2), makeWheel(W * .97, H * .7, 18 * u, E, 38, .55, 2));
+    if (night) starField(dyn, E, Math.round((ph ? 18 : 40) * E.density), [.02, .98], pal.glow, pal.glow, 300, { share: .15, size: 2.6 });
+    // drifting single eyes
+    const motes = []; for (let i = 0; i < Math.round((ph ? 5 : 11) * E.density); i++) { let x = r() * W, y = r() * H; if (edgeBias(E, x, y) < .4) { x = r() < .5 ? r() * W * (ph ? .1 : .2) : W - r() * W * (ph ? .1 : .2); } motes.push([x, y, (4 + r() * 4) * u, r() * TAU]); }
+    dyn.push({ draw(g, t) {
+      motes.forEach((m, i) => {
+        const x = m[0] + (t ? Math.sin(t * .2 + m[3]) * 10 : 0), y = m[1] + (t ? Math.cos(t * .17 + m[3]) * 8 : 0), s = m[2];
+        const per = 6 + i % 5, lid = t ? Math.max(.08, 1 - Math.max(0, 1 - Math.abs(((t + i * 1.3) % per) - .25) / .25)) : 1;
+        const eye = []; for (let k = 0; k <= 12; k++) { const q = k / 12; eye.push([x - s + 2 * s * q, y - Math.sin(Math.PI * q) * s * .45 * lid]); } for (let k = 11; k >= 1; k--) { const q = k / 12; eye.push([x - s + 2 * s * q, y + Math.sin(Math.PI * q) * s * .38 * lid]); }
+        if (night) glow(g, x, y, s * 3, pal.glow, .25);
+        g.fillStyle = rgba(pal.sclera, .95); g.fill(poly(eye));
+        if (lid > .4) { g.fillStyle = rgba(pal.iris, .9); g.beginPath(); g.arc(x, y, s * .3, 0, TAU); g.fill(); }
+        inkLite(g, eye.concat([eye[0]]), .8 * E.lw, pal.ink, night ? .55 : .65, 400 + i, { t0: 0, t1: 0, taper: false });
+        g.strokeStyle = rgba(pal.ink, night ? .3 : .35); g.lineWidth = .6 * E.lw; g.beginPath(); g.ellipse(x, y, s * 1.9, s * .6, m[3] * .3, 0, TAU); g.stroke();
+      });
+    } });
+    wheels.slice().reverse().forEach(w => dyn.push({ draw(g, t) { drawWheel(g, w, t, E); } }));
+  }
+};
+
+// 籠 Lattices: cages of light, too small or too large to tell --------------------
+P.kago = {
+  day: { paper: '#ecf0ea', ink: '#2f3d3c', wash: ['#d0e3dd', '#e6dbb8', '#dad3e2', '#d5e2cb'], node: '#f6f4ec', glow: '#d0e3dd', ui: { accent: '#3b6362', chosen: '#cfe1db' } },
+  night: { paper: '#0f1417', ink: '#d6ebe4', wash: ['#1a2a2b', '#2a281f', '#24202c', '#1d2b22'], node: '#d6ebe4', glow: '#bfe6dc', ui: { accent: '#bfe6dc', chosen: '#1f2c2c' } }
+};
+const GEO = (() => { // a geodesic sphere: an icosahedron split once
+  const t = (1 + Math.sqrt(5)) / 2, V = [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t], [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]].map(v3.norm);
+  const F = [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8], [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]];
+  const verts = V.slice(), cache = new Map(), mid = (a, b) => { const k = a < b ? a + '_' + b : b + '_' + a; if (!cache.has(k)) { verts.push(v3.norm([(verts[a][0] + verts[b][0]) / 2, (verts[a][1] + verts[b][1]) / 2, (verts[a][2] + verts[b][2]) / 2])); cache.set(k, verts.length - 1); } return cache.get(k); };
+  const faces = []; F.forEach(([a, b, c]) => { const ab = mid(a, b), bc = mid(b, c), ca = mid(c, a); faces.push([a, ab, ca], [b, bc, ab], [c, ca, bc], [ab, bc, ca]); });
+  const edges = new Map(); faces.forEach(f => [[0, 1], [1, 2], [2, 0]].forEach(([i, j]) => { const a = f[i], b = f[j], k = a < b ? a + '_' + b : b + '_' + a; if (!edges.has(k)) edges.set(k, [a, b]); }));
+  const jit = noise1(77); verts.forEach((v, i) => { const k = 1 + jit(i * .7) * .07; verts[i] = [v[0] * k, v[1] * k, v[2] * k]; });
+  return { verts, edges: [...edges.values()], faces, tips: V.map((_, i) => i) };
+})();
+function rot3(v, ax, ay, az) { let p = v3.rx(v, ax); p = v3.ry(p, ay); const c = Math.cos(az), s = Math.sin(az); return [p[0] * c - p[1] * s, p[0] * s + p[1] * c, p[2]]; }
+function cage(g, o, t, E) {
+  // a geodesic cage with spines; o: {x, y, R, ax, ay, spin, alpha, inner, spines}
+  const { pal } = E, night = E.dark, la = (night ? .75 : .7) * o.alpha, ay = o.ay + (t ? t * o.spin : 0), ax = o.ax + (t ? Math.sin(t * .05) * .2 : 0);
+  const P2 = GEO.verts.map(v => { const p = rot3(v, ax, ay, o.az || 0); return [o.x + p[0] * o.R, o.y + p[1] * o.R, p[2]]; });
+  const edge = (a, b, front) => {
+    const A = P2[a], B = P2[b], m = v3.norm([(GEO.verts[a][0] + GEO.verts[b][0]) / 2, (GEO.verts[a][1] + GEO.verts[b][1]) / 2, (GEO.verts[a][2] + GEO.verts[b][2]) / 2]), M = rot3(m, ax, ay, o.az || 0);
+    g.moveTo(A[0], A[1]); g.quadraticCurveTo(o.x + M[0] * o.R * 1.04 - (A[0] + B[0] - 2 * o.x) * .02, o.y + M[1] * o.R * 1.04 - (A[1] + B[1] - 2 * o.y) * .02, B[0], B[1]);
+  };
+  // back half first, faint; then a sheer skin; then the front half
+  g.save(); g.lineCap = 'round';
+  g.beginPath(); GEO.edges.forEach(([a, b]) => { if (P2[a][2] + P2[b][2] < 0) edge(a, b); }); g.strokeStyle = rgba(pal.ink, la * .28); g.lineWidth = .8 * E.lw; g.stroke();
+  if (o.inner) {
+    const I2 = GEO.verts.map(v => { const p = rot3(v, -ax * 1.3 + 1, -ay * 1.6, .4); return [o.x + p[0] * o.R * o.inner, o.y + p[1] * o.R * o.inner, p[2]]; });
+    g.beginPath(); GEO.edges.forEach(([a, b]) => { g.moveTo(I2[a][0], I2[a][1]); g.lineTo(I2[b][0], I2[b][1]); }); g.strokeStyle = rgba(pal.ink, la * .32); g.lineWidth = .7 * E.lw; g.stroke();
+    if (night) glow(g, o.x, o.y, o.R * o.inner * 1.4, pal.glow, .16 * o.alpha);
+  }
+  g.fillStyle = rgba(night ? pal.glow : pal.wash[o.color % 4], (night ? .05 : .3) * o.alpha); g.beginPath(); g.arc(o.x, o.y, o.R * 1.01, 0, TAU); g.fill();
+  // some of the windows are glazed
+  GEO.faces.forEach((f, i) => { if (i % 5 > 1) return; const A = P2[f[0]], B = P2[f[1]], C = P2[f[2]]; if (A[2] + B[2] + C[2] < .3) return; g.fillStyle = rgba(night ? pal.glow : pal.wash[(o.color + i) % 4], (night ? .1 : .55) * o.alpha); g.beginPath(); g.moveTo(A[0], A[1]); g.lineTo(B[0], B[1]); g.lineTo(C[0], C[1]); g.closePath(); g.fill(); });
+  g.beginPath(); GEO.edges.forEach(([a, b]) => { if (P2[a][2] + P2[b][2] >= 0) edge(a, b); }); g.strokeStyle = rgba(pal.ink, la * .85); g.lineWidth = 1.15 * E.lw; g.stroke();
+  // spines from the twelve corners, each ending in a small ring
+  if (o.spines) GEO.tips.forEach(i => {
+    const p = P2[i]; if (p[2] < -.35) return;
+    const dx = p[0] - o.x, dy = p[1] - o.y, k = o.spines * (.8 + .4 * ((i * 37) % 7) / 7), ex = o.x + dx * (1 + k), ey = o.y + dy * (1 + k), front = p[2] > 0;
+    inkLite(g, [[p[0], p[1]], [(p[0] + ex) / 2 + dy * .02, (p[1] + ey) / 2 - dx * .02], [ex, ey]], (front ? 1.3 : .8) * E.lw, pal.ink, la * (front ? .8 : .35), 900 + i, { t0: 0, t1: 6, min: .2 });
+    const bx = p[0] + dx * k * .55, by = p[1] + dy * k * .55, nx = -dy * .06, ny = dx * .06;
+    g.beginPath(); g.moveTo(bx - nx, by - ny); g.lineTo(bx + nx, by + ny); g.strokeStyle = rgba(pal.ink, la * (front ? .55 : .25)); g.lineWidth = .7; g.stroke();
+    if (night && front) glow(g, ex, ey, 6 * E.u, pal.glow, .4 * o.alpha);
+    g.fillStyle = rgba(pal.node, front ? .95 : .5); g.beginPath(); g.arc(ex, ey, (front ? 2.4 : 1.6) * E.u, 0, TAU); g.fill(); g.strokeStyle = rgba(pal.ink, la * (front ? .8 : .3)); g.lineWidth = .8; g.stroke();
+  });
+  P2.forEach(p => { if (p[2] > .1) { g.fillStyle = rgba(pal.node, .95 * o.alpha); g.beginPath(); g.arc(p[0], p[1], 1.3 * E.u, 0, TAU); g.fill(); g.strokeStyle = rgba(pal.ink, la * .6); g.lineWidth = .6; g.stroke(); } });
+  g.restore();
+}
+function acanth(g, o, t, E) {
+  // a star of blades in three dimensions
+  const { pal } = E, night = E.dark, la = (night ? .75 : .72) * o.alpha, ay = o.ay + (t ? t * o.spin : 0);
+  const dirs = GEO.tips.map(i => GEO.verts[i]).concat([[1, 1, 1], [-1, 1, 1], [1, -1, 1], [1, 1, -1], [-1, -1, 1], [-1, 1, -1], [1, -1, -1], [-1, -1, -1]].map(v3.norm));
+  const pts = dirs.map((d, i) => { const p = rot3(d, o.ax, ay, .3); return { p, L: o.R * (i < 12 ? 1 : .62) * (.85 + .3 * ((i * 53) % 9) / 9), i }; }).sort((a, b) => a.p[2] - b.p[2]);
+  if (night) glow(g, o.x, o.y, o.R * .7, pal.glow, .22 * o.alpha);
+  pts.forEach(({ p, L, i }) => {
+    const front = p[2] >= 0, ex = o.x + p[0] * L, ey = o.y + p[1] * L, nx = -p[1] * L * .045, ny = p[0] * L * .045, mx = o.x + p[0] * L * .45, my = o.y + p[1] * L * .45;
+    const blade = [[o.x + p[0] * L * .12, o.y + p[1] * L * .12], [mx + nx, my + ny], [ex, ey], [mx - nx, my - ny]];
+    g.fillStyle = rgba(night ? pal.glow : pal.wash[i % 4], (front ? (night ? .3 : .85) : (night ? .12 : .4)) * o.alpha); g.fill(poly(blade));
+    g.strokeStyle = rgba(pal.ink, la * (front ? .8 : .3)); g.lineWidth = (front ? 1 : .7) * E.lw; g.lineJoin = 'round'; g.stroke(poly(blade));
+    g.beginPath(); g.moveTo(blade[0][0], blade[0][1]); g.lineTo(ex, ey); g.lineWidth = .6; g.stroke();
+  });
+  const core = blobPts(o.x, o.y, o.R * .16, 7, 20, .06);
+  g.fillStyle = rgba(night ? pal.glow : pal.wash[1], night ? .6 : .9); g.fill(poly(core));
+  inkLite(g, core.concat([core[0]]), 1.1 * E.lw, pal.ink, la, 77, { t0: 0, t1: 0, taper: false });
+}
+function diatom(g, x, y, R, ang, kind, E, seed, alpha) {
+  const { pal } = E, night = E.dark, la = (night ? .7 : .7) * alpha;
+  g.save(); g.translate(x, y); g.rotate(ang);
+  if (kind === 0) { // a disc of fine rays
+    g.fillStyle = rgba(night ? pal.glow : pal.wash[0], (night ? .06 : .4) * alpha); g.beginPath(); g.arc(0, 0, R, 0, TAU); g.fill();
+    const rays = new Path2D(), n = 72; for (let i = 0; i < n; i++) { const a = i / n * TAU, k = i % 3 ? .95 : .99; rays.moveTo(Math.cos(a) * R * .34, Math.sin(a) * R * .34); rays.lineTo(Math.cos(a) * R * k, Math.sin(a) * R * k); }
+    g.strokeStyle = rgba(pal.ink, la * .3); g.lineWidth = .55; g.stroke(rays);
+    for (let i = 0; i < 6; i++) { const a = i / 6 * TAU; g.beginPath(); g.ellipse(Math.cos(a) * R * .18, Math.sin(a) * R * .18, R * .11, R * .05, a, 0, TAU); g.strokeStyle = rgba(pal.ink, la * .6); g.lineWidth = .8; g.stroke(); }
+    inkLite(g, circlePts(0, 0, R, 50).concat([[R, 0]]), 1.2 * E.lw, pal.ink, la, seed, { t0: 0, t1: 0, taper: false });
+    inkLite(g, circlePts(0, 0, R * .34, 30).concat([[R * .34, 0]]), .8 * E.lw, pal.ink, la * .6, seed + 1, { t0: 0, t1: 0, taper: false });
+  } else { // a long boat with a seam
+    const L = R * 1.6, Wd = R * .38, hull = []; for (let i = 0; i < 40; i++) { const f = i / 40 * TAU; hull.push([Math.cos(f) * L, Math.sin(f) * Wd * Math.pow(Math.abs(Math.sin(f)), .2)]); }
+    g.fillStyle = rgba(night ? pal.glow : pal.wash[2], (night ? .06 : .45) * alpha); g.fill(poly(hull));
+    const ribs = new Path2D(); for (let i = -14; i <= 14; i++) { const x = i / 14 * L * .88, h = Wd * Math.sqrt(Math.max(0, 1 - Math.pow(x / L, 2))) * .9; ribs.moveTo(x, -h); ribs.lineTo(x, -Wd * .12); ribs.moveTo(x, Wd * .12); ribs.lineTo(x, h); }
+    g.strokeStyle = rgba(pal.ink, la * .32); g.lineWidth = .55; g.stroke(ribs);
+    inkLite(g, [[-L * .9, 0], [-L * .06, 0]], .8, pal.ink, la * .7, seed + 2, { t0: 2, t1: 2 }); inkLite(g, [[L * .06, 0], [L * .9, 0]], .8, pal.ink, la * .7, seed + 3, { t0: 2, t1: 2 });
+    [[-L * .9, 0], [0, 0], [L * .9, 0]].forEach(([a, b]) => { g.fillStyle = rgba(pal.node, .9); g.beginPath(); g.arc(a, b, Wd * .14, 0, TAU); g.fill(); g.strokeStyle = rgba(pal.ink, la * .7); g.lineWidth = .8; g.stroke(); });
+    inkLite(g, hull.concat([hull[0]]), 1.2 * E.lw, pal.ink, la, seed, { t0: 0, t1: 0, taper: false });
+  }
+  g.restore();
+}
+SCENES.kago = {
+  zh: '籠', en: 'Lattices', variants: { day: '明視野 Bright field', night: '暗視野 Dark field' },
+  draw(ctx, E, dyn) {
+    const { W, H, pal, u, r } = E, night = E.dark, ph = E.phone;
+    // out-of-focus things in the depth of the slide
+    for (let i = 0; i < (ph ? 7 : 14); i++) {
+      let x = r() * W, y = r() * H; if (edgeBias(E, x, y) < .5) { x = r() < .5 ? r() * W * .18 : W - r() * W * .18; }
+      const rad = (20 + r() * 60) * u;
+      glow(ctx, x, y, rad, night ? pal.glow : pal.wash[i % 4], night ? .05 : .35);
+      ctx.strokeStyle = rgba(pal.ink, night ? .07 : .06); ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(x, y, rad * .62, 0, TAU); ctx.stroke();
+    }
+    const cages = ph
+      ? [{ x: W * .86, y: H * .83, R: 74 * u, ax: .5, ay: .3, spin: .05, alpha: 1, inner: .5, spines: .5, color: 0 }, { x: W * .08, y: H * .045, R: 22 * u, ax: 1, ay: 2, spin: -.07, alpha: .8, spines: .4, color: 2 }]
+      : [{ x: W * .87, y: H * .76, R: 140 * u, ax: .5, ay: .3, spin: .04, alpha: 1, inner: .5, spines: .5, color: 0 }, { x: W * .07, y: H * .2, R: 66 * u, ax: 1.1, ay: 2, spin: -.06, alpha: .9, spines: .45, color: 2 }, { x: W * .61, y: H * .06, R: 24 * u, ax: .3, ay: 1, spin: .09, alpha: .7, spines: .5, color: 1 }];
+    const stars = ph ? [{ x: W * .15, y: H * .82, R: 48 * u, ax: .4, ay: .2, spin: .06, alpha: 1 }] : [{ x: W * .17, y: H * .8, R: 84 * u, ax: .4, ay: .2, spin: .05, alpha: 1 }, { x: W * .95, y: H * .14, R: 46 * u, ax: 1.2, ay: .7, spin: -.07, alpha: .85 }];
+    const dias = ph ? [[.94, .55, 16, .4, 1], [.05, .4, 14, 1.2, 0], [.55, .87, 12, .1, 1], [.42, .03, 10, 0, 0]] : [[.36, .07, 22, .3, 0], [.03, .5, 26, 1.3, 1], [.97, .44, 22, 2, 0], [.42, .95, 20, .2, 1], [.7, .93, 15, 2.6, 0], [.26, .55, 12, .9, 1], [.8, .2, 13, 1.1, 0]];
+    dias.forEach(([x, y, R, a, k], i) => dyn.push({ draw(g, t) { diatom(g, x * W + (t ? Math.sin(t * .2 + i) * 4 : 0), y * H + (t ? Math.cos(t * .17 + i) * 3 : 0), R * u, a + (t ? t * .02 * (i % 2 ? 1 : -1) : 0), k, E, 600 + i * 7, .9); } }));
+    // specks in brownian motion
+    const specks = []; for (let i = 0; i < Math.round((ph ? 30 : 70) * E.density); i++) { let x = r() * W, y = r() * H; if (edgeBias(E, x, y) < .4) x = r() < .5 ? r() * W * .2 : W - r() * W * .2; specks.push([x, y, r() * TAU, .6 + r() * 1.6]); }
+    dyn.push({ draw(g, t) { specks.forEach(s => { const x = s[0] + (t ? Math.sin(t * 1.3 + s[2]) * 1.5 + Math.sin(t * .31 + s[2] * 3) * 3 : 0), y = s[1] + (t ? Math.cos(t * 1.1 + s[2]) * 1.5 : 0); g.fillStyle = rgba(night ? pal.glow : pal.ink, night ? .45 : .28); g.beginPath(); g.arc(x, y, s[3], 0, TAU); g.fill(); }); } });
+    stars.forEach(o => dyn.push({ draw(g, t) { acanth(g, o, t, E); } }));
+    cages.forEach(o => dyn.push({ draw(g, t) { cage(g, o, t, E); } }));
+  }
+};
+
+// 浮生 Floating growths: clumps that grow in every direction, rooted in nothing ------
+P.fusei = {
+  day: { paper: '#efece4', ink: '#3a3530', knot: '#cdbca3', tips: ['#e3c8b5', '#cfd9c4', '#d8cce2', '#e8dbab'], mist: '#e2dccf', ui: { accent: '#7d5b46', chosen: '#e5dccc' } },
+  night: { paper: '#16191c', ink: '#d3cec2', knot: '#3b3631', tips: ['#e6c79a', '#9fd3c0', '#c6b3e0', '#e9b9a8'], mist: '#22282b', ui: { accent: '#e6c79a', chosen: '#2a2f33' } }
+};
+function tipOrnament(g, x, y, ang, s, kind, E, seed, color) {
+  const { pal } = E, night = E.dark, la = night ? .65 : .75;
+  if (night) glow(g, x, y, s * 3.2, color, .3);
+  if (kind === 0) { // an orb
+    g.fillStyle = rgba(color, night ? .9 : .92); g.beginPath(); g.arc(x, y, s, 0, TAU); g.fill();
+    g.fillStyle = rgba('#ffffff', night ? .25 : .5); g.beginPath(); g.arc(x - s * .35, y - s * .35, s * .32, 0, TAU); g.fill();
+    inkLite(g, circlePts(x, y, s, 20).concat([[x + s, y]]), 1 * E.lw, pal.ink, la, seed, { t0: 0, t1: 0, taper: false });
+  } else if (kind === 1) { // a little cup
+    const c = Math.cos(ang), sn = Math.sin(ang), tr = (a, b) => [x + a * c - b * sn, y + a * sn + b * c];
+    const cup = [tr(-s * .9, -s * 1.3), tr(-s * .5, -s * .2), tr(0, 0), tr(s * .5, -s * .2), tr(s * .9, -s * 1.3)];
+    g.fillStyle = rgba(color, .85); g.fill(poly(spline(cup, false, 5)));
+    inkLite(g, spline(cup, false, 5), 1 * E.lw, pal.ink, la, seed, { t0: 2, t1: 2 });
+    const rim = []; for (let i = 0; i <= 16; i++) { const a = i / 16 * TAU; rim.push(tr(Math.cos(a) * s * .9, -s * 1.3 + Math.sin(a) * s * .28)); }
+    inkLite(g, rim, .9 * E.lw, pal.ink, la * .8, seed + 1, { t0: 0, t1: 0, taper: false });
+  } else if (kind === 2) { // a curl
+    const pts = []; for (let i = 0; i <= 30; i++) { const q = i / 30, a = ang - Math.PI / 2 + q * TAU * 1.3, rr = s * 1.3 * (1 - q * .8); pts.push([x + Math.cos(a) * rr + Math.cos(ang - Math.PI / 2) * s * .2, y + Math.sin(a) * rr - s * .9]); }
+    inkLite(g, pts, 1.3 * E.lw, pal.ink, la, seed, { t0: 1, t1: 8, min: .2 });
+    g.fillStyle = rgba(color, .95); g.beginPath(); g.arc(pts[pts.length - 1][0], pts[pts.length - 1][1], s * .3, 0, TAU); g.fill();
+  } else { // a striped pod
+    g.save(); g.translate(x, y); g.rotate(ang);
+    const pod = circlePts(0, -s * 1.1, s * .62, 20, 0, 1.7);
+    g.fillStyle = rgba(color, .9); g.fill(poly(pod));
+    for (let k = -1; k <= 1; k++) inkLite(g, quad([k * s * .1, -s * 2.1], [k * s * .7, -s * 1.1], [k * s * .1, -s * .05], 10), .6, pal.ink, la * .5, seed + k, { t0: 2, t1: 2 });
+    inkLite(g, pod.concat([pod[0]]), 1 * E.lw, pal.ink, la, seed + 5, { t0: 0, t1: 0, taper: false });
+    g.restore();
+  }
+}
+function growthSprite(E, S, seed) {
+  // grow first (to know how big it gets), then draw into a sprite that fits
+  const { pal } = E, night = E.dark, r = rng(seed), la = night ? .62 : .75, strokes = [], tips = [];
+  const branch = (px, py, ang, len, wd, depth) => {
+    const n = 12, bend = (r() - .5) * 1.1, pts = [[px, py]]; let a = ang, x = px, y = py;
+    for (let i = 1; i <= n; i++) { a += bend / n; x += Math.sin(a) * len / n; y -= Math.cos(a) * len / n; pts.push([x, y]); }
+    strokes.push([pts, wd, depth, len, (r() * 1e6) | 0]);
+    if (depth === 0 || len < 9) { tips.push([x, y, a]); return; }
+    const k = 2 + (r() < .3 ? 1 : 0);
+    for (let j = 0; j < k; j++) branch(x, y, a + (j - (k - 1) / 2) * (.45 + r() * .35) + (r() - .5) * .25, len * (.6 + r() * .2), wd * .7, depth - 1);
+  };
+  const roots = 7 + (r() * 4 | 0), a0 = r() * TAU;
+  for (let i = 0; i < roots; i++) { const a = a0 + i / roots * TAU + (r() - .5) * .35, up = Math.cos(a) > 0 ? 1 : .7; branch(Math.sin(a) * S * .22, -Math.cos(a) * S * .17, a, S * (.45 + r() * .45) * up, 2.6, 1 + (r() < .6 ? 1 : 0)); }
+  let x0 = -S * .5, y0 = -S * .5, x1 = S * .5, y1 = S * .5;
+  strokes.forEach(([pts]) => pts.forEach(([x, y]) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }));
+  const pad = 26 * E.u + S * .1, w = x1 - x0 + pad * 2, h = y1 - y0 + pad * 2, ox = -x0 + pad, oy = -y0 + pad;
+  const spr = sprite(w, h, E.dpr, g => {
+    g.translate(ox, oy);
+    wash(g, blobPts(0, 0, S * .95, seed + 1, 24, .35), pal.mist, { seed: seed + 2, alpha: night ? .08 : .12, layers: 8, amt: .5 });
+    strokes.forEach(([pts, wd, depth, len, sd]) => inkLite(g, pts, wd * E.lw, pal.ink, la * (.6 + depth * .1), sd, { t0: 0, t1: depth ? 4 : len * .5, min: .35, pressure: .3 }));
+    const knot = blobPts(0, 0, S * .3, seed + 3, 22, .28, .85);
+    gouache(g, poly(knot), pal.knot, { seed: seed + 4, texture: .5, alpha: night ? .95 : .9 });
+    const sp = []; for (let i = 0; i <= 40; i++) { const q = i / 40, a = q * TAU * 2.2 + seed, rr = S * .17 * q; sp.push([Math.cos(a) * rr, Math.sin(a) * rr * .8]); }
+    ink(g, sp, { w: .9 * E.lw, color: pal.ink, alpha: la * .55, seed: seed + 6, amp: .15, t0: 2, t1: 6, step: 1.6 });
+    ink(g, knot, { w: 1.5 * E.lw, color: pal.ink, alpha: la, seed: seed + 5, closed: true, amp: .6, sketch: .3 });
+    tips.forEach(([x, y, a], i) => tipOrnament(g, x, y, a, (3.2 + r() * 3.4) * E.u * (S / 90 + .4), (i * 7 + seed) % 4, E, seed + 50 + i, pal.tips[(i + seed) % 4]));
+  });
+  spr.ox = ox; spr.oy = oy;
+  return spr;
+}
+SCENES.fusei = {
+  zh: '浮生', en: 'Floating growths', variants: { day: '霧 Mist', night: '燐光 Phosphor' },
+  draw(ctx, E, dyn) {
+    const { W, H, pal, u, r } = E, night = E.dark, ph = E.phone;
+    const clumps = ph ? [[.18, .82, 62], [.9, .045, 24], [.99, .5, 30]] : [[.1, .24, 100], [.88, .78, 118], [.84, .1, 46], [.2, .9, 52], [.5, 1.02, 40], [.99, .47, 34]];
+    clumps.forEach(([x, y, S], i) => {
+      const spr = growthSprite(E, S * u, 700 + i * 31), X = x * W, Y = y * H, ph0 = i * 1.9, r2 = rng(800 + i);
+      const threads = []; for (let k = 0; k < 5 + i % 3; k++) threads.push({ dx: (r2() - .5) * S * u * .4, len: S * u * (1 + r2() * 1.2), ph: r2() * TAU, k: .04 + r2() * .03, amp: (4 + r2() * 6) * u, drops: [.4 + r2() * .2, .8 + r2() * .15] });
+      dyn.push({ draw(g, t) {
+        const bob = t ? Math.sin(t * .3 + ph0) * 6 * u : 0, cx = X, cy = Y + bob;
+        threads.forEach((th, k) => {
+          const pts = []; for (let q = 0; q <= 24; q++) { const f = q / 24, L = th.len * f; pts.push([cx + th.dx + Math.sin(L * th.k - (t || 0) * .7 + th.ph) * th.amp * f, cy + S * u * .2 + L]); }
+          inkLite(g, pts, 1 * E.lw, pal.ink, night ? .4 : .5, 900 + k + i * 9, { t0: 2, t1: 20, min: .1 });
+          th.drops.forEach(dq => { const p = pts[Math.round(dq * 24)], s = 2.4 * u; if (night) glow(g, p[0], p[1], s * 4, pal.tips[(k + i) % 4], .3); g.fillStyle = rgba(pal.tips[(k + i) % 4], .95); g.beginPath(); g.moveTo(p[0], p[1] - s * 1.6); g.quadraticCurveTo(p[0] + s, p[1], p[0], p[1] + s); g.quadraticCurveTo(p[0] - s, p[1], p[0], p[1] - s * 1.6); g.fill(); g.strokeStyle = rgba(pal.ink, night ? .5 : .6); g.lineWidth = .7; g.stroke(); });
+        });
+        g.drawImage(spr, cx - spr.ox, cy - spr.oy, spr.cssW, spr.cssH);
+      } });
+    });
+    const spores = []; for (let i = 0; i < Math.round((ph ? 24 : 60) * E.density); i++) { let x = r() * W, y = r() * H; if (edgeBias(E, x, y) < .4) x = r() < .5 ? r() * W * .18 : W - r() * W * .18; spores.push([x, y, r() * TAU, 1 + r() * 2]); }
+    dyn.push({ draw(g, t) { spores.forEach((s, i) => { const y = ((s[1] - (t || 0) * (3 + i % 4)) % H + H) % H, x = s[0] + Math.sin((t || 0) * .4 + s[2]) * 6; if (night) glow(g, x, y, s[3] * 3, pal.tips[i % 4], .25); g.strokeStyle = rgba(night ? pal.tips[i % 4] : pal.ink, night ? .7 : .4); g.lineWidth = .7; g.beginPath(); g.arc(x, y, s[3], 0, TAU); g.stroke(); }); } });
+  }
+};
+
+// 帯 Ribbons: bands that turn over and over, going somewhere -----------------------
+P.obi = {
+  day: { paper: '#f3efe8', ink: '#4a3f3b', bands: ['#e2d1c1', '#cddbd6', '#d9d1e4', '#e8dec1'], ui: { accent: '#8b5c4a', chosen: '#e8dbcd' } },
+  night: { paper: '#17151d', ink: '#e2d9d0', bands: ['#4c4053', '#33494a', '#4f4636', '#3c4559'], ui: { accent: '#e0c4b0', chosen: '#2c2733' } }
+};
+function ribbonBand(g, ctrl, o, t, E) {
+  const { pal } = E, night = E.dark, la = night ? .6 : .72, cl = !!o.closed;
+  let C = cl ? resampleClosed(spline(ctrl, true, 14), 3.2) : resample(spline(ctrl, false, 12), 3.2);
+  const N0 = normals(C, cl), S = arclen(C), n = C.length, Ltot = S[n - 1] + (cl ? dist(C[n - 1], C[0]) : 0);
+  C = C.map((p, i) => { const sw = t ? Math.sin(S[i] * .012 - t * .35 + o.ph) * (cl ? 3 : 7) * E.u : 0; return [p[0] + N0[i][0] * sw, p[1] + N0[i][1] * sw]; });
+  const N = normals(C, cl), Lp = [], Rp = [], cs = [];
+  for (let i = 0; i < n; i++) {
+    const s = S[i], th = o.ph + (cl ? Math.PI * s / Ltot * (o.turns || 1) : s * o.twist) + (t ? t * o.spin : 0), c = Math.cos(th);
+    const taper = cl ? 1 : Math.min(1, s / 40, (S[n - 1] - s) / 40), h = o.w * .5 * c * (.35 + .65 * taper);
+    cs.push(c); Lp.push([C[i][0] + N[i][0] * h, C[i][1] + N[i][1] * h]); Rp.push([C[i][0] - N[i][0] * h, C[i][1] - N[i][1] * h]);
+  }
+  const front = mix(o.color, '#ffffff', night ? .02 : .12), back = mix(o.color, pal.ink, night ? .25 : .14), m = cl ? n : n - 1;
+  // faces and shading are batched into a few paths, so a moving ribbon stays cheap to draw
+  const faces = [new Path2D(), new Path2D()], shades = Array.from({ length: 6 }, () => new Path2D()), hatchP = new Path2D(), stitch = new Path2D(), seeds = new Path2D();
+  for (let i = 0; i < m; i++) {
+    const j = (i + 1) % n, c = (cs[i] + cs[j]) / 2, q = new Path2D();
+    q.moveTo(Lp[i][0], Lp[i][1]); q.lineTo(Lp[j][0], Lp[j][1]); q.lineTo(Rp[j][0], Rp[j][1]); q.lineTo(Rp[i][0], Rp[i][1]); q.closePath();
+    faces[c >= 0 ? 0 : 1].addPath(q);
+    const lvl = Math.min(5, Math.floor((1 - Math.abs(c)) * 6)); if (lvl > 0) shades[lvl].addPath(q);
+    if (c < 0 && i % 3 === 0) { hatchP.moveTo(Lp[i][0], Lp[i][1]); hatchP.lineTo(Rp[i][0], Rp[i][1]); }
+    if (c > .55 && i % 4 === 0) { const rr = Math.max(.7, o.w * .045 * c); seeds.moveTo(C[i][0] + rr, C[i][1]); seeds.arc(C[i][0], C[i][1], rr, 0, TAU); }
+    if (c > .3 && i % 5 === 2) {
+      const k = .82;
+      stitch.moveTo(C[i][0] + (Lp[i][0] - C[i][0]) * k, C[i][1] + (Lp[i][1] - C[i][1]) * k); stitch.lineTo(C[j][0] + (Lp[j][0] - C[j][0]) * k, C[j][1] + (Lp[j][1] - C[j][1]) * k);
+      stitch.moveTo(C[i][0] + (Rp[i][0] - C[i][0]) * k, C[i][1] + (Rp[i][1] - C[i][1]) * k); stitch.lineTo(C[j][0] + (Rp[j][0] - C[j][0]) * k, C[j][1] + (Rp[j][1] - C[j][1]) * k);
+    }
+  }
+  g.fillStyle = rgba(front, night ? .9 : .92); g.fill(faces[0]);
+  g.fillStyle = rgba(back, night ? .9 : .92); g.fill(faces[1]);
+  shades.forEach((sp, lvl) => { if (lvl) { g.fillStyle = rgba(pal.ink, (lvl / 6) * (night ? .3 : .28)); g.fill(sp); } });
+  g.strokeStyle = rgba(pal.ink, la * .25); g.lineWidth = .6; g.stroke(hatchP);
+  g.strokeStyle = rgba(pal.ink, la * .3); g.lineWidth = .7; g.stroke(stitch);
+  g.fillStyle = rgba(night ? mix(o.color, '#ffffff', .55) : mix(o.color, pal.ink, .45), night ? .5 : .45); g.fill(seeds);
+  const edgeL = cl ? Lp.concat([Lp[0]]) : Lp, edgeR = cl ? Rp.concat([Rp[0]]) : Rp;
+  inkLite(g, edgeL, 1.2 * E.lw, pal.ink, la, o.seed, cl ? { t0: 0, t1: 0, taper: false, pressure: .35 } : { t0: 6, t1: 6, pressure: .35 });
+  inkLite(g, edgeR, 1.2 * E.lw, pal.ink, la * .85, o.seed + 1, cl ? { t0: 0, t1: 0, taper: false, pressure: .35 } : { t0: 6, t1: 6, pressure: .35 });
+  if (t) for (let k = 0; k < o.riders; k++) {
+    const pos = ((t * 18 + k * Ltot / o.riders + o.ph * 100) % S[n - 1]), i = Math.min(n - 1, Math.max(0, S.findIndex(v => v >= pos)));
+    if (cs[i] < 0) continue;
+    if (night) glow(g, C[i][0], C[i][1], 8 * E.u, mix(o.color, '#ffffff', .6), .4);
+    g.fillStyle = rgba(night ? mix(o.color, '#ffffff', .6) : pal.ink, night ? .9 : .55); g.beginPath(); g.arc(C[i][0], C[i][1], 2 * E.u, 0, TAU); g.fill();
+  }
+}
+function portal(g, x, y, rx, ry, rot, E, half) {
+  // a hole in the air: the far half (0) is drawn under the ribbon, the near rim (1) over it
+  const { pal } = E, night = E.dark, pts = rotPts(circlePts(x, y, rx, 36, 0, ry / rx), rot, x, y);
+  if (half === 0) {
+    if (night) glow(g, x, y, rx * 2.2, mix(pal.bands[0], '#ffffff', .5), .12);
+    g.fillStyle = rgba(night ? '#0b0a10' : mix(pal.ink, pal.paper, .45), night ? .9 : .55); g.fill(poly(pts));
+    inkLite(g, pts.slice(18).concat([pts[0]]), 1 * E.lw, pal.ink, night ? .55 : .6, 7, { t0: 0, t1: 0, taper: false });
+  } else {
+    inkLite(g, pts.slice(0, 19), 1.6 * E.lw, night ? mix(pal.bands[0], '#ffffff', .4) : pal.ink, night ? .75 : .75, 8, { t0: 2, t1: 2 });
+    ink(g, rotPts(circlePts(x, y, rx * 1.35, 36, 0, ry / rx), rot, x, y), { w: .7 * E.lw, color: pal.ink, alpha: night ? .3 : .3, seed: 9, closed: true, amp: .5, sketch: .3 });
+  }
+}
+SCENES.obi = {
+  zh: '帯', en: 'Ribbons', variants: { day: '絹 Silk', night: '夜絹 Night silk' },
+  draw(ctx, E, dyn) {
+    const { W, H, pal, u } = E, night = E.dark, ph = E.phone;
+    const P2 = (pts) => pts.map(([x, y]) => [x * W, y * H]);
+    // [control points, width, twist, colour, portal at start?, portal at end?]
+    const bands = ph
+      ? [[[[.1, .05], [.3, .02], [.52, .075], [.75, .028], [1.1, .06]], 22, .012, 0, 1, 0], [[[-.1, .83], [.22, .87], [.46, .79], [.7, .865], [.86, .815]], 28, .011, 1, 0, 1], [[[1.08, .3], [.95, .38], [.97, .52], [1.1, .6]], 15, .02, 2, 0, 0]]
+      : [[[[.05, .12], [.15, .22], [.27, .14], [.31, -.05]], 44, .008, 0, 1, 0], [[[.06, .6], [.015, .72], [.07, .82], [.18, .9]], 32, .011, 1, 1, 1], [[[.8, -.05], [.83, .12], [.97, .17], [.93, .36]], 36, .01, 2, 0, 1], [[[.62, .955], [.72, .9], [.84, .96], [.95, .87], [1.06, .9]], 38, .009, 3, 1, 0]];
+    bands.forEach(([ctrl, w, twist, ci, ps, pe], i) => {
+      const pts = P2(ctrl), o = { w: w * u, twist, spin: (i % 2 ? -1 : 1) * (.25 + i * .04), ph: i * 1.7, color: pal.bands[ci], seed: 30 + i * 5, riders: 3 };
+      const holes = []; if (ps) holes.push([pts[0], i * .7]); if (pe) holes.push([pts[pts.length - 1], -.4 + i * .5]);
+      const hr = w * u * .78;
+      dyn.push({ draw(g, t) {
+        holes.forEach(([p, rot]) => portal(g, p[0], p[1], hr, hr * .42, rot, E, 0));
+        ribbonBand(g, pts, o, t, E);
+        holes.forEach(([p, rot]) => portal(g, p[0], p[1], hr, hr * .42, rot, E, 1));
+      } });
+    });
+    // loops with a single side: follow one around and you come back on the other face
+    const loops = ph ? [[.16, .885, 30, 20, -.3, 3]] : [[.885, .6, 70, 44, .5, 0], [.36, .07, 30, 17, .2, 2], [.62, .9, 0, 0, 0, 0]].filter(l => l[2]);
+    loops.forEach(([x, y, rx, ry, rot, ci], i) => {
+      const ctrl = rotPts(circlePts(x * W, y * H, rx * u, 9, .3, ry / rx), rot, x * W, y * H).map(([px, py], k) => [px + Math.sin(k * 2.3 + i) * rx * u * .12, py + Math.cos(k * 1.7 + i) * ry * u * .15]);
+      const o = { closed: true, turns: 3, w: (ph ? 12 : 20 - i * 5) * u, spin: (i % 2 ? .3 : -.3), ph: i * 2.1, color: pal.bands[ci], seed: 80 + i * 5, riders: 2 };
+      dyn.push({ draw(g, t) { ribbonBand(g, ctrl, o, t, E); } });
+    });
+  }
+};
+
+// 等高線 Contours: the map of a place that is not on any map -------------------------
+P.tokosen = {
+  day: { paper: '#f1ede4', ink: '#4a4034', washes: ['#e6d8bc', '#d4dcc9', '#d2dae3', '#e5d4cc'], ui: { accent: '#7a5a3a', chosen: '#e6dcc6' } },
+  night: { paper: '#1b1e25', ink: '#cdc8ba', washes: ['#26313b', '#302a38', '#29362f', '#383024'], ui: { accent: '#d8cb9f', chosen: '#2b313c' } }
+};
+function noise2(seed) {
+  const r = rng(seed), G = new Float32Array(64 * 64); for (let i = 0; i < G.length; i++) G[i] = r() * 2 - 1;
+  const at = (x, y) => G[(((y % 64) + 64) % 64) * 64 + (((x % 64) + 64) % 64)], sm = t => t * t * (3 - 2 * t);
+  return (x, y) => { const xi = Math.floor(x), yi = Math.floor(y), fx = sm(x - xi), fy = sm(y - yi); const a = at(xi, yi), b = at(xi + 1, yi), c = at(xi, yi + 1), d = at(xi + 1, yi + 1); return lerp(lerp(a, b, fx), lerp(c, d, fx), fy); };
+}
+function isolines(f, nx, ny, cell, level) {
+  // marching squares, then join the pieces into polylines
+  const V = (i, j) => f[j * (nx + 1) + i], segs = [], ek = (i, j, v) => ((j * (nx + 2) + i) * 2 + v);
+  const pt = (i, j, v) => { if (v) { const a = V(i, j), b = V(i, j + 1), t = (level - a) / (b - a); return [i * cell, (j + t) * cell]; } const a = V(i, j), b = V(i + 1, j), t = (level - a) / (b - a); return [(i + t) * cell, j * cell]; };
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const a = V(i, j) > level, b = V(i + 1, j) > level, c = V(i + 1, j + 1) > level, d = V(i, j + 1) > level, idx = (a ? 8 : 0) | (b ? 4 : 0) | (c ? 2 : 0) | (d ? 1 : 0);
+    if (idx === 0 || idx === 15) continue;
+    const T = ek(i, j, 0), R = ek(i + 1, j, 1), B = ek(i, j + 1, 0), L = ek(i, j, 1);
+    const P = { [T]: () => pt(i, j, 0), [R]: () => pt(i + 1, j, 1), [B]: () => pt(i, j + 1, 0), [L]: () => pt(i, j, 1) };
+    const add = (e1, e2) => segs.push([e1, e2, P[e1](), P[e2]()]);
+    const centre = (V(i, j) + V(i + 1, j) + V(i + 1, j + 1) + V(i, j + 1)) / 4 > level;
+    switch (idx) {
+      case 1: case 14: add(L, B); break; case 2: case 13: add(B, R); break; case 3: case 12: add(L, R); break;
+      case 4: case 11: add(T, R); break; case 6: case 9: add(T, B); break; case 7: case 8: add(L, T); break;
+      case 5: if (centre) { add(L, T); add(B, R); } else { add(L, B); add(T, R); } break;
+      case 10: if (centre) { add(T, R); add(L, B); } else { add(L, T); add(B, R); } break;
+    }
+  }
+  const byEdge = new Map(); segs.forEach((s, k) => { for (const e of [s[0], s[1]]) { if (!byEdge.has(e)) byEdge.set(e, []); byEdge.get(e).push(k); } });
+  const used = new Uint8Array(segs.length), lines = [];
+  for (let k = 0; k < segs.length; k++) {
+    if (used[k]) continue; used[k] = 1;
+    const line = [segs[k][2], segs[k][3]]; let head = segs[k][1], tail = segs[k][0], closed = false;
+    const walk = (edge, push) => { for (;;) { const next = (byEdge.get(edge) || []).find(q => !used[q]); if (next == null) return edge; used[next] = 1; const s = segs[next]; const other = s[0] === edge ? 1 : 0; push(s[2 + other]); edge = s[other]; } };
+    const endH = walk(head, p => line.push(p)), endT = walk(tail, p => line.unshift(p));
+    if (endH === endT || (Math.abs(line[0][0] - line[line.length - 1][0]) < .5 && Math.abs(line[0][1] - line[line.length - 1][1]) < .5)) closed = true;
+    if (line.length > 3) lines.push({ pts: line, closed });
+  }
+  return lines;
+}
+function glyph(g, x, y, s, seed, E, alpha) {
+  // a made-up letter: two or three strokes and a dot
+  const r = rng(seed), n = 2 + (r() * 2 | 0);
+  for (let k = 0; k < n; k++) {
+    const kind = r(), x0 = x + (r() - .5) * s * .6, y0 = y + (r() - .5) * s;
+    if (kind < .4) inkLite(g, [[x0, y0 - s * .5], [x0 + (r() - .5) * s * .4, y0 + s * .5]], .9 * E.lw, E.pal.ink, alpha, seed + k, { t0: 1, t1: 1 });
+    else if (kind < .75) { const pts = []; for (let i = 0; i <= 10; i++) { const a = Math.PI * (.2 + i / 10 * 1.2) + r() * .1; pts.push([x0 + Math.cos(a) * s * .32, y0 + Math.sin(a) * s * .32]); } inkLite(g, pts, .9 * E.lw, E.pal.ink, alpha, seed + k, { t0: 1, t1: 1 }); }
+    else inkLite(g, [[x0 - s * .3, y0], [x0 + s * .3, y0 + (r() - .5) * s * .2]], .9 * E.lw, E.pal.ink, alpha, seed + k, { t0: 1, t1: 1 });
+  }
+  g.fillStyle = rgba(E.pal.ink, alpha); g.beginPath(); g.arc(x + s * .35, y - s * .45, .9, 0, TAU); g.fill();
+}
+SCENES.tokosen = {
+  zh: '等高線', en: 'Contours', variants: { day: '砂図 Sand map', night: '夜図 Night map' },
+  draw(ctx, E, dyn) {
+    const { W, H, pal, u, r } = E, night = E.dark, ph = E.phone, cell = ph ? 5 : 7, nx = Math.ceil(W / cell), ny = Math.ceil(H / cell);
+    const bumps = ph
+      ? [[.05, .03, 1, .5], [.95, .86, 1.1, .5], [.12, .86, -.9, .38], [.9, .04, -.8, .35], [1.02, .45, .7, .25], [-.02, .55, .6, .22]]
+      : [[.07, .16, 1, .17], [.93, .82, 1.1, .2], [.9, .12, -.85, .13], [.11, .87, .95, .15], [.5, 1.06, .7, .17], [.46, -.08, -.6, .15], [.99, .5, .6, .09], [.01, .52, -.65, .1]];
+    const nz = noise2(E.seed + 9), F = new Float32Array((nx + 1) * (ny + 1)), S = Math.max(W, H);
+    for (let j = 0; j <= ny; j++) for (let i = 0; i <= nx; i++) {
+      const x = i * cell, y = j * cell; let v = 0;
+      bumps.forEach(([bx, by, A, sg]) => { const dx = x - bx * W, dy = y - by * H, sd = sg * S; v += A * Math.exp(-(dx * dx + dy * dy) / (2 * sd * sd)); });
+      const b = edgeBias(E, x, y);
+      v += (nz(x / (ph ? 70 : 110), y / (ph ? 70 : 110)) * .16 + nz(x / 37 + 9, y / 37) * .05) * (.25 + .75 * b);
+      F[j * (nx + 1) + i] = v;
+    }
+    const levels = []; for (let L = -1.2; L <= 1.25; L += .085) if (Math.abs(L) > .12) levels.push(L);
+    const all = levels.map((L, k) => ({ L, k, lines: isolines(F, nx, ny, cell, L) }));
+    maskedLayer(ctx, E, g => {
+      // hypsometric tints, softly stepped: warm land up, cool hollows down
+      const tint = document.createElement('canvas'); tint.width = nx + 1; tint.height = ny + 1;
+      const tg = tint.getContext('2d'), id = tg.createImageData(nx + 1, ny + 1), cols = pal.washes.map(hexRGB);
+      for (let k = 0; k < F.length; k++) {
+        const v = F[k], band = Math.trunc(v / .085); if (!band) continue;
+        const q = Math.min(1, Math.abs(band) / (band > 0 ? 9 : 7)), a = band > 0 ? cols[0] : cols[1], b = band > 0 ? cols[3] : cols[2];
+        id.data[k * 4] = a[0] + (b[0] - a[0]) * q; id.data[k * 4 + 1] = a[1] + (b[1] - a[1]) * q; id.data[k * 4 + 2] = a[2] + (b[2] - a[2]) * q;
+        id.data[k * 4 + 3] = 255 * Math.min(.85, .16 + Math.abs(band) * .075) * (night ? .75 : 1);
+      }
+      tg.putImageData(id, 0, 0);
+      g.save(); g.imageSmoothingEnabled = true; g.drawImage(tint, 0, 0, (nx + 1) * cell, (ny + 1) * cell); g.restore();
+  
+      all.forEach(({ L, k, lines }) => lines.forEach((l, q) => {
+        const index = Math.round(L / .085) % 4 === 0;
+        ink(g, l.pts, { w: (index ? 1.5 : .95) * E.lw, color: pal.ink, alpha: (night ? .42 : .5) * (index ? 1.15 : .8), seed: 100 + k * 13 + q, closed: l.closed, amp: .35, freq: .05, step: 3, t0: l.closed ? 0 : 6, t1: l.closed ? 0 : 6 });
+      }));
+      // summits and hollows, named in no known language
+      bumps.forEach(([bx, by, A], i) => {
+        const x = bx * W, y = by * H; if (x < 8 || x > W - 8 || y < 8 || y > H - 8) return;
+        if (A > 0) ink(g, [[x - 5 * u, y + 4 * u], [x, y - 5 * u], [x + 5 * u, y + 4 * u]], { w: 1.2 * E.lw, color: pal.ink, alpha: .7, seed: 300 + i, closed: true, amp: .2 });
+        else { ink(g, [[x - 4 * u, y - 4 * u], [x + 4 * u, y + 4 * u]], { w: 1.2, color: pal.ink, alpha: .6, seed: 310 + i, amp: .2, t0: 1, t1: 1 }); ink(g, [[x + 4 * u, y - 4 * u], [x - 4 * u, y + 4 * u]], { w: 1.2, color: pal.ink, alpha: .6, seed: 320 + i, amp: .2, t0: 1, t1: 1 }); }
+        const side = x > W / 2 ? -1 : 1, lx = x + side * 16 * u, ly = y + 12 * u, n = 3 + i % 2;
+        ink(g, [[x + side * 5 * u, y + 4 * u], [lx, ly - 4 * u]], { w: .8, color: pal.ink, alpha: .45, seed: 330 + i, amp: .1, t0: 1, t1: 1 });
+        for (let k = 0; k < n; k++) glyph(g, lx + side * (k * 12 + (side < 0 ? 6 : 6)) * u, ly + 4 * u, 12 * u, 400 + i * 7 + k, E, night ? .55 : .66);
+      });
+    }, ph ? .03 : .16);
+    // a dotted path that someone, or something, walked
+    const path = ph ? [[.02, .95], [.12, .9], [.2, .93], [.32, .86], [.45, .9]] : [[.02, .62], [.06, .72], [.15, .76], [.2, .9], [.3, .97]];
+    const route = resample(spline(path.map(([x, y]) => [x * W, y * H]), false, 10), 7);
+    route.forEach((p, i) => { if (i % 2) return; ctx.fillStyle = rgba(pal.ink, .55); ctx.beginPath(); ctx.arc(p[0], p[1], 1.3 * u, 0, TAU); ctx.fill(); });
+    // travellers along a few of the lines
+    const tracks = []; all.forEach(({ lines }) => lines.forEach(l => { if (l.pts.length > 60 && tracks.length < 7 && r() < .2) tracks.push({ pts: l.pts, S: arclen(l.pts), sp: 8 + r() * 10, off: r() * 1000 }); }));
+    dyn.push({ motionOnly: true, draw(g, t) {
+      tracks.forEach(tr => { const L = tr.S[tr.S.length - 1]; for (let k = 0; k < 4; k++) { const pos = (t * tr.sp + tr.off - k * 6) % L, i = Math.max(0, tr.S.findIndex(v => v >= pos)), p = tr.pts[i]; g.fillStyle = rgba(night ? pal.washes[0] : pal.ink, (night ? .9 : .7) * (1 - k * .22)); g.beginPath(); g.arc(p[0], p[1], (2.2 - k * .4) * u, 0, TAU); g.fill(); } });
+    } });
+  }
+};
+
+// 渦 Currents: a wind you can see ------------------------------------------------------
+P.uzu = {
+  day: { paper: '#eef0ec', ink: '#38404a', strokes: ['#9cb1bc', '#c9b48d', '#b6a3b6', '#a8b8a0', '#5c6b78'], ui: { accent: '#3f5f75', chosen: '#d6dfe4' } },
+  night: { paper: '#131821', ink: '#d7d3c8', strokes: ['#4d6b7d', '#8d7b57', '#715f77', '#5b6f5a', '#c9c4b6'], ui: { accent: '#a8c3d6', chosen: '#232c38' } }
+};
+SCENES.uzu = {
+  zh: '渦', en: 'Currents', variants: { day: '昼の風 Day wind', night: '夜の潮 Night tide' },
+  draw(ctx, E, dyn) {
+    const { W, H, pal, u, r } = E, night = E.dark, ph = E.phone, S = Math.max(W, H);
+    const vort = ph
+      ? [[.1, .04, 1, .22], [.9, .86, -1, .26], [.95, .1, -.8, .16], [.08, .84, .9, .2], [.5, .95, .6, .2]]
+      : [[.07, .14, 1, .13], [.93, .84, -1.1, .15], [.9, .14, -.9, .11], [.1, .86, 1, .13], [.5, 1.04, .8, .14], [.52, -.04, -.7, .13], [.985, .5, .7, .07], [.015, .5, -.7, .07]];
+    const nz = noise2(E.seed + 21);
+    const psi = (x, y) => { let v = 0; vort.forEach(([vx, vy, s, sg]) => { const dx = x - vx * W, dy = y - vy * H, sd = sg * S; v += s * sd * Math.exp(-(dx * dx + dy * dy) / (2 * sd * sd)); }); return v + nz(x / 160, y / 160) * S * .02; };
+    const vel = (x, y) => { const e = 2, vx = (psi(x, y + e) - psi(x, y - e)) / (2 * e), vy = -(psi(x + e, y) - psi(x - e, y)) / (2 * e); return [vx, vy]; };
+    const trace = (x, y, n, dir) => { const pts = [[x, y]]; for (let k = 0; k < n; k++) { const v = vel(x, y), sp = Math.hypot(v[0], v[1]); if (sp < .02) break; const h = 2.6 * dir / sp, m = vel(x + v[0] * h * .5, y + v[1] * h * .5); x += m[0] * h; y += m[1] * h; if (x < -20 || y < -20 || x > W + 20 || y > H + 20 || edgeBias(E, x, y) < .08) break; pts.push([x, y]); } return pts; };
+    const cellSz = (ph ? 13 : 15) * u, strokes = [];
+    for (let y = cellSz / 2; y < H; y += cellSz) for (let x = cellSz / 2; x < W; x += cellSz) {
+      const px = x + (r() - .5) * cellSz, py = y + (r() - .5) * cellSz, b = edgeBias(E, px, py);
+      if (b < .12 || r() > b * 1.2) continue;
+      const n = 6 + (r() * 14 | 0), back = trace(px, py, n >> 1, -1).reverse(), fwd = trace(px, py, n, 1);
+      const pts = back.concat(fwd.slice(1)); if (pts.length < 4) continue;
+      strokes.push([pts, r()]);
+    }
+    strokes.forEach(([pts, q], i) => {
+      const c = pal.strokes[Math.floor(q * 4.999)], dark = q > .93;
+      inkLite(ctx, pts, (dark ? 1.3 : 2.2 + q * 1.3) * E.lw * u, dark ? pal.ink : c, night ? (dark ? .45 : .75) : (dark ? .55 : .85), 500 + i, { t0: 4, t1: 8, min: .2, pressure: .4 });
+    });
+    // the eyes of the eddies
+    vort.forEach(([vx, vy, s, sg], i) => {
+      const x = vx * W, y = vy * H; if (x < 10 || x > W - 10 || y < 10 || y > H - 10) return;
+      const pts = []; for (let k = 0; k <= 50; k++) { const q = k / 50, a = q * TAU * 1.8 * Math.sign(s), rr = sg * S * .09 * (1 - q * .9); pts.push([x + Math.cos(a) * rr, y + Math.sin(a) * rr]); }
+      ink(ctx, pts, { w: 1.1 * E.lw, color: pal.ink, alpha: night ? .35 : .4, seed: 700 + i, amp: .3, t0: 3, t1: 20 });
+    });
+    const parts = []; for (let i = 0; i < Math.round((ph ? 50 : 140) * E.density); i++) { let x = r() * W, y = r() * H; if (edgeBias(E, x, y) < .2) x = r() < .5 ? r() * W * .2 : W - r() * W * .2; parts.push({ x, y, x0: x, y0: y, trail: [], life: r() * 200 }); }
+    let last = 0;
+    dyn.push({ motionOnly: true, draw(g, t) {
+      const dt = Math.min(.1, Math.max(0, t - last)); last = t;
+      parts.forEach((p, i) => {
+        const v = vel(p.x, p.y), sp = Math.hypot(v[0], v[1]) || 1; p.x += v[0] / sp * 30 * dt * (.6 + (i % 5) * .15); p.y += v[1] / sp * 30 * dt * (.6 + (i % 5) * .15); p.life += dt;
+        p.trail.push([p.x, p.y]); if (p.trail.length > 14) p.trail.shift();
+        if (p.life > 14 + i % 9 || edgeBias(E, p.x, p.y) < .05 || p.x < 0 || p.y < 0 || p.x > W || p.y > H) { p.x = p.x0; p.y = p.y0; p.trail = []; p.life = 0; }
+        if (p.trail.length > 2) inkLite(g, p.trail, 1.6 * u, night ? pal.strokes[4] : pal.ink, night ? .6 : .45, 900 + i, { t0: 6, t1: 1, min: .05 });
+      });
+    } });
+  }
+};
+
+// 異園 Strange garden: a border of things that grow, watch and ring, all at once ------
+P.ien = {
+  day: { paper: '#f0ede6', ink: '#3b3633', ground: '#dbd0bd', crowns: ['#e2c6b8', '#cbd9cf', '#d7cde3', '#e9dcaa', '#cfd8e4'], iris: '#5b6c7e', sclera: '#fbf9f3', bells: ['#cbd9cf', '#d7cde3', '#e2c6b8', '#cfd8e4'], glows: ['#cbd9cf', '#d7cde3', '#e2c6b8', '#cfd8e4'], organ: '#c9a29a', ui: { accent: '#7a5246', chosen: '#e7ddd0' } },
+  night: { paper: '#151a1f', ink: '#d8d2c6', ground: '#242b2e', crowns: ['#e8c4a8', '#9fd6c6', '#c8b6e6', '#e8d79a', '#a6c2e8'], iris: '#e8d79a', sclera: '#2c3338', bells: ['#2a403e', '#39344f', '#47393b', '#2b394f'], glows: ['#9fd6c6', '#c8b6e6', '#e8c4a8', '#a6c2e8'], organ: '#e3b2a5', ui: { accent: '#e8c4a8', chosen: '#262e33' } }
+};
+function crown(g, x, y, ang, s, kind, color, E, seed) {
+  const { pal } = E, night = E.dark, la = night ? .62 : .76, r = rng(seed);
+  if (night) glow(g, x, y, s * 3, color, .28);
+  if (kind === 'cage') {
+    g.fillStyle = rgba(color, night ? .25 : .55); g.beginPath(); g.arc(x, y, s, 0, TAU); g.fill();
+    for (const k of [-.6, 0, .6]) { const pts = []; for (let i = 0; i <= 16; i++) { const a = -Math.PI / 2 + Math.PI * i / 16; pts.push([x + Math.cos(a) * s * k, y + Math.sin(a) * s]); } inkLite(g, pts, .7 * E.lw, pal.ink, la * .6, seed + k * 10, { t0: 1, t1: 1 }); }
+    for (const k of [-.5, .5]) inkLite(g, [[x - s * Math.sqrt(1 - k * k), y + k * s], [x + s * Math.sqrt(1 - k * k), y + k * s]], .7 * E.lw, pal.ink, la * .6, seed + 20 + k * 10, { t0: 1, t1: 1 });
+    inkLite(g, circlePts(x, y, s, 24).concat([[x + s, y]]), 1.1 * E.lw, pal.ink, la, seed + 30, { t0: 0, t1: 0, taper: false });
+  } else if (kind === 'vane') {
+    for (let k = 0; k < 4; k++) {
+      const a = ang - .9 + k * .6, tip = [x + Math.sin(a) * s * 2.2, y - Math.cos(a) * s * 2.2], mid = [x + Math.sin(a) * s * 1.1, y - Math.cos(a) * s * 1.1], nx = Math.cos(a) * s * .38, ny = Math.sin(a) * s * .38;
+      const pts = [[x, y], [mid[0] + nx, mid[1] + ny], tip, [mid[0] - nx * .4, mid[1] - ny * .4]];
+      const P3 = spline(pts, true, 6); g.fillStyle = rgba(color, night ? .22 : .5); g.fill(poly(P3));
+      inkLite(g, P3.concat([P3[0]]), .9 * E.lw, pal.ink, la * .7, seed + k, { t0: 0, t1: 0, taper: false });
+      inkLite(g, [[x, y], tip], .6, pal.ink, la * .35, seed + 10 + k, { t0: 1, t1: 3 });
+    }
+  } else if (kind === 'bell') {
+    const pts = []; for (let i = 0; i <= 18; i++) { const q = i / 18, a = Math.PI * q; pts.push([x + Math.cos(a) * s * (.75 + .25 * q * (1 - q) * 4), y + Math.sin(a) * s * 1.3 * (q < .5 ? q * 2 : (1 - q) * 2) * 0 + Math.sin(a) * s * 1.2]); }
+    const bell = [[x - s * .75, y + s * 1.2]].concat(quad([x - s * .75, y + s * 1.2], [x - s * .9, y - s * .2], [x, y - s * .3], 10)).concat(quad([x, y - s * .3], [x + s * .9, y - s * .2], [x + s * .75, y + s * 1.2], 10));
+    if (night) glow(g, x, y + s * .8, s * 2, color, .5);
+    g.fillStyle = rgba(color, night ? .55 : .7); g.fill(poly(bell));
+    inkLite(g, bell.concat([bell[0]]), 1 * E.lw, pal.ink, la, seed, { t0: 0, t1: 0, taper: false });
+    g.fillStyle = rgba(night ? '#fff7e0' : pal.ink, night ? .9 : .5); g.beginPath(); g.arc(x, y + s * 1.35, s * .18, 0, TAU); g.fill();
+    void pts;
+  } else if (kind === 'cup') {
+    const c = Math.cos(ang), sn = Math.sin(ang), tr = (a, b) => [x + a * c - b * sn, y + a * sn + b * c];
+    const cup = spline([tr(-s, -s * 1.1), tr(-s * .55, -s * .1), tr(0, 0), tr(s * .55, -s * .1), tr(s, -s * 1.1)], false, 5);
+    g.fillStyle = rgba(color, night ? .45 : .75); g.fill(poly(cup));
+    for (let k = 0; k < 3; k++) { const p = tr((k - 1) * s * .45, -s * 1.15 - (k % 2) * s * .25); if (night) glow(g, p[0], p[1], s * .9, color, .5); g.fillStyle = rgba(night ? color : pal.ink, night ? .95 : .55); g.beginPath(); g.arc(p[0], p[1], s * .2, 0, TAU); g.fill(); }
+    inkLite(g, cup, 1 * E.lw, pal.ink, la, seed, { t0: 2, t1: 2 });
+  } else if (kind === 'spiral') {
+    const pts = []; for (let i = 0; i <= 34; i++) { const q = i / 34, a = ang + q * TAU * 1.4, rr = s * 1.2 * (1 - q * .82); pts.push([x + Math.cos(a) * rr - Math.cos(ang) * s * 1.2, y + Math.sin(a) * rr - Math.sin(ang) * s * 1.2]); }
+    inkLite(g, pts, 1.6 * E.lw, pal.ink, la, seed, { t0: 1, t1: 10, min: .2 });
+    const e = pts[pts.length - 1]; g.fillStyle = rgba(color, .95); g.beginPath(); g.arc(e[0], e[1], s * .28, 0, TAU); g.fill();
+  } else if (kind === 'chain') {
+    for (let k = 0; k < 3; k++) { const p = [x + Math.sin(ang) * k * s * 1.3, y - Math.cos(ang) * k * s * 1.3], rr = s * (.62 - k * .14); g.fillStyle = rgba(color, night ? .7 : .8); g.beginPath(); g.arc(p[0], p[1], rr, 0, TAU); g.fill(); g.strokeStyle = rgba(pal.ink, la * .8); g.lineWidth = .9; g.stroke(); }
+  } else if (kind === 'ring') {
+    g.save(); g.translate(x, y); g.rotate(ang * .5);
+    const out = circlePts(0, 0, s * 1.2, 30, 0, .45), inn = circlePts(0, 0, s * .8, 30, 0, .32);
+    const band = new Path2D(); band.addPath(poly(out)); band.addPath(poly(inn)); g.fillStyle = rgba(color, night ? .5 : .8); g.fill(band, 'evenodd');
+    inkLite(g, out.concat([out[0]]), 1 * E.lw, pal.ink, la, seed, { t0: 0, t1: 0, taper: false }); inkLite(g, inn.concat([inn[0]]), .8 * E.lw, pal.ink, la * .8, seed + 1, { t0: 0, t1: 0, taper: false });
+    g.restore();
+  }
+}
+function stalkSprite(E, h, bend, kind, color, seed) {
+  // a stalk that grows from its foot at (0, 0); drawn into a sprite so it can sway cheaply
+  const { pal } = E, night = E.dark, r = rng(seed), la = night ? .6 : .75, s = Math.max(4, h * .07) * (kind === 'eye' ? 1.4 : 1);
+  const pts = []; let a = (r() - .5) * .3, x = 0, y = 0;
+  for (let i = 0; i <= 20; i++) { pts.push([x, y]); a += bend / 20; x += Math.sin(a) * h / 20; y -= Math.cos(a) * h / 20; }
+  const top = pts[pts.length - 1], w = s * 6 + 40, H2 = h + s * 4 + 40;
+  const spr = sprite(w * 2, H2, E.dpr, g => {
+    g.translate(w, H2 - 14);
+    inkLite(g, pts, Math.max(1.2, h * .018) * E.lw, pal.ink, la, seed, { t0: 0, t1: h * .4, min: .3, pressure: .3 });
+    // one or two odd leaves: thin crescents
+    for (let k = 0; k < (h > 60 ? 2 : 1); k++) {
+      const p = pts[6 + k * 5], side = k % 2 ? 1 : -1, L = h * .22, lf = [];
+      for (let i = 0; i <= 12; i++) { const q = i / 12; lf.push([p[0] + side * Math.sin(q * Math.PI * .5) * L, p[1] - q * L * .5 - Math.sin(q * Math.PI) * L * .12]); }
+      for (let i = 11; i >= 1; i--) { const q = i / 12; lf.push([p[0] + side * Math.sin(q * Math.PI * .5) * L * .96, p[1] - q * L * .5 + Math.sin(q * Math.PI) * L * .05]); }
+      g.fillStyle = rgba(pal.crowns[(seed + k) % 5], night ? .3 : .6); g.fill(poly(lf));
+      inkLite(g, lf.concat([lf[0]]), .8 * E.lw, pal.ink, la * .7, seed + 40 + k, { t0: 0, t1: 0, taper: false });
+    }
+    if (kind !== 'eye') crown(g, top[0], top[1], a, s, kind, color, E, seed + 7);
+  });
+  spr.ox = w; spr.oy = H2 - 14; spr.top = top; spr.s = s; spr.ang = a;
+  return spr;
+}
+SCENES.ien = {
+  zh: '異園', en: 'Strange garden', variants: { day: '昼の園 By day', night: '夜の園 By night' },
+  draw(ctx, E, dyn) {
+    const { W, H, pal, u, r } = E, night = E.dark, ph = E.phone;
+    const groundY = H * (ph ? .865 : .9);
+    // the ground: soft, uneven, with roots in it
+    const top = []; for (let x = -20; x <= W + 20; x += 12) top.push([x, groundY + Math.sin(x * .011) * 6 * u + Math.sin(x * .031 + 2) * 3 * u]);
+    const gshape = poly(top.concat([[W + 20, H + 10], [-20, H + 10]]));
+    gouache(ctx, gshape, pal.ground, { seed: 41, texture: .45, light: mix(pal.ground, '#ffffff', night ? .05 : .25), dark: mix(pal.ground, '#000000', night ? .2 : .08) });
+    ink(ctx, top, { w: 1.3 * E.lw, color: pal.ink, alpha: night ? .45 : .55, seed: 42, amp: .4, t0: 6, t1: 6 });
+    for (let i = 0; i < (ph ? 8 : 18); i++) { const x = r() * W, y0 = yAt(top, x) + 6 * u; const pts = []; let a = (r() - .5), px = x, py = y0; for (let k = 0; k < 10; k++) { pts.push([px, py]); a += (r() - .5) * .5; px += Math.sin(a) * 4 * u; py += Math.cos(a) * 3 * u; } inkLite(ctx, pts, .8, pal.ink, night ? .25 : .3, 50 + i, { t0: 1, t1: 8 }); }
+    // stalks: tall at the sides, low in the middle
+    const n = ph ? 16 : 30, stalks = [];
+    const kinds = ['eye', 'vane', 'bell', 'cup', 'spiral', 'cage', 'chain', 'ring'];
+    for (let i = 0; i < n; i++) {
+      const q = (i + .5 + (r() - .5) * .6) / n, x = q * W, side = Math.pow(Math.abs(q - .5) * 2, ph ? 1.2 : 1.6);
+      const h = (ph ? H * (.035 + side * .1) : H * (.05 + side * .38)) * (.7 + r() * .5);
+      stalks.push({ x, y: yAt(top, x) + 2, h, bend: (r() - .5) * 1.2 + (q < .5 ? .25 : -.25), kind: kinds[(i * 5 + (r() * 3 | 0)) % kinds.length], color: pal.crowns[i % 5], seed: 600 + i * 13, ph: r() * TAU });
+    }
+    stalks.sort((a, b) => b.h - a.h);
+    stalks.forEach(st => {
+      const spr = stalkSprite(E, st.h, st.bend, st.kind, st.color, st.seed);
+      dyn.push({ draw(g, t) {
+        const sway = t ? Math.sin(t * .6 + st.ph) * .025 : 0;
+        g.save(); g.translate(st.x, st.y); g.rotate(sway); g.drawImage(spr, -spr.ox, -spr.oy, spr.cssW, spr.cssH);
+        if (st.kind === 'eye') {
+          const [ex, ey] = spr.top, s = spr.s, look = t ? Math.sin(t * .23 + st.ph) : .3, per = 6 + (st.seed % 5), lid = t ? Math.max(.08, 1 - Math.max(0, 1 - Math.abs(((t + st.ph * 3) % per) - .2) / .2)) : 1;
+          if (night) glow(g, ex, ey, s * 3, pal.iris, .3);
+          g.fillStyle = rgba(pal.sclera, .97); g.beginPath(); g.ellipse(ex, ey, s * 1.15, s * 1.15 * lid, 0, 0, TAU); g.fill();
+          if (lid > .3) { g.fillStyle = rgba(pal.iris, .95); g.beginPath(); g.arc(ex + look * s * .35, ey + s * .1, s * .5, 0, TAU); g.fill(); g.fillStyle = rgba(night ? pal.sclera : pal.ink, .9); g.beginPath(); g.arc(ex + look * s * .4, ey + s * .1, s * .2, 0, TAU); g.fill(); }
+          g.strokeStyle = rgba(pal.ink, night ? .6 : .75); g.lineWidth = 1.2 * E.lw; g.beginPath(); g.ellipse(ex, ey, s * 1.15, s * 1.15 * lid, 0, 0, TAU); g.stroke();
+          g.beginPath(); g.moveTo(ex - s * 1.3, ey - s * .2); g.quadraticCurveTo(ex, ey - s * 1.7 * Math.max(.3, lid), ex + s * 1.3, ey - s * .2); g.lineWidth = .9; g.stroke();
+        }
+        g.restore();
+      } });
+    });
+    // chimes hanging from the top edge
+    (ph ? [[.05, 46], [.95, 40]] : [[.04, 170], [.1, 110], [.9, 140], [.965, 200], [.3, 60], [.7, 70]]).forEach(([x, len], i) => {
+      const X = x * W, L = len * u, kind = ['ring', 'tri', 'dia', 'dot'][i % 4], c = pal.crowns[(i + 2) % 5];
+      dyn.push({ draw(g, t) {
+        const sw = t ? Math.sin(t * .5 + i * 1.3) * .05 : 0, ex = X + Math.sin(sw) * L, ey = Math.cos(sw) * L;
+        inkLite(g, [[X, -4], [(X + ex) / 2 + sw * 20, ey / 2], [ex, ey]], .9 * E.lw, pal.ink, night ? .45 : .55, 70 + i, { t0: 0, t1: 4 });
+        for (let k = 1; k < 3; k++) { const p = [X + (ex - X) * k / 3, ey * k / 3]; g.fillStyle = rgba(c, .9); g.beginPath(); g.arc(p[0], p[1], 2.2 * u, 0, TAU); g.fill(); g.strokeStyle = rgba(pal.ink, .55); g.lineWidth = .7; g.stroke(); }
+        if (night) glow(g, ex, ey, 14 * u, c, .4);
+        charm(g, ex, ey + 4 * u, kind, 6 * u, sw * 4, E, night ? .6 : .75, c);
+      } });
+    });
+    // things in the air
+    const motes = []; for (let i = 0; i < Math.round((ph ? 20 : 50) * E.density); i++) { let x = r() * W, y = r() * H * .9; if (edgeBias(E, x, y) < .4) x = r() < .5 ? r() * W * .16 : W - r() * W * .16; motes.push([x, y, r() * TAU, .8 + r() * 1.8]); }
+    dyn.push({ draw(g, t) { motes.forEach((m, i) => { const x = m[0] + (t ? Math.sin(t * .3 + m[2]) * 8 : 0), y = m[1] + (t ? Math.cos(t * .2 + m[2]) * 6 : 0); if (night) glow(g, x, y, m[3] * 4, pal.crowns[i % 5], .3); g.fillStyle = rgba(night ? pal.crowns[i % 5] : pal.ink, night ? .85 : .35); g.beginPath(); g.arc(x, y, m[3], 0, TAU); g.fill(); }); } });
+    if (!ph) [['crown', .06, .3, 30, 1, 0, 4, 2.4], ['ring', .94, .3, 26, 1, .2, 3, 1.8]].forEach((spec, i) => {
+      const d = makeBeing(spec, E, rng(900 + i)), spr = beingSprite(E, d);
+      dyn.push({ draw(g, t) { const X = d.x, Y = d.y + (t ? Math.sin(t * .35 + i) * 6 : 0); drawArms(g, d, X, Y, 1, 1, d.rot, t, E); g.save(); g.translate(X, Y); g.rotate(d.rot); g.drawImage(spr, -spr.ox, -spr.oy, spr.cssW, spr.cssH); g.restore(); } });
+    });
+  }
+};
 // ------------------------------------------------------------------ engine
 function env(W, H, o) {
   const scene = SCENES[o.scene] ? o.scene : 'nohara';
@@ -1352,7 +2288,7 @@ function render(canvas, o, withDyn) {
   if (o.grain !== false) grain(ctx, E);
   return { E, base, dyn, dpr };
 }
-// Names of the seventeen pictures as themes ("scene · variant").
+// Names of the pictures as themes ("scene · variant").
 const NAMES = {
   'nohara-day': ['野原 · 春の野', 'Meadow · spring field'],
   'nohara-night': ['野原 · 蛍', 'Meadow · fireflies'],
@@ -1370,7 +2306,23 @@ const NAMES = {
   'machi-day': ['小町 · 昼の町', 'Little town · day'],
   'machi-night': ['小町 · 灯りの町', 'Little town · lamplight'],
   'yamanami-day': ['山並 · 朝の山', 'Ridges · morning'],
-  'yamanami-night': ['山並 · 月の山', 'Ridges · moonlit']
+  'yamanami-night': ['山並 · 月の山', 'Ridges · moonlit'],
+  'hyoryu-day': ['漂流体 · 浅瀬', 'Drifters · shallows'],
+  'hyoryu-night': ['漂流体 · 深海', 'Drifters · abyss'],
+  'tenrin-day': ['天輪 · 白昼', 'Wheels · noon'],
+  'tenrin-night': ['天輪 · 星夜', 'Wheels · starlit'],
+  'kago-day': ['籠 · 明視野', 'Lattices · bright field'],
+  'kago-night': ['籠 · 暗視野', 'Lattices · dark field'],
+  'fusei-day': ['浮生 · 霧', 'Floating growths · mist'],
+  'fusei-night': ['浮生 · 燐光', 'Floating growths · phosphor'],
+  'obi-day': ['帯 · 絹', 'Ribbons · silk'],
+  'obi-night': ['帯 · 夜絹', 'Ribbons · night silk'],
+  'tokosen-day': ['等高線 · 砂図', 'Contours · sand map'],
+  'tokosen-night': ['等高線 · 夜図', 'Contours · night map'],
+  'uzu-day': ['渦 · 昼の風', 'Currents · day wind'],
+  'uzu-night': ['渦 · 夜の潮', 'Currents · night tide'],
+  'ien-day': ['異園 · 昼の園', 'Strange garden · by day'],
+  'ien-night': ['異園 · 夜の園', 'Strange garden · by night']
 };
 const OrganicBG = {
   scenes: Object.keys(SCENES).map(id => ({ id, zh: SCENES[id].zh, en: SCENES[id].en, variants: SCENES[id].variants })),
@@ -1456,7 +2408,7 @@ const OrganicBG = {
     const W = 1200, H = Math.round(W * h / w), dpr = w * Math.min(2, global.devicePixelRatio || 1) / W;
     return OrganicBG.paint(canvas, Object.assign({}, o, { width: W, height: H, dpr, device: 'desktop' }));
   },
-  _internal: { SCENES, P }
+  _internal: { SCENES, P, env, render }
 };
 global.OrganicBG = OrganicBG;
 })(typeof window !== 'undefined' ? window : this);

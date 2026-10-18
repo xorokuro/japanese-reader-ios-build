@@ -109,9 +109,11 @@ final class ThemeTests: XCTestCase {
     /// reader's preset names and the names of the bundled pictures (tools/render_scenes.py).
     func testScenePapers() {
         XCTAssertEqual(ReaderTheme.scenes.count, 17)
-        XCTAssertEqual(Set(ReaderTheme.scenes.map(\.id)).count, 17)
+        XCTAssertEqual(ReaderTheme.otherworld.count, 16)
+        XCTAssertEqual(Set((ReaderTheme.scenes + ReaderTheme.otherworld).map(\.id)).count, 33)
         XCTAssertFalse(ReaderTheme.fable.contains { $0.motif == .scene }, "Scenes keep their own section")
-        for theme in ReaderTheme.scenes {
+        XCTAssertTrue(ReaderTheme.otherworld.allSatisfy { theme in ReaderTheme.all.contains { $0.id == theme.id } })
+        for theme in ReaderTheme.scenes + ReaderTheme.otherworld {
             XCTAssertTrue(theme.id.hasPrefix("organic-"), theme.id)
             XCTAssertEqual(theme.motif, .scene, theme.name)
             XCTAssertEqual(theme.family == .dark, Palette.isDark(theme.backgroundRGB ?? 0xFFFFFF), "\(theme.name) family")

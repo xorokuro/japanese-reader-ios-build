@@ -1,8 +1,8 @@
 import SwiftUI
 import UIKit
 
-// 手繪 Hand-drawn scenes — the seventeen watercolour pictures of the desktop reader and the JLPT
-// lessons reader (organic-bg.js), as Fable papers (ReaderTheme.scenes, motif `.scene`). The
+// 手繪 Hand-drawn and 異界 Otherworld scenes — the watercolour pictures of the desktop reader and the JLPT
+// lessons reader (organic-bg.js), as Fable papers (ReaderTheme.scenes and .otherworld, motif `.scene`). The
 // picture is the page: it fills every screen edge to edge, behind the usual Fable layout, and
 // the header keeps no emblem of its own.
 //
