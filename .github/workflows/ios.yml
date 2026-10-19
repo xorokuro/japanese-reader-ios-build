@@ -110,6 +110,40 @@ jobs:
           for text in failed[:9]:
               print('::warning title=Failed::' + text[:3800].replace('\n', ' ').replace('\r', ' '))
           PY
+      - name: Show where test time went
+        if: always()
+        run: |
+          python3 - "$RUNNER_TEMP/test.log" <<'PY'
+          import re, sys
+          try:
+              lines = open(sys.argv[1], errors='replace').read().splitlines()
+          except OSError:
+              raise SystemExit
+          test, last, gaps = '', None, []
+          for line in lines:
+              started = re.match(r"Test Case '-\[\S+ (\S+)\]' started", line)
+              if started:
+                  test, last = started.group(1), None
+                  continue
+              step = re.match(r"\s*t =\s+([0-9.]+)s\s+(.*)", line)
+              if not step:
+                  continue
+              now, what = float(step.group(1)), step.group(2).strip()
+              if last and now - last[0] >= 6:
+                  gaps.append(f"{test}: {now - last[0]:.0f}s between '{last[1][:90]}' and '{what[:60]}'")
+              last = (now, what)
+          chunks, chunk = [], ''
+          for gap in gaps:
+              if chunk and len(chunk) + len(gap) + 3 > 3500:
+                  chunks.append(chunk)
+                  chunk = gap
+              else:
+                  chunk = gap if not chunk else chunk + ' | ' + gap
+          if chunk:
+              chunks.append(chunk)
+          for index, text in enumerate(chunks[:9]):
+              print(f"::notice title=Waits of 6 s or more {index + 1}/{len(chunks)}::{text}")
+          PY
       - name: Report test build errors
         if: failure()
         run: |

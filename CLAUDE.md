@@ -24,6 +24,10 @@
   NavigationStack needs `.backSwipePage()`. On stack pages with the title bar showing, a slide from the very left
   edge (`BackSwipe.systemEdge`) is left to UIKit's own swipe. Areas that drag sideways themselves get `.background(BackSwipeBlocker())`.
   Do not go back to SwiftUI edge strips: they could not follow the finger or start away from the edge.
+  SwiftUI takes a touch on a button or a row the moment it lands (its `UIKitResponderGestureRecognizer` starts at once),
+  which would end any swipe started on a result or a settings row: such recognizers run alongside the swipe and are
+  cancelled when it starts (`givesWay`); web pages keep their own. Interface tests can launch with `--ui-swipe-trace`
+  and read the label of the `swipeTrace` element to see what the swipe decided (put it in failure messages).
 - Do not add `CADisableMinimumFrameDurationOnPhone` to `Info.plist` (it lets the page turn run at 120 Hz;
   without it the turn runs at 60). With the key, a lesson or definition page came up blank in 3 of 12 full
   simulator test runs; without it, 0 of 9, and 0 of 4 on the code before the page turn.
