@@ -700,6 +700,7 @@ struct DictionaryPage: UIViewRepresentable {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             sizeSwipe.claimTwoFingers()
             scrollKeeper.pageLoaded(webView.scrollView)
+            NotificationCenter.default.post(name: .readerPageDrawn, object: webView)
             // A full-text result: mark every occurrence; jump to the first one only
             // on a fresh visit (going back keeps the old scroll position).
             if !highlight.isEmpty, let data = try? JSONEncoder().encode(highlight), let text = String(data: data, encoding: .utf8) {

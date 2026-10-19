@@ -432,6 +432,26 @@ struct PullRelease: UIViewRepresentable {
     }
 }
 
+/// Reports where a view is on screen (global coordinates) whenever that changes. Put it in
+/// a view's background.
+struct FrameReader: View {
+    let changed: (CGRect) -> Void
+    var body: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear { changed(proxy.frame(in: .global)) }
+                .onChange(of: proxy.frame(in: .global)) { _, frame in changed(frame) }
+        }
+    }
+
+    /// How much of a page the dictionary card covers: the inset that keeps a selection near
+    /// the bottom of the page visible above the card (`fallback` before it has been measured).
+    static func cover(of page: CGRect, by card: CGRect, fallback: CGFloat) -> CGFloat {
+        guard card.height > 1, page.height > 1 else { return fallback }
+        return max(0, (page.maxY - card.minY + 4).rounded())
+    }
+}
+
 /// A navigation destination that is built when it is shown. A NavigationLink
 /// evaluates its destination closure with the row, so a large page placed there
 /// directly is constructed (on the caller's stack) every time the list is drawn.

@@ -33,7 +33,7 @@ struct GrammarTab: View {
     var body: some View {
         NavigationStack(path: $grammar.path) {
             listScreen
-                .pageTurnStackPage()
+                .backSwipePage()
                 .toolbar(.hidden, for: .navigationBar)
                 .toolbar(immersive.on ? .hidden : .automatic, for: .tabBar)
                 .navigationDestination(for: String.self) { id in
@@ -463,6 +463,11 @@ struct GrammarLessonScreen: View {
     @State private var html = ""
     @State private var failed = false
     @State private var copiedPattern = false
+    /// A link to a lesson that is not in the lessons, said on the lesson itself.
+    @State private var missingLesson: String?
+    /// Where the lesson and the dictionary card are: the card's cover keeps a selection visible.
+    @State private var pageFrame = CGRect.zero
+    @State private var cardFrame = CGRect.zero
     @AppStorage("handDrawnPaper") private var handDrawnPaper = true
     @ObservedObject private var immersive = ImmersiveController.shared
 
@@ -480,6 +485,7 @@ struct GrammarLessonScreen: View {
                                    showAll: { model.showPeekResults() },
                                    copy: { UIPasteboard.general.string = peek.text },
                                    close: { model.closePeek() })
+                        .background(FrameReader { cardFrame = $0 })
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
@@ -487,15 +493,20 @@ struct GrammarLessonScreen: View {
             if !peekVisible && !immersive.on { bottomBar.transition(.move(edge: .bottom).combined(with: .opacity)) }
         }
         .overlay(alignment: .top) {
-            if copiedPattern {
+            if let missingLesson {
+                CopiedNote(style: style, text: "「\(missingLesson)」 isn't in the lessons", symbol: "exclamationmark.circle.fill")
+                    .padding(.top, 6)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            } else if copiedPattern {
                 CopiedNote(style: style, text: "已複製「\(entry?.pattern ?? "")」")
                     .padding(.top, 6)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
         .animation(.snappy(duration: 0.22), value: copiedPattern)
+        .animation(.snappy(duration: 0.22), value: missingLesson)
         .background(PaperBackground(style: style, texture: handDrawnPaper).equatable())
-        .pageTurnStackPage()
+        .backSwipePage()
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(immersive.on ? .hidden : .automatic, for: .navigationBar, .tabBar)
         .toolbar {
@@ -527,7 +538,7 @@ struct GrammarLessonScreen: View {
             if let entry, let folder = grammar.lessonURL(entry)?.deletingLastPathComponent(), !html.isEmpty {
                 GrammarLessonPage(html: html, lessonsFolder: folder, textSize: textSize,
                                   initialOffset: grammar.offsets[entry.id] ?? .zero,
-                                  bottomInset: peekVisible ? 300 : 0,
+                                  bottomInset: peekVisible ? FrameReader.cover(of: pageFrame, by: cardFrame, fallback: 300) : 0,
                                   quietMenu: quietMenu,
                                   resize: TextResize(value: textSize, range: 13...40,
                                                      set: { textSize = $0; showSize(Int($0)) },
@@ -541,6 +552,7 @@ struct GrammarLessonScreen: View {
                     model.select(word, inDictionary: true)
                 }
                 .id(entry.id + style.identity + typeface.rawValue)
+                .background(FrameReader { pageFrame = $0 })
                 .clipShape(SketchShape(radius: 18))
                 .padding(margins == .compact ? 1 : 3)
                 .sketchCard(style, radius: 20, tape: .marker, tapeTrailing: true, fill: nil)
@@ -662,6 +674,10 @@ struct GrammarLessonScreen: View {
     private func open(file: String) {
         guard let target = grammar.entry(file: file), target.hasLesson else {
             grammar.status = "「\(file)」 is not in the index."
+            // Said here too: the list, where the status is shown, is not on screen.
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            missingLesson = file
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) { if missingLesson == file { missingLesson = nil } }
             return
         }
         model.closePeek()

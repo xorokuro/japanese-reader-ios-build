@@ -341,6 +341,7 @@ struct GrammarLessonPage: UIViewRepresentable {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             sizeSwipe.claimTwoFingers()
             scrollKeeper.pageLoaded(webView.scrollView)
+            NotificationCenter.default.post(name: .readerPageDrawn, object: webView)
         }
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {

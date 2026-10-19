@@ -145,7 +145,21 @@ final class PageDoubleTap: NSObject, UIGestureRecognizerDelegate {
 
     @objc private func fired(_ tap: UITapGestureRecognizer) {
         guard tap.state == .ended, let view = tap.view else { return }
-        step?(tap.location(in: view).x < view.bounds.midX ? -1 : 1)
+        let side = tap.location(in: view).x < view.bounds.midX ? -1 : 1
+        guard let web = view as? WKWebView else { step?(side); return }
+        // Two quick taps on a link or on something that plays (the NHK accent box replays
+        // its recording on each tap) are two taps on it, not a step to another dictionary.
+        let scroll = web.scrollView
+        let zoom = max(scroll.zoomScale, 0.01)
+        let inContent = web.convert(tap.location(in: web), to: scroll)
+        DictionaryPage.evaluateSelectionScript(Self.tappable(x: inContent.x / zoom, y: inContent.y / zoom), in: web) { [weak self] value, _ in
+            if (value as? Bool) != true { self?.step?(side) }
+        }
+    }
+
+    /// Script: whether the page point (x, y) is on a link or a control (true / false).
+    static func tappable(x: CGFloat, y: CGFloat) -> String {
+        "(() => { const e = document.elementFromPoint(\(Double(x)) - (window.scrollX || 0), \(Double(y)) - (window.scrollY || 0)); return !!(e && e.closest('a,audio,video,button,summary,[role=button],accent,accent_text')); })()"
     }
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool { step != nil }

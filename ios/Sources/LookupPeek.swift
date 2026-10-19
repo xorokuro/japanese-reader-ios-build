@@ -184,6 +184,8 @@ struct LookupPeekCard: View {
         .padding(.top, 16)
         .padding(.bottom, 12)
         .sketchCard(style, radius: 22, tape: .marker, tapeTrailing: true, fill: style.isYohaku ? style.background : nil)
+        // Its character strip and pull-down are sideways and downward drags: no swipe back here.
+        .background(BackSwipeBlocker())
         .overlay(alignment: .top) {
             if showCopiedNote {
                 CopiedNote(style: style)
@@ -324,8 +326,10 @@ struct LookupPeekCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 6)
         } else {
+            // As tall as its rows (up to 214 / 330 pt): with a match or two the card stays
+            // short and covers less of the page.
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 8) {
                     ForEach(Array(peek.hits.prefix(expanded ? 30 : 6)), id: \.identity) { hit in
                         Button { open(hit) } label: { row(hit) }
                             .buttonStyle(.plain)
@@ -346,6 +350,7 @@ struct LookupPeekCard: View {
                 .padding(.trailing, 2)
             }
             .frame(maxHeight: expanded ? 330 : 214)
+            .fixedSize(horizontal: false, vertical: true)
             .scrollIndicators(.hidden)
         }
     }
@@ -518,9 +523,10 @@ struct PeekIconButtonStyle: ButtonStyle {
 struct CopiedNote: View {
     let style: ReaderStyle
     var text = "已複製 · Copied to clipboard"
+    var symbol = "checkmark.circle.fill"
 
     var body: some View {
-        Label(text, systemImage: "checkmark.circle.fill")
+        Label(text, systemImage: symbol)
             .font(HandFont.title(14))
             .foregroundStyle(style.onAccent)
             .padding(.horizontal, 14)

@@ -178,6 +178,8 @@ struct PhotoTextImport: View {
                         .frame(width: max(box.width, 1), height: max(box.height, 1))
                         .contentShape(Rectangle())
                         .gesture(move(frame))
+                        // A box over the whole picture cannot move: a drag on it draws a new box.
+                        .allowsHitTesting(crop.width < 0.97 || crop.height < 0.97)
                         .position(x: box.midX, y: box.midY)
                     ForEach(0..<4, id: \.self) { corner in
                         Circle()

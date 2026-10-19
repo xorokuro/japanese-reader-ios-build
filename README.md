@@ -4,7 +4,30 @@ Source-only snapshot for a user-authorized public iOS build. No personal passage
 
 Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuses to run build jobs when this repository is private.
 
-Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 2.7.9, build 38).
+Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 3.10.0, build 66).
+
+## 3.10.0 — a swipe back that follows your finger
+
+- **Swipe back rebuilt.** The old swipe on Search only worked from a 16-point strip at the very edge, only went back once the finger was lifted (nothing moved before that), and ignored swipes that were short or slightly slanted. Now:
+  - the page **follows your finger** and the screen you came from shows underneath, a little behind, like the iPhone's own apps; let go past about a third of the way, or flick, to go back; let go early and the page slides back;
+  - it starts **from anywhere on the page** with a sideways swipe to the right (Appearance → Going back → *Swipe back from anywhere on the page*, on by default), or from the edge (a wider edge than before; on Search the right edge works too, swiping left);
+  - scrolling is never taken for a swipe, and a swipe never starts on a text selection's handles, the dictionary card, sliders and switches, or a row that scrolls sideways;
+  - the same swipe on definitions and results, 文法 lessons and Appearance, and in full screen, where the title bar (and with it the iPhone's own edge swipe) is hidden.
+- **Page-turn** (Appearance → Going back) uses the same swipe: it starts at once (no more lag at the start of the turn), from the edge or anywhere on the page, and shows the live page as soon as a definition has loaded.
+- **Enable all** in Library → Offline dictionaries really enables them. Both buttons sat in one row, and a tap pressed both (Enable all, then Disable all).
+- **Search while typing** keeps the results on screen until the new ones arrive (the list no longer blinks to "Nothing found yet" between keys) and starts each new search at the top.
+- **The dictionary card** is only as tall as its matches, and the page scrolls the selected words above the card whatever its size (they could end up behind it).
+- **Paste, a photo, a Library passage or the share sheet** replacing a passage: *Undo* brings the old one back for a while (Paste used to throw it away).
+- **Messages** ("Saved", "Learning prompt copied", "Passage cleared"…) go away by themselves, are no longer carried to the other tabs, and can be tapped away. The card's Copy no longer leaves a message under the page.
+- **Double-tapping** a link or the NHK accent box (to hear it again) no longer jumps to another dictionary.
+- Switching dictionaries on or off searches again instead of emptying the results.
+- *Copy learning prompt* on Search is about the word on screen (it used to copy the Read passage).
+- **Reset appearance** and *Use the default size for every dictionary* ask first.
+- Full screen hides the Paste and Photo buttons on the Read page too.
+- Upside down, Search no longer brings up the keyboard by itself (it appears the wrong way round there).
+- Photos: dragging over the picture draws a new box straight away (the whole-picture box used to take the drag).
+- A 文法 link to a lesson that is not in the lessons says so on the lesson.
+- Study notes are written to the library file once typing pauses, not on every key.
 
 ## 3.8.0 — hand-drawn scenes · 手繪
 

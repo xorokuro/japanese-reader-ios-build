@@ -1,6 +1,6 @@
 # Japanese Reader (iOS) — notes for anyone working on this repo
 
-- **`main` is the app.** Start every change from the latest `main` (currently 3.9.0, build 65).
+- **`main` is the app.** Start every change from the latest `main` (currently 3.10.0, build 66).
   Do not start from older branches (`ruled-lines`, `grammar-tab`, `fix/…`, `claude/…`): they are
   snapshots of past versions, and building from one of them drops features such as the 文法 tab.
 - The app has four tabs: Read, Search, Library and **文法 (Grammar)**. A build without the Grammar tab
@@ -15,11 +15,15 @@
 - The script in `DictionaryPage.selectionScript` is one JavaScript program: a syntax error anywhere
   (a name declared twice, say) silently disables all of it on the phone. Before shipping a change to it,
   run the changed function in a real browser against a sample page.
-- The page-turn swipe back (`PageTurn.swift`, Appearance → Going back, off by default) shows a picture of the
-  previous screen under the turning sheet. Pictures are taken just before a screen is left (`remember` in the
-  model, the tab change in `ReaderHome`, `PageTurnStackHook` on NavigationStack pages) and only while the
-  setting is on. A new page pushed in a NavigationStack needs `.pageTurnStackPage()` to take part.
-  While the setting is off nothing of it is in the view tree (no hook, the plain swipe strips in Search).
+- The swipe back (`BackSwipe.swift`) is one UIKit recognizer per NavigationStack, installed by `BackSwipeHook`:
+  `.backSwipePage()` on every page of a stack, and the Search page's hook with a `BackSwipeTarget` (Search's pages
+  are not pushes). `BackSwipeRules` decides from where a finger lands (edge or page) and how it moves; scroll views
+  wait for that decision. The page then slides (`PageSlide`) or curls (`PageTurn.swift`, Appearance → Going back →
+  Page-turn) over a picture of the previous screen. Pictures are taken just before a screen is left (`remember` in
+  the model, the tab change in `ReaderHome`, the hook when a page is pushed over). A new page pushed in a
+  NavigationStack needs `.backSwipePage()`. On stack pages with the title bar showing, a slide from the left edge
+  is left to UIKit's own swipe. Areas that drag sideways themselves get `.background(BackSwipeBlocker())`.
+  Do not go back to SwiftUI edge strips: they could not follow the finger or start away from the edge.
 - Do not add `CADisableMinimumFrameDurationOnPhone` to `Info.plist` (it lets the page turn run at 120 Hz;
   without it the turn runs at 60). With the key, a lesson or definition page came up blank in 3 of 12 full
   simulator test runs; without it, 0 of 9, and 0 of 4 on the code before the page turn.

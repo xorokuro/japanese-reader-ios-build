@@ -1,6 +1,11 @@
 name: Build iPhone app
 on:
   workflow_dispatch:
+    inputs:
+      tests:
+        description: "Only these tests, comma separated (e.g. ReaderUITests/BackSwipeUITests); empty runs them all"
+        required: false
+        default: ""
 # User-authorized public build only. Disable Actions before making this repository private.
 permissions:
   contents: read
@@ -40,9 +45,17 @@ jobs:
           path: ios/build/JapaneseReader.ipa
           retention-days: 14
       - name: Test iPhone interface
+        env:
+          ONLY_TESTS: ${{ inputs.tests }}
         run: |
           DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for devices in d["devices"].values() for x in devices if "iPhone" in x["name"]))')
-          xcodebuild -project ios/JapaneseReader.xcodeproj -scheme JapaneseReader -destination "platform=iOS Simulator,id=$DEVICE" -resultBundlePath ios/build/UIResults.xcresult CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -test-timeouts-enabled YES -maximum-test-execution-time-allowance 180 test 2>&1 | tee "$RUNNER_TEMP/test.log"
+          ONLY=()
+          IFS=',' read -ra PICKED <<< "$ONLY_TESTS"
+          for test in "${PICKED[@]}"; do
+            test="$(echo "$test" | xargs)"
+            if [ -n "$test" ]; then ONLY+=("-only-testing:$test"); fi
+          done
+          xcodebuild -project ios/JapaneseReader.xcodeproj -scheme JapaneseReader -destination "platform=iOS Simulator,id=$DEVICE" -resultBundlePath ios/build/UIResults.xcresult CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -test-timeouts-enabled YES -maximum-test-execution-time-allowance 180 "${ONLY[@]}" test 2>&1 | tee "$RUNNER_TEMP/test.log"
           exit ${PIPESTATUS[0]}
       - name: Report test build errors
         if: failure()

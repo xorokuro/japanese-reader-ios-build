@@ -1,20 +1,19 @@
 import SwiftUI
 import UIKit
 
-// Page-turn back swipe (Appearance → Going back, off by default).
+// Page-turn style of the swipe back (Appearance → Going back → Page-turn, off by default).
 //
 // Swiping back peels the current screen away like a sheet of paper: its edge
 // follows the finger, the sheet rolls over a cylinder, and the screen underneath
 // shows through. Letting go far enough finishes the turn and goes back; letting go
-// early lays the sheet down again.
+// early lays the sheet down again. A swipe started away from the edge turns as if
+// the sheet had been taken at the edge.
 //
 // How it is put together:
 //  - PageTurnGeometry: the arithmetic of the roll (pure, unit-tested).
 //  - PageTurnView: draws one moment of the turn from two pictures.
-//  - PageTurn: follows the finger, settles the turn, and keeps the pictures.
-//  - PageTurnStackHook: the same gesture for pages pushed in a NavigationStack.
-//
-// Nothing below runs, and no picture is taken, while the setting is off.
+//  - PageTurn: follows the finger and settles the turn.
+// When a swipe starts, which pages take part and the pictures are in BackSwipe.swift.
 
 // MARK: - Geometry
 
@@ -63,18 +62,6 @@ enum PageTurnGeometry {
         if velocity > 700 { return true }
         if velocity < -250 { return false }
         return travel > width * 0.36
-    }
-}
-
-// MARK: - Pictures
-
-/// A picture of a screen as it looked when it was left, shown under the turning sheet.
-final class PagePicture {
-    fileprivate(set) var image: CGImage?
-    let size: CGSize
-    let look: String
-    init(image: CGImage, size: CGSize, look: String) {
-        self.image = image; self.size = size; self.look = look
     }
 }
 
@@ -272,18 +259,10 @@ final class PageTurnView: UIView {
 
 // MARK: - Controller
 
-@MainActor final class PageTurn: NSObject {
+/// The page-turn style of the swipe back (`BackSwipe` decides when a swipe starts).
+@MainActor final class PageTurn: NSObject, BackSwipeStyle {
     static let shared = PageTurn()
     static let key = "pageTurnBack"
-    /// Interface tests: the turn stays where the finger left it for a moment, so it can be photographed.
-    private static let holdsForTests = ProcessInfo.processInfo.arguments.contains("--ui-page-turn-hold")
-
-    var enabled: Bool { UserDefaults.standard.bool(forKey: Self.key) }
-    /// Paper colour of the current theme (the back of the sheet), and the theme's identity.
-    var paper = UIColor.systemBackground
-    var look = "" {
-        didSet { if look != oldValue { forgetPictures() } }
-    }
 
     private enum Phase { case idle, tracking, holding, settling, leaving }
     private var phase = Phase.idle
@@ -291,113 +270,62 @@ final class PageTurnView: UIView {
     private var link: CADisplayLink?
     private var fromLeft = true
     private var start = CGPoint.zero
-    private var began: CFTimeInterval = 0
     private var target = PageTurnView.Pose(contact: 0, tilt: 0)
     private var travel: CGFloat = 0
-    private var complete: (() -> Void)?
+    private var complete: (@MainActor () -> Void)?
+    private var waitsForWebPage = false
     private var settleFrom = PageTurnView.Pose(contact: 0, tilt: 0)
     private var settleStart: CFTimeInterval = 0
     private var settleDuration: CFTimeInterval = 0.3
     private var settleCompletes = false
+    /// The page drawn as a finger lands at the edge, so the turn starts without a hitch.
+    private var prepared: (image: CGImage, size: CGSize, time: CFTimeInterval)?
 
     /// True from the first movement until the screen is back to normal.
     var active: Bool { phase != .idle }
-    /// True while a finger is turning the page.
-    var tracking: Bool { phase == .tracking }
 
     private override init() {
         super.init()
         NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { if PageTurn.shared.tracking { PageTurn.shared.cancel() } }
-        }
-        NotificationCenter.default.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { PageTurn.shared.forgetPictures() }
+            MainActor.assumeIsolated { PageTurn.shared.cancel() }
         }
     }
 
-    // MARK: Pictures
-
-    private struct Kept { weak var picture: PagePicture? }
-    private var kept: [Kept] = []
-    private var tabPictures: [Int: PagePicture] = [:]
-    private static let keptLimit = 6
-
-    static var window: UIWindow? {
-        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
-        return scene?.windows.first { $0.isKeyWindow && $0.rootViewController != nil }
-            ?? scene?.windows.first { $0.rootViewController != nil && !$0.isHidden }
+    /// Draws the screen as it is now, for a turn that may start in a moment.
+    func prepare(_ window: UIWindow) {
+        guard phase == .idle, let image = PagePictures.shared.draw(window, scale: window.screen.scale) else { return }
+        prepared = (image, window.bounds.size, CACurrentMediaTime())
     }
+    func dropPrepared() { prepared = nil }
 
-    private func draw(_ window: UIWindow, scale: CGFloat) -> CGImage? {
-        guard window.bounds.width > 0, window.bounds.height > 0 else { return nil }
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = scale
-        format.opaque = true
-        let paper = self.paper
-        return UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { context in
-            paper.setFill()
-            context.fill(window.bounds)
-            window.drawHierarchy(in: window.bounds, afterScreenUpdates: false)
-        }.cgImage
-    }
-
-    /// The screen as it looks now, to show under a later turn back to it.
-    /// Call it just before the screen changes. Nil while the setting is off.
-    func picture() -> PagePicture? {
-        guard enabled, !active, let window = Self.window,
-              let image = draw(window, scale: min(window.screen.scale, 2)) else { return nil }
-        let picture = PagePicture(image: image, size: window.bounds.size, look: look)
-        kept.removeAll { $0.picture?.image == nil }
-        kept.append(Kept(picture: picture))
-        // Only the last few screens keep their picture; older ones turn back onto plain paper.
-        while kept.count > Self.keptLimit {
-            let oldest = kept.removeFirst()
-            oldest.picture?.image = nil
-        }
-        return picture
-    }
-
-    /// A tab is being left for Search: remember how it looked.
-    func leaving(tab: Int) {
-        tabPictures = [:]
-        if let picture = picture() { tabPictures[tab] = picture }
-    }
-    func picture(ofTab tab: Int) -> PagePicture? { tabPictures[tab] }
-
-    private func forgetPictures() {
-        for item in kept { item.picture?.image = nil }
-        kept = []
-        tabPictures = [:]
-    }
-
-    private func usable(_ picture: PagePicture?, in window: UIWindow) -> CGImage? {
-        guard let picture, picture.look == look,
-              abs(picture.size.width - window.bounds.width) < 0.5, abs(picture.size.height - window.bounds.height) < 0.5 else { return nil }
-        return picture.image
-    }
-
-    // MARK: Following the finger
-
-    /// Starts a turn. `point` is where the finger went down, in window coordinates;
+    /// Starts a turn. `point` is where the sheet is taken (window coordinates);
     /// `under` is the screen going back leads to; `complete` goes back (without animation).
-    @discardableResult
-    func begin(fromLeft: Bool, at point: CGPoint, under: PagePicture?, complete: @escaping () -> Void) -> Bool {
-        guard enabled, !active, let window = Self.window, let page = draw(window, scale: window.screen.scale) else { return false }
+    func begin(in window: UIWindow, fromLeft: Bool, at point: CGPoint, under: CGImage?,
+               waitsForWebPage: Bool, complete: @escaping @MainActor () -> Void) -> Bool {
+        guard phase == .idle else { return false }
+        let page: CGImage
+        if let prepared, prepared.size == window.bounds.size, CACurrentMediaTime() - prepared.time < 1.5 {
+            page = prepared.image
+        } else if let drawn = PagePictures.shared.draw(window, scale: window.screen.scale) {
+            page = drawn
+        } else {
+            return false
+        }
+        prepared = nil
         self.fromLeft = fromLeft
         start = point
         // The sheet is held by its edge, at the height of the finger.
         let pivot = CGPoint(x: fromLeft ? 0 : window.bounds.width, y: min(max(point.y, 0), window.bounds.height))
-        let view = PageTurnView(frame: window.bounds, page: page, under: usable(under, in: window), paper: paper,
+        let view = PageTurnView(frame: window.bounds, page: page, under: under, paper: PagePictures.shared.paper,
                                 fromLeft: fromLeft, pivot: pivot)
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         window.addSubview(view)
         self.view = view
         self.complete = complete
+        self.waitsForWebPage = waitsForWebPage
         target = PageTurnView.Pose(contact: 0, tilt: 0)
         travel = 0
         phase = .tracking
-        began = CACurrentMediaTime()
         let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
         link.add(to: .main, forMode: .common)
         self.link = link
@@ -417,7 +345,7 @@ final class PageTurnView: UIView {
         guard phase == .tracking, let view else { return }
         let along = (fromLeft ? 1 : -1) * velocity
         let completes = PageTurnGeometry.completes(travel: travel, width: view.bounds.width, velocity: along)
-        if Self.holdsForTests {
+        if BackSwipe.holdsForTests {
             phase = .holding
             view.show(target)
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
@@ -433,18 +361,8 @@ final class PageTurnView: UIView {
 
     /// The gesture was taken away (a call, the app switcher): lay the page down again.
     func cancel() {
-        guard phase == .tracking else { return }
+        guard phase == .tracking || phase == .holding else { return }
         settle(completes: false)
-    }
-
-    /// For gestures that report no cancellation: called when the touch is gone.
-    func fingerLifted() {
-        DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self, self.phase == .tracking else { return }
-                self.cancel()
-            }
-        }
     }
 
     private func settle(completes: Bool) {
@@ -465,10 +383,8 @@ final class PageTurnView: UIView {
         let now = CACurrentMediaTime()
         switch phase {
         case .tracking:
-            // The sheet rises under the finger over the first moments instead of jumping up.
-            let rise = min(1, (now - began) / 0.16)
-            let eased = CGFloat(rise * (2 - rise))
-            view.show(PageTurnView.Pose(contact: target.contact * eased, tilt: target.tilt))
+            // The sheet stays with the finger from the first movement.
+            view.show(target)
         case .settling:
             let time = min(1, (now - settleStart) / max(settleDuration, 0.01))
             let eased = CGFloat(1 - pow(1 - time, 3))
@@ -494,14 +410,13 @@ final class PageTurnView: UIView {
         complete = nil
         action?()
         guard let view else { phase = .idle; return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.07) { [weak self] in
-            MainActor.assumeIsolated {
-                view.revealLive()
-                UIView.animate(withDuration: 0.18, delay: 0, options: [.curveEaseOut]) {
-                    view.alpha = 0
-                } completion: { _ in
-                    MainActor.assumeIsolated { self?.finish() }
-                }
+        view.isUserInteractionEnabled = false
+        _ = PageReadyWait(waitsForWebPage: waitsForWebPage) {
+            view.revealLive()
+            UIView.animate(withDuration: 0.18, delay: 0, options: [.curveEaseOut]) {
+                view.alpha = 0
+            } completion: { _ in
+                MainActor.assumeIsolated { PageTurn.shared.finish() }
             }
         }
     }
@@ -514,123 +429,4 @@ final class PageTurnView: UIView {
         complete = nil
         phase = .idle
     }
-}
-
-// MARK: - NavigationStack pages
-
-/// Put in the background of every page of a NavigationStack. It remembers how the
-/// page looked when another was pushed over it, and gives the stack the page-turn
-/// swipe (from the left edge) in place of the system's slide while the setting is on.
-struct PageTurnStackHook: UIViewControllerRepresentable {
-    func makeUIViewController(context: Context) -> Controller { Controller() }
-    func updateUIViewController(_ controller: Controller, context: Context) { controller.attach() }
-
-    final class Controller: UIViewController {
-        private weak var stack: UINavigationController?
-        private weak var page: UIViewController?
-
-        override func didMove(toParent parent: UIViewController?) { super.didMove(toParent: parent); attach() }
-        override func viewWillAppear(_ animated: Bool) { super.viewWillAppear(animated); attach() }
-
-        func attach() {
-            guard let stack = navigationController else { return }
-            self.stack = stack
-            var node: UIViewController = self
-            while let parent = node.parent, parent !== stack { node = parent }
-            page = node.parent === stack ? node : nil
-            PageTurnStackGesture.install(on: stack)
-        }
-
-        override func viewWillDisappear(_ animated: Bool) {
-            super.viewWillDisappear(animated)
-            // Covered by a pushed page (not popped, not another tab): keep its picture.
-            guard let stack, let page, let top = stack.viewControllers.last, top !== page,
-                  stack.viewControllers.contains(page) else { return }
-            PageTurnStackGesture.install(on: stack).keep(PageTurn.shared.picture(), for: page)
-        }
-    }
-}
-
-@MainActor final class PageTurnStackGesture: NSObject, UIGestureRecognizerDelegate {
-    private static var association = 0
-    private static let edgeWidth: CGFloat = 22
-    private weak var stack: UINavigationController?
-    private let pictures = NSMapTable<UIViewController, PagePicture>.weakToStrongObjects()
-    private var pan: UIPanGestureRecognizer?
-
-    @discardableResult
-    static func install(on stack: UINavigationController) -> PageTurnStackGesture {
-        if let existing = objc_getAssociatedObject(stack, &association) as? PageTurnStackGesture { return existing }
-        let gesture = PageTurnStackGesture(stack)
-        objc_setAssociatedObject(stack, &association, gesture, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        return gesture
-    }
-
-    private init(_ stack: UINavigationController) {
-        self.stack = stack
-        super.init()
-        let pan = UIPanGestureRecognizer(target: self, action: #selector(panned(_:)))
-        pan.maximumNumberOfTouches = 1
-        pan.delegate = self
-        stack.view.addGestureRecognizer(pan)
-        self.pan = pan
-    }
-
-    func keep(_ picture: PagePicture?, for page: UIViewController) {
-        if let picture { pictures.setObject(picture, forKey: page) } else { pictures.removeObject(forKey: page) }
-    }
-
-    @objc private func panned(_ pan: UIPanGestureRecognizer) {
-        guard let stack, let window = stack.view.window else {
-            if pan.state != .began && pan.state != .changed { PageTurn.shared.cancel() }
-            return
-        }
-        switch pan.state {
-        case .began:
-            let pages = stack.viewControllers
-            guard pages.count > 1 else { return }
-            let now = pan.location(in: window), moved = pan.translation(in: window)
-            let began = PageTurn.shared.begin(fromLeft: true, at: CGPoint(x: now.x - moved.x, y: now.y - moved.y),
-                                              under: pictures.object(forKey: pages[pages.count - 2])) { [weak stack] in
-                stack?.popViewController(animated: false)
-            }
-            if began { PageTurn.shared.move(to: now) }
-        case .changed:
-            PageTurn.shared.move(to: pan.location(in: window))
-        case .ended:
-            PageTurn.shared.end(velocity: pan.velocity(in: window).x)
-        default:
-            PageTurn.shared.cancel()
-        }
-    }
-
-    // Only touches that start at the left edge of a pushed page, and only while the setting is on;
-    // otherwise the system's own swipe back is left alone.
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        guard PageTurn.shared.enabled, !PageTurn.shared.active, let stack,
-              stack.viewControllers.count > 1, stack.transitionCoordinator == nil, stack.presentedViewController == nil else { return false }
-        return touch.location(in: stack.view).x <= Self.edgeWidth
-    }
-    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        guard let pan = gestureRecognizer as? UIPanGestureRecognizer, let stack else { return false }
-        let velocity = pan.velocity(in: stack.view)
-        return velocity.x > 0 && velocity.x > abs(velocity.y)
-    }
-    /// Scrolling and the system's slide wait for this swipe to start or give way.
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        otherGestureRecognizer is UIPanGestureRecognizer
-    }
-}
-
-/// The hook is only part of the page while the setting is on.
-private struct PageTurnStackPage: ViewModifier {
-    @AppStorage(PageTurn.key) private var on = false
-    func body(content: Content) -> some View {
-        content.background { if on { PageTurnStackHook() } }
-    }
-}
-
-extension View {
-    /// Marks a page of a NavigationStack for the page-turn swipe back.
-    func pageTurnStackPage() -> some View { modifier(PageTurnStackPage()) }
 }
