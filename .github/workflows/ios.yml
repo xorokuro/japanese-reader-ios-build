@@ -6,6 +6,10 @@ on:
         description: "Only these tests, comma separated (e.g. ReaderUITests/BackSwipeUITests); empty runs them all"
         required: false
         default: ""
+      quick:
+        description: "Skip the optimized-build launch check (for test-only runs)"
+        required: false
+        default: "false"
 # User-authorized public build only. Disable Actions before making this repository private.
 permissions:
   contents: read
@@ -27,6 +31,7 @@ jobs:
             echo "::error title=Compile error::${line:0:900}"
           done || true
       - name: Launch the optimized (Release) build in the simulator
+        if: inputs.quick != 'true'
         run: |
           DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for devices in d["devices"].values() for x in devices if "iPhone" in x["name"]))')
           xcrun simctl boot "$DEVICE" || true
@@ -57,6 +62,30 @@ jobs:
           done
           xcodebuild -project ios/JapaneseReader.xcodeproj -scheme JapaneseReader -destination "platform=iOS Simulator,id=$DEVICE" -resultBundlePath ios/build/UIResults.xcresult CODE_SIGNING_ALLOWED=NO -parallel-testing-enabled NO -test-timeouts-enabled YES -maximum-test-execution-time-allowance 180 "${ONLY[@]}" test 2>&1 | tee "$RUNNER_TEMP/test.log"
           exit ${PIPESTATUS[0]}
+      - name: Summarize tests
+        if: always()
+        run: |
+          xcrun xcresulttool get test-results tests --path ios/build/UIResults.xcresult > "$RUNNER_TEMP/summary.json" 2>/dev/null || exit 0
+          python3 - "$RUNNER_TEMP/summary.json" <<'PY'
+          import json, sys
+          data = json.load(open(sys.argv[1]))
+          rows, failed = [], []
+          def walk(node):
+              if node.get('nodeType') == 'Test Case':
+                  took = node.get('durationInSeconds', node.get('duration', '?'))
+                  if isinstance(took, float): took = f"{took:.0f}s"
+                  rows.append(f"{node.get('result', '?')} {took} {node.get('name', '')}")
+                  if node.get('result') == 'Failed':
+                      notes = [c.get('name', '') for c in node.get('children', []) if c.get('nodeType') == 'Failure Message']
+                      failed.append(node.get('name', '') + ': ' + ' / '.join(notes)[:400])
+              for child in node.get('children', []):
+                  walk(child)
+          for root in data.get('testNodes', []):
+              walk(root)
+          print('::notice title=Tests (' + str(len(rows)) + ')::' + ' | '.join(rows)[:30000])
+          if failed:
+              print('::warning title=Failures (' + str(len(failed)) + ')::' + ' || '.join(failed)[:30000])
+          PY
       - name: Report test build errors
         if: failure()
         run: |
