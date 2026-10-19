@@ -12,11 +12,17 @@ final class PageTurnUITests: XCTestCase {
 
     private func launch(on: Bool = true, theme: String = "fable", extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard", "-readerThemePreset", theme] + extra
+        app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard", "--ui-swipe-trace", "-readerThemePreset", theme] + extra
         // Holding: the turn stays where the finger left it for 3 s, so it can be photographed.
         if on { app.launchArguments += ["--ui-page-turn", "--ui-page-turn-hold"] }
         app.launch()
         return app
+    }
+
+    /// What the swipe back decided lately, for failure messages.
+    private func trace(_ app: XCUIApplication) -> String {
+        let record = app.otherElements["swipeTrace"]
+        return record.exists ? "Swipe trace: " + record.label : "No swipe trace"
     }
 
     /// Drags from an edge of the screen and lets go; with holding on, the page stays turned for 3 s.
@@ -57,14 +63,14 @@ final class PageTurnUITests: XCTestCase {
         XCTAssertEqual(toggle.value as? String, "1")
         // On: the swipe back from Appearance turns the page.
         turn(app, to: 0.75)
-        XCTAssertTrue(app.buttons["openAppearance"].waitForExistence(timeout: 8), "A long swipe turns back to Library")
+        XCTAssertTrue(app.buttons["openAppearance"].waitForExistence(timeout: 8), "A long swipe turns back to Library. \(trace(app))")
     }
 
     func testWithTheSettingOffTheSwipeGoesBackAsBefore() {
         let app = launch(on: false)
         openDefinition(app)
         turn(app, to: 0.7)
-        XCTAssertTrue(app.buttons["dictionaryResult_みほん"].firstMatch.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["dictionaryResult_みほん"].firstMatch.waitForExistence(timeout: 8), trace(app))
     }
 
     func testDefinitionTurnsBackToResultsAndThenToTheTabItCameFrom() {
@@ -74,7 +80,7 @@ final class PageTurnUITests: XCTestCase {
         turn(app, to: 0.2)
         shot(app, "Page turn · short swipe (lifts)")
         sleep(4)
-        XCTAssertTrue(app.webViews.links["実物"].waitForExistence(timeout: 5), "A short swipe stays on the definition")
+        XCTAssertTrue(app.webViews.links["実物"].waitForExistence(timeout: 5), "A short swipe stays on the definition. \(trace(app))")
         XCTAssertTrue(app.webViews.links["実物"].isHittable)
         shot(app, "Page turn · short swipe (laid down again)")
 
@@ -83,14 +89,14 @@ final class PageTurnUITests: XCTestCase {
         shot(app, "Page turn · definition over results")
         let result = app.buttons["dictionaryResult_みほん"].firstMatch
         sleep(4)
-        XCTAssertTrue(result.waitForExistence(timeout: 8), "A long swipe turns back to the results")
+        XCTAssertTrue(result.waitForExistence(timeout: 8), "A long swipe turns back to the results. \(trace(app))")
         XCTAssertTrue(result.isHittable)
         shot(app, "Page turn · back on results")
 
         // From the results the turn goes back to the tab Search was opened from, here from the right edge.
         turn(app, from: 0.988, to: 0.3, height: 0.6)
         shot(app, "Page turn · results over Read (right edge)")
-        XCTAssertTrue(app.textViews["selectablePassage"].waitForExistence(timeout: 10), "The turn ends on the Read tab")
+        XCTAssertTrue(app.textViews["selectablePassage"].waitForExistence(timeout: 10), "The turn ends on the Read tab. \(trace(app))")
         sleep(2)
         shot(app, "Page turn · back on Read")
     }
@@ -109,7 +115,7 @@ final class PageTurnUITests: XCTestCase {
         turn(app, from: 0.988, to: 0.4, height: 0.55)
         shot(app, "Page turn · upside down, definition over results")
         sleep(4)
-        XCTAssertTrue(result.waitForExistence(timeout: 8), "The turn goes back to the results")
+        XCTAssertTrue(result.waitForExistence(timeout: 8), "The turn goes back to the results. \(trace(app))")
 
         app.tabBars.buttons["Grammar"].tap()
         app.buttons["grammarLevel_N2"].tap()
@@ -121,7 +127,7 @@ final class PageTurnUITests: XCTestCase {
         turn(app, from: 0.988, to: 0.45, height: 0.4)
         shot(app, "Page turn · upside down, lesson over the list")
         sleep(4)
-        XCTAssertTrue(nuku.waitForExistence(timeout: 8), "The lesson turns back to the list")
+        XCTAssertTrue(nuku.waitForExistence(timeout: 8), "The lesson turns back to the list. \(trace(app))")
     }
 
     func testGrammarLessonTurnsBackToTheList() {
@@ -137,12 +143,12 @@ final class PageTurnUITests: XCTestCase {
 
         turn(app, to: 0.15)
         sleep(4)
-        XCTAssertTrue(page.staticTexts["意思"].isHittable, "A short swipe stays on the lesson")
+        XCTAssertTrue(page.staticTexts["意思"].isHittable, "A short swipe stays on the lesson. \(trace(app))")
 
         turn(app, to: 0.55, height: 0.7, drop: -0.1)
         shot(app, "Page turn · lesson over the list")
         sleep(4)
-        XCTAssertTrue(nuku.waitForExistence(timeout: 8), "A long swipe turns back to the list")
+        XCTAssertTrue(nuku.waitForExistence(timeout: 8), "A long swipe turns back to the list. \(trace(app))")
         XCTAssertTrue(nuku.isHittable)
         shot(app, "Page turn · back on the list")
         // The list is really the page now: a lesson opens again from it.

@@ -17,7 +17,7 @@ jobs:
   build:
     if: github.event.repository.private == false
     runs-on: macos-15
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: Test native dictionary engine
@@ -69,22 +69,46 @@ jobs:
           python3 - "$RUNNER_TEMP/summary.json" <<'PY'
           import json, sys
           data = json.load(open(sys.argv[1]))
-          rows, failed = [], []
-          def walk(node):
-              if node.get('nodeType') == 'Test Case':
-                  took = node.get('durationInSeconds', node.get('duration', '?'))
-                  if isinstance(took, float): took = f"{took:.0f}s"
-                  rows.append(f"{node.get('result', '?')} {took} {node.get('name', '')}")
+          cases, failed = [], []
+          def seconds(node):
+              took = node.get('durationInSeconds', node.get('duration'))
+              if isinstance(took, (int, float)):
+                  return float(took)
+              try:
+                  return float(str(took).rstrip('s'))
+              except ValueError:
+                  return 0.0
+          def walk(node, suite):
+              kind = node.get('nodeType')
+              if kind == 'Test Suite':
+                  suite = node.get('name', suite)
+              if kind == 'Test Case':
+                  name = suite + '/' + node.get('name', '')
+                  cases.append((seconds(node), node.get('result', '?'), name))
                   if node.get('result') == 'Failed':
                       notes = [c.get('name', '') for c in node.get('children', []) if c.get('nodeType') == 'Failure Message']
-                      failed.append(node.get('name', '') + ': ' + ' / '.join(notes)[:400])
+                      failed.append(name + ': ' + ' / '.join(notes))
               for child in node.get('children', []):
-                  walk(child)
+                  walk(child, suite)
           for root in data.get('testNodes', []):
-              walk(root)
-          print('::notice title=Tests (' + str(len(rows)) + ')::' + ' | '.join(rows)[:30000])
-          if failed:
-              print('::warning title=Failures (' + str(len(failed)) + ')::' + ' || '.join(failed)[:30000])
+              walk(root, '')
+          quick = [c for c in cases if c[0] < 2]
+          slow = sorted([c for c in cases if c[0] >= 2], reverse=True)
+          chunk = (f"{len(cases)} tests, {sum(c[0] for c in cases) / 60:.1f} min in all; {len(quick)} took under 2 s"
+                   f" ({sum(1 for c in quick if c[1] != 'Passed')} of those did not pass)")
+          chunks = []
+          for took, result, name in slow:
+              line = f"{result} {took:.0f}s {name}"
+              if len(chunk) + len(line) + 3 > 3500:
+                  chunks.append(chunk)
+                  chunk = line
+              else:
+                  chunk += ' | ' + line
+          chunks.append(chunk)
+          for index, text in enumerate(chunks[:8]):
+              print(f"::notice title=Tests {index + 1}/{len(chunks)}::{text}")
+          for text in failed[:9]:
+              print('::warning title=Failed::' + text[:3800].replace('\n', ' ').replace('\r', ' '))
           PY
       - name: Report test build errors
         if: failure()

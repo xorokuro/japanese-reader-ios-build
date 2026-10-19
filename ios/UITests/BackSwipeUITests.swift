@@ -12,11 +12,18 @@ final class BackSwipeUITests: XCTestCase {
 
     private func launch(_ extra: [String] = [], hold: Bool = false) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard", "-readerThemePreset", "fable"] + extra
+        // Tracing: the app keeps a short record of what the swipe decided (see `trace`).
+        app.launchArguments = ["--ui-dictionary-fixture", "--ui-reset-search-keyboard", "--ui-swipe-trace", "-readerThemePreset", "fable"] + extra
         // Holding: the page stays where the finger left it for 3 s, so it can be photographed.
         if hold { app.launchArguments.append("--ui-page-turn-hold") }
         app.launch()
         return app
+    }
+
+    /// What the swipe back decided lately, for failure messages.
+    private func trace(_ app: XCUIApplication) -> String {
+        let record = app.otherElements["swipeTrace"]
+        return record.exists ? "Swipe trace: " + record.label : "No swipe trace"
     }
 
     /// Presses at `from` and drags to `to` (fractions of the screen), then lets go.
@@ -58,7 +65,7 @@ final class BackSwipeUITests: XCTestCase {
         drag(app, from: CGVector(dx: 0.3, dy: 0.5), to: CGVector(dx: 0.72, dy: 0.53))
         shot(app, "Slide · definition over the results (from the middle of the page)")
         let result = app.buttons["dictionaryResult_みほん"].firstMatch
-        XCTAssertTrue(result.waitForExistence(timeout: 10), "A swipe from the middle of the page goes back to the results")
+        XCTAssertTrue(result.waitForExistence(timeout: 10), "A swipe from the middle of the page goes back to the results. \(trace(app))")
         sleep(1)
         XCTAssertTrue(result.isHittable)
         shot(app, "Slide · back on the results")
@@ -66,7 +73,7 @@ final class BackSwipeUITests: XCTestCase {
         // From the results the swipe goes back to the tab Search was opened from.
         drag(app, from: CGVector(dx: 0.25, dy: 0.62), to: CGVector(dx: 0.8, dy: 0.6))
         shot(app, "Slide · results over the Read page")
-        XCTAssertTrue(app.textViews["selectablePassage"].waitForExistence(timeout: 10), "The swipe ends on the Read tab")
+        XCTAssertTrue(app.textViews["selectablePassage"].waitForExistence(timeout: 10), "The swipe ends on the Read tab. \(trace(app))")
     }
 
     func testScrollingAndShortSwipesStayOnTheLesson() {
@@ -85,12 +92,12 @@ final class BackSwipeUITests: XCTestCase {
         // A short sideways swipe: the page comes back and stays.
         drag(app, from: CGVector(dx: 0.3, dy: 0.5), to: CGVector(dx: 0.42, dy: 0.5))
         sleep(2)
-        XCTAssertTrue(heading.isHittable, "A short swipe stays on the lesson")
+        XCTAssertTrue(heading.isHittable, "A short swipe stays on the lesson. \(trace(app))")
         XCTAssertFalse(row.exists)
 
         // A long one from the middle goes back to the list, which is really the page again.
         drag(app, from: CGVector(dx: 0.2, dy: 0.55), to: CGVector(dx: 0.85, dy: 0.5))
-        XCTAssertTrue(row.waitForExistence(timeout: 8), "A swipe from the middle of a lesson goes back to the list")
+        XCTAssertTrue(row.waitForExistence(timeout: 8), "A swipe from the middle of a lesson goes back to the list. \(trace(app))")
         sleep(1)
         XCTAssertTrue(row.isHittable)
         row.tap()
@@ -100,7 +107,10 @@ final class BackSwipeUITests: XCTestCase {
     func testInFullScreenTheEdgeStillGoesBack() {
         let app = launch()
         let (row, _) = openLesson(app)
-        app.buttons["grammarRelated"].tap()
+        // A menu in the title bar: tapped at its middle (XCUITest cannot "scroll it to visible").
+        let menu = app.buttons["grammarRelated"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
+        menu.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         let fullScreen = app.buttons["Full screen · 全螢幕"]
         XCTAssertTrue(fullScreen.waitForExistence(timeout: 5))
         fullScreen.tap()
@@ -110,7 +120,7 @@ final class BackSwipeUITests: XCTestCase {
         sleep(1)
         shot(app, "Slide · lesson in full screen")
         drag(app, from: CGVector(dx: 0.01, dy: 0.5), to: CGVector(dx: 0.8, dy: 0.5))
-        XCTAssertTrue(row.waitForExistence(timeout: 8), "With the title bar hidden, the edge swipe still goes back")
+        XCTAssertTrue(row.waitForExistence(timeout: 8), "With the title bar hidden, the edge swipe still goes back. \(trace(app))")
     }
 
     func testWithFromAnywhereOffOnlyTheEdgeGoesBack() {
@@ -118,9 +128,9 @@ final class BackSwipeUITests: XCTestCase {
         openDefinition(app)
         drag(app, from: CGVector(dx: 0.3, dy: 0.5), to: CGVector(dx: 0.9, dy: 0.5))
         sleep(1)
-        XCTAssertTrue(app.webViews.links["実物"].isHittable, "With From anywhere off, the middle of the page stays")
+        XCTAssertTrue(app.webViews.links["実物"].isHittable, "With From anywhere off, the middle of the page stays. \(trace(app))")
         drag(app, from: CGVector(dx: 0.02, dy: 0.5), to: CGVector(dx: 0.8, dy: 0.5))
-        XCTAssertTrue(app.buttons["dictionaryResult_みほん"].firstMatch.waitForExistence(timeout: 8), "The edge goes back")
+        XCTAssertTrue(app.buttons["dictionaryResult_みほん"].firstMatch.waitForExistence(timeout: 8), "The edge goes back. \(trace(app))")
     }
 
     func testTheDictionaryCardAndASelectionKeepTheirTouches() {
@@ -138,7 +148,7 @@ final class BackSwipeUITests: XCTestCase {
         // With the card open, a sideways swipe on the page stays.
         drag(app, from: CGVector(dx: 0.3, dy: 0.42), to: CGVector(dx: 0.9, dy: 0.42))
         sleep(1)
-        XCTAssertTrue(page.links["実物"].isHittable, "With the card open, the middle of the page does not go back")
+        XCTAssertTrue(page.links["実物"].isHittable, "With the card open, the middle of the page does not go back. \(trace(app))")
         XCTAssertTrue(card.exists)
 
         // Card closed, text still selected: away from the selection the page goes back.
@@ -149,6 +159,6 @@ final class BackSwipeUITests: XCTestCase {
         let result = app.buttons["dictionaryResult_みほん"].firstMatch
         let back = result.waitForExistence(timeout: 8)
         if !back { shot(app, "Slide · still on the definition with text selected") }
-        XCTAssertTrue(back, "Away from a selection's handles, a swipe on the page goes back")
+        XCTAssertTrue(back, "Away from a selection's handles, a swipe on the page goes back. \(trace(app))")
     }
 }

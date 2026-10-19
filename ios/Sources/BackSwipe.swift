@@ -238,6 +238,32 @@ enum BackSwipeRules {
     }
 }
 
+/// Interface tests (`--ui-swipe-trace`): the last things the swipe back decided, kept as the
+/// label of an invisible element `swipeTrace`, so a failing test can say why.
+@MainActor enum BackSwipeTrace {
+    static let on = ProcessInfo.processInfo.arguments.contains("--ui-swipe-trace")
+    private static var lines: [String] = []
+    private static weak var element: UIView?
+
+    static func note(_ line: @autoclosure () -> String) {
+        guard on else { return }
+        lines.append(String(format: "%.2f ", CACurrentMediaTime().truncatingRemainder(dividingBy: 1000)) + line())
+        if lines.count > 30 { lines.removeFirst(lines.count - 30) }
+        guard let window = PagePictures.window else { return }
+        let view: UIView
+        if let element, element.window === window { view = element } else {
+            element?.removeFromSuperview()
+            view = UIView(frame: CGRect(x: 0, y: 0, width: 2, height: 2))
+            view.isUserInteractionEnabled = false
+            view.isAccessibilityElement = true
+            view.accessibilityIdentifier = "swipeTrace"
+            window.addSubview(view)
+            element = view
+        }
+        view.accessibilityLabel = lines.joined(separator: " | ")
+    }
+}
+
 // MARK: - Recognizer
 
 /// One finger, decided by `BackSwipeRules.decide` from where it landed (`start`) and how it moves.
@@ -281,9 +307,14 @@ final class BackSwipeRecognizer: UIGestureRecognizer {
         switch state {
         case .possible:
             let move = CGVector(dx: now.x - origin.x, dy: now.y - origin.y)
-            switch BackSwipeRules.decide(start, move: move, elapsed: finger.timestamp - downTime) {
-            case .begin: state = .began
-            case .fail: state = .failed
+            let elapsed = finger.timestamp - downTime
+            switch BackSwipeRules.decide(start, move: move, elapsed: elapsed) {
+            case .begin:
+                BackSwipeTrace.note("begin \(start) after \(Int(move.dx)),\(Int(move.dy))" + othersActive(finger))
+                state = .began
+            case .fail:
+                BackSwipeTrace.note(String(format: "not a swipe: %ld,%ld in %.2fs", Int(move.dx), Int(move.dy), elapsed) + othersActive(finger))
+                state = .failed
             case .wait: break
             }
         case .began, .changed:
@@ -296,12 +327,27 @@ final class BackSwipeRecognizer: UIGestureRecognizer {
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
         guard let finger, touches.contains(finger) else { return }
         if let view { note(finger.location(in: view), at: finger.timestamp) }
+        if state == .possible { BackSwipeTrace.note("lifted before deciding") }
         state = state == .began || state == .changed ? .ended : .failed
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
         guard let finger, touches.contains(finger) else { return }
+        BackSwipeTrace.note("touch cancelled while \(state.rawValue)")
         state = state == .began || state == .changed ? .cancelled : .failed
+    }
+
+    override func canBePrevented(by preventing: UIGestureRecognizer) -> Bool {
+        let prevented = super.canBePrevented(by: preventing)
+        if prevented, finger != nil, state == .possible { BackSwipeTrace.note("taken by \(type(of: preventing)) (\(preventing.state.rawValue))") }
+        return prevented
+    }
+
+    /// Interface tests: the other recognizers on this touch that have started.
+    private func othersActive(_ touch: UITouch) -> String {
+        guard BackSwipeTrace.on else { return "" }
+        let active = (touch.gestureRecognizers ?? []).filter { $0 !== self && $0.state != .possible && $0.state != .failed }
+        return active.isEmpty ? "" : "; active: " + active.map { "\(type(of: $0))(\($0.state.rawValue))" }.joined(separator: ",")
     }
 
     override func reset() {
@@ -408,7 +454,11 @@ final class BackSwipeRecognizer: UIGestureRecognizer {
             waits = false
         }
         guard style.begin(in: window, fromLeft: recognizer.start != .right, at: CGPoint(x: origin.x + shift, y: origin.y),
-                          under: under, waitsForWebPage: waits, complete: goBack) else { stop(); return }
+                          under: under, waitsForWebPage: waits, complete: goBack) else {
+            BackSwipeTrace.note("the \(BackSwipe.curls ? "turn" : "slide") could not start")
+            stop(); return
+        }
+        BackSwipeTrace.note("\(BackSwipe.curls ? "turning" : "sliding")\(under == nil ? " over plain paper" : "")")
         self.style = style
         if toTarget { target?.began() }
         style.move(to: finger(in: window))
@@ -431,35 +481,48 @@ final class BackSwipeRecognizer: UIGestureRecognizer {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         // Another finger while one is watched: it ends the watch (see the recognizer).
         if recognizer.watching { return true }
-        guard !BackSwipe.busy, let stack, let window = stack.view.window,
-              stack.transitionCoordinator == nil, !BackSwipe.presenting(over: stack) else { return false }
+        if let refusal = refusal(of: touch) {
+            BackSwipeTrace.note("not watched: " + refusal)
+            return false
+        }
+        return true
+    }
+
+    /// Why a new touch cannot be a swipe back (nil: it is watched as one).
+    private func refusal(of touch: UITouch) -> String? {
+        if BackSwipe.busy { return "a swipe is on screen" }
+        guard let stack, let window = stack.view.window else { return "no window" }
+        if stack.transitionCoordinator != nil { return "page transition" }
+        if BackSwipe.presenting(over: stack) { return "something presented" }
         let pops = stack.viewControllers.count > 1
-        guard pops || target != nil else { return false }
+        guard pops || target != nil else { return "nothing to go back to" }
         let view: UIView = stack.view
         let point = touch.location(in: view)
         let start: BackSwipeRules.Start
         if point.x <= BackSwipe.edgeZone { start = .left }
         else if !pops, target?.bothEdges == true, point.x >= view.bounds.width - BackSwipe.edgeZone { start = .right }
         else { start = .page }
-        if start == .page && (!BackSwipe.anywhere || BackSwipe.contentBlocked()) { return false }
+        if start == .page && !BackSwipe.anywhere { return "from anywhere is off" }
+        if start == .page && BackSwipe.contentBlocked() { return "the card is open" }
         // UIKit's own swipe from the very edge shows the live page underneath: it keeps the
         // strip it answers to (a little narrower than this edge, which takes the rest).
-        if pops, start == .left, point.x <= BackSwipe.systemEdge, !BackSwipe.curls, BackSwipe.systemSwipeWorks(in: stack) { return false }
-        if BackSwipe.ownsSidewaysDrags(touch, in: window) { return false }
+        if pops, start == .left, point.x <= BackSwipe.systemEdge, !BackSwipe.curls, BackSwipe.systemSwipeWorks(in: stack) { return "UIKit's edge" }
+        if BackSwipe.ownsSidewaysDrags(touch, in: window) { return "drags sideways itself (\(touch.view.map { "\(type(of: $0))" } ?? "?"))" }
         // Text selected on the page: not on its handles (the page is only asked while there is a
         // selection), and not away from the edge if the page does not say where they are.
         if BackSwipe.selectionPresent() {
             let spot = touch.location(in: window)
             if let handles = BackSwipe.selectionHandles(in: window) {
-                if handles.contains(where: { $0.contains(spot) }) { return false }
+                if handles.contains(where: { $0.contains(spot) }) { return "on a selection handle" }
             } else if start == .page {
-                return false
+                return "text selected"
             }
         }
         if BackSwipe.curls && start != .page { PageTurn.shared.prepare(window) }
         recognizer.start = start
         toTarget = !pops
-        return true
+        BackSwipeTrace.note("watching \(start) at \(Int(point.x)),\(Int(point.y)) on \(touch.view.map { "\(type(of: $0))" } ?? "?")\(toTarget ? ", to target" : "")")
+        return nil
     }
 
     /// Scrolling waits until the touch is known not to be a swipe back (5–10 points), and so
@@ -594,6 +657,7 @@ final class BackSwipeBlockerView: UIView {
         guard phase == .tracking, let view else { return }
         let along = (fromLeft ? 1 : -1) * velocity
         let completes = BackSwipeRules.completes(travel: travel, width: view.bounds.width, velocity: along)
+        BackSwipeTrace.note("let go at \(Int(travel)) of \(Int(view.bounds.width)), \(Int(along))/s: \(completes ? "goes back" : "returns")")
         if BackSwipe.holdsForTests {
             phase = .holding
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
@@ -638,6 +702,7 @@ final class BackSwipeBlockerView: UIView {
         animator = nil
         let action = complete
         complete = nil
+        BackSwipeTrace.note("going back")
         action?()
         guard let view else { phase = .idle; return }
         view.isUserInteractionEnabled = false
@@ -656,6 +721,7 @@ final class BackSwipeBlockerView: UIView {
         view?.removeFromSuperview()
         view = nil
         complete = nil
+        if phase != .idle { BackSwipeTrace.note("slide over") }
         phase = .idle
     }
 
