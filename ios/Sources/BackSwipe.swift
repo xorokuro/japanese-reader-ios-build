@@ -22,8 +22,9 @@ import UIKit.UIGestureRecognizerSubclass
 // a third of the width, or with a flick, finishes and goes back; otherwise it returns.
 // The screen underneath is a picture taken when it was left (`PagePictures`).
 //
-// On NavigationStack pages with the title bar showing, a slide from the left edge is left
-// to UIKit's own swipe (it shows the live page underneath); everything else is ours.
+// On NavigationStack pages with the title bar showing, a slide from the very left edge
+// (`systemEdge`) is left to UIKit's own swipe (it shows the live page underneath); everything
+// else is ours.
 
 // MARK: - Pictures
 
@@ -174,6 +175,9 @@ enum BackSwipeRules {
     static let anywhereKey = "swipeBackAnywhere"
     /// How far from the side of the screen a touch counts as starting at the edge.
     static let edgeZone: CGFloat = 32
+    /// The strip at the very left edge where UIKit's own swipe back answers (on pages pushed
+    /// in a stack with the title bar showing, it is left to UIKit there).
+    static let systemEdge: CGFloat = 12
     /// Set by the app: something on screen owns sideways drags (the dictionary card is open).
     static var contentBlocked: @MainActor () -> Bool = { false }
     /// Set by the app: text is selected on the dictionary or lesson page.
@@ -442,8 +446,9 @@ final class BackSwipeRecognizer: UIGestureRecognizer {
         else if !pops, target?.bothEdges == true, point.x >= view.bounds.width - BackSwipe.edgeZone { start = .right }
         else { start = .page }
         if start == .page && (!BackSwipe.anywhere || BackSwipe.contentBlocked()) { return false }
-        // UIKit's own swipe from the left edge shows the live page underneath: it keeps that edge.
-        if pops, start == .left, !BackSwipe.curls, BackSwipe.systemSwipeWorks(in: stack) { return false }
+        // UIKit's own swipe from the very edge shows the live page underneath: it keeps the
+        // strip it answers to (a little narrower than this edge, which takes the rest).
+        if pops, start == .left, point.x <= BackSwipe.systemEdge, !BackSwipe.curls, BackSwipe.systemSwipeWorks(in: stack) { return false }
         if BackSwipe.ownsSidewaysDrags(touch, in: window) { return false }
         let spot = touch.location(in: window)
         if let handles = BackSwipe.selectionHandles(in: window) {
