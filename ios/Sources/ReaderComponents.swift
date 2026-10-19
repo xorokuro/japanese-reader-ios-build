@@ -446,7 +446,7 @@ struct FrameReader: View {
 
     /// How much of a page the dictionary card covers: the inset that keeps a selection near
     /// the bottom of the page visible above the card (`fallback` before it has been measured).
-    static func cover(of page: CGRect, by card: CGRect, fallback: CGFloat) -> CGFloat {
+    nonisolated static func cover(of page: CGRect, by card: CGRect, fallback: CGFloat) -> CGFloat {
         guard card.height > 1, page.height > 1 else { return fallback }
         return max(0, (page.maxY - card.minY + 4).rounded())
     }

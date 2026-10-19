@@ -45,6 +45,14 @@ final class BackSwipeTests: XCTestCase {
         }
     }
 
+    func testTheCardCoverKeepsTheSelectionAboveIt() {
+        let page = CGRect(x: 0, y: 100, width: 390, height: 600)
+        XCTAssertEqual(FrameReader.cover(of: page, by: CGRect(x: 0, y: 500, width: 390, height: 260), fallback: 250), 204)
+        XCTAssertEqual(FrameReader.cover(of: page, by: .zero, fallback: 250), 250, "before the card is measured")
+        XCTAssertEqual(FrameReader.cover(of: page, by: CGRect(x: 0, y: 800, width: 390, height: 100), fallback: 250), 0,
+                       "a card below the page covers nothing")
+    }
+
     func testLettingGoFarEnoughOrFlickingGoesBack() {
         XCTAssertFalse(BackSwipeRules.completes(travel: 60, width: 440, velocity: 0), "a short drag returns")
         XCTAssertTrue(BackSwipeRules.completes(travel: 170, width: 440, velocity: 0), "past about a third goes back")

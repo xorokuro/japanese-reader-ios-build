@@ -262,6 +262,93 @@ import SQLite3
             model.queue.async { DispatchQueue.main.async { continuation.resume() } }
         }
     }
+    /// Typing keeps the results on screen until the new ones arrive; a typed search with no
+    /// match leaves no note behind (the empty page says so), a submitted one does.
+    func testTypingKeepsResultsUntilTheNewOnesArrive() async throws {
+        let (model, root, suite) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
+        try await settle(model)
+        model.typedSearch("原")
+        try await Task.sleep(nanoseconds: 250_000_000)
+        try await settle(model)
+        XCTAssertEqual(model.hits.map(\.word), ["原因", "原因論"])
+        model.typedSearch("原因論")
+        XCTAssertEqual(model.hits.map(\.word), ["原因", "原因論"], "The old results stay while the new search waits")
+        XCTAssertTrue(model.searchPending)
+        try await Task.sleep(nanoseconds: 250_000_000)
+        try await settle(model)
+        XCTAssertEqual(model.hits.map(\.word), ["原因論"])
+        XCTAssertFalse(model.searchPending)
+        model.typedSearch("見つからない")
+        try await Task.sleep(nanoseconds: 250_000_000)
+        try await settle(model)
+        XCTAssertTrue(model.hits.isEmpty)
+        XCTAssertEqual(model.status, "", "While typing, the empty page is enough")
+        model.search()
+        try await settle(model)
+        XCTAssertEqual(model.status, "No match. Try the dictionary form of the word.", "A submitted search says so")
+    }
+    /// Switching a dictionary off or on searches again (the results used to be emptied).
+    func testSwitchingADictionarySearchesAgain() async throws {
+        let (model, root, suite) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
+        try await settle(model)
+        model.typedSearch("原")
+        try await Task.sleep(nanoseconds: 250_000_000)
+        try await settle(model)
+        XCTAssertEqual(model.hits.count, 2)
+        let id = try XCTUnwrap(model.dictionaries.first?.id)
+        model.searchScope = id
+        model.enableDictionary(id, enabled: false)
+        XCTAssertEqual(model.searchScope, "", "A search limited to the dictionary switched off searches them all")
+        try await Task.sleep(nanoseconds: 250_000_000)
+        try await settle(model)
+        XCTAssertTrue(model.hits.isEmpty, "The only dictionary is off")
+        model.enableDictionary(id, enabled: true)
+        try await Task.sleep(nanoseconds: 250_000_000)
+        try await settle(model)
+        XCTAssertEqual(model.hits.map(\.word), ["原因", "原因論"], "Switching it back on brings the results back without retyping")
+    }
+    func testSearchPromptIsAboutTheWordOnScreen() throws {
+        let (model, root, suite) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
+        model.text = "今日は日本語を勉強します。"
+        XCTAssertNil(model.searchPrompt(), "Nothing on Search to study")
+        model.word = "原因"
+        let prompt = try XCTUnwrap(model.searchPrompt())
+        XCTAssertTrue(prompt.hasSuffix("\n\n原因"))
+        XCTAssertFalse(prompt.contains(model.text), "Not the Read passage")
+    }
+    func testStudyNotesAreWrittenOnceTypingPauses() async throws {
+        let (model, root, suite) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
+        model.text = "保存する文章"
+        model.save()
+        let id = try XCTUnwrap(model.saved.first?.id)
+        model.updateNote(id: id, note: "メ")
+        model.updateNote(id: id, note: "メモ")
+        XCTAssertEqual(model.saved.first?.note, "メモ", "The list changes at once")
+        XCTAssertFalse(try String(contentsOf: model.libraryURL, encoding: .utf8).contains("メモ"), "Not written on every key")
+        try await Task.sleep(nanoseconds: 900_000_000)
+        XCTAssertTrue(try String(contentsOf: model.libraryURL, encoding: .utf8).contains("メモ"), "Written once typing pauses")
+        model.updateNote(id: id, note: "メモ二")
+        model.flushNotes()
+        XCTAssertTrue(try String(contentsOf: model.libraryURL, encoding: .utf8).contains("メモ二"), "Written when the app is put away")
+    }
+    func testShortMessagesGoAwayAndStayOnTheirTab() async throws {
+        let (model, root, suite) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
+        model.note("Saved to your library.", for: 0.2)
+        XCTAssertEqual(model.status, "Saved to your library.")
+        try await Task.sleep(nanoseconds: 500_000_000)
+        XCTAssertEqual(model.status, "", "A short confirmation goes away")
+        model.status = "Opened from another app."
+        model.tabChanged()
+        XCTAssertEqual(model.status, "Opened from another app.", "A message set with the tab change stays")
+        try await Task.sleep(nanoseconds: 1_700_000_000)
+        model.tabChanged()
+        XCTAssertEqual(model.status, "", "An older message belongs to the page that was left")
+    }
     func testExactModeLiveTypingAndClearCancelOldResults() async throws {
         let (model, root, suite) = try fixture()
         defer { try? FileManager.default.removeItem(at: root); UserDefaults.standard.removePersistentDomain(forName: suite) }
