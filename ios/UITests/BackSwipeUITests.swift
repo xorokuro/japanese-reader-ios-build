@@ -70,10 +70,21 @@ final class BackSwipeUITests: XCTestCase {
         XCTAssertTrue(result.isHittable)
         shot(app, "Slide · back on the results")
 
-        // From the results the swipe goes back to the tab Search was opened from.
-        drag(app, from: CGVector(dx: 0.25, dy: 0.62), to: CGVector(dx: 0.8, dy: 0.6))
+        // A short swipe that starts on a result: the list comes back, and the result is not
+        // opened (the swipe took the touch from the result's button).
+        let onResult = result.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5))
+        onResult.press(forDuration: 0.05, thenDragTo: onResult.withOffset(CGVector(dx: 60, dy: 0)),
+                       withVelocity: .slow, thenHoldForDuration: 0.2)
+        sleep(5)
+        XCTAssertTrue(result.isHittable, "A short swipe on a result stays on the results. \(trace(app))")
+        XCTAssertFalse(app.webViews.links["実物"].exists, "A swipe that starts on a result does not open it. \(trace(app))")
+
+        // From the results (here starting on a result) the swipe goes back to the tab Search was opened from.
+        onResult.press(forDuration: 0.05, thenDragTo: onResult.withOffset(CGVector(dx: 250, dy: -4)),
+                       withVelocity: .slow, thenHoldForDuration: 0.2)
         shot(app, "Slide · results over the Read page")
         XCTAssertTrue(app.textViews["selectablePassage"].waitForExistence(timeout: 10), "The swipe ends on the Read tab. \(trace(app))")
+        XCTAssertTrue(app.tabBars.buttons["Read"].isSelected)
     }
 
     func testScrollingAndShortSwipesStayOnTheLesson() {
@@ -121,6 +132,23 @@ final class BackSwipeUITests: XCTestCase {
         shot(app, "Slide · lesson in full screen")
         drag(app, from: CGVector(dx: 0.01, dy: 0.5), to: CGVector(dx: 0.8, dy: 0.5))
         XCTAssertTrue(row.waitForExistence(timeout: 8), "With the title bar hidden, the edge swipe still goes back. \(trace(app))")
+    }
+
+    /// Appearance is a page of rows and buttons: a swipe from its middle (on a row) goes back to Library.
+    func testSwipeFromTheMiddleOfAppearanceGoesBackToLibrary() {
+        let app = launch()
+        app.tabBars.buttons["Library"].tap()
+        let open = app.buttons["openAppearance"]
+        XCTAssertTrue(open.waitForExistence(timeout: 10))
+        for _ in 0..<6 where !open.isHittable { app.swipeUp() }
+        open.tap()
+        XCTAssertTrue(app.buttons["sectionJump"].firstMatch.waitForExistence(timeout: 10))
+        sleep(1)
+        XCTAssertFalse(open.isHittable)
+        drag(app, from: CGVector(dx: 0.35, dy: 0.45), to: CGVector(dx: 0.95, dy: 0.47))
+        XCTAssertTrue(open.waitForExistence(timeout: 8), "A swipe from the middle of Appearance goes back to Library. \(trace(app))")
+        sleep(1)
+        XCTAssertTrue(open.isHittable, "Back on Library. \(trace(app))")
     }
 
     func testWithFromAnywhereOffOnlyTheEdgeGoesBack() {
