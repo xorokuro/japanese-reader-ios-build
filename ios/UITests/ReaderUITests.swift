@@ -1,6 +1,24 @@
 import XCTest
 
 final class ReaderUITests: XCTestCase {
+    /// For failure messages: the Paste button and what the accessibility tree has at its middle.
+    private func pasteState(_ app: XCUIApplication) -> String {
+        let paste = app.buttons["pastePassage"]
+        guard paste.exists else { return "no Paste button; stand-in: \(app.buttons["pastePassageStandIn"].exists)" }
+        let frame = paste.frame
+        let middle = CGPoint(x: frame.midX, y: frame.midY)
+        let pattern = try! NSRegularExpression(pattern: #"\{\{(-?[0-9.]+), (-?[0-9.]+)\}, \{([0-9.]+), ([0-9.]+)\}\}"#)
+        var found: [String] = []
+        for line in app.debugDescription.split(separator: "\n") {
+            let text = String(line).trimmingCharacters(in: .whitespaces)
+            let whole = NSRange(text.startIndex..., in: text)
+            guard let match = pattern.firstMatch(in: text, range: whole) else { continue }
+            let number = { (index: Int) -> CGFloat in CGFloat(Double((text as NSString).substring(with: match.range(at: index))) ?? 0) }
+            if CGRect(x: number(1), y: number(2), width: number(3), height: number(4)).contains(middle) { found.append(String(text.prefix(150))) }
+        }
+        return "Paste at \(frame), hittable \(paste.isHittable), enabled \(paste.isEnabled); at its middle: " + found.suffix(6).joined(separator: " / ")
+    }
+
     /// Result groups collapse with an animation, so rows can linger briefly.
     private func waitForResultCount(_ app: XCUIApplication, _ count: Int, file: StaticString = #filePath, line: UInt = #line) {
         let rows = app.buttons.matching(identifier: "dictionaryResult_みほん")
@@ -248,9 +266,11 @@ final class ReaderUITests: XCTestCase {
         app.tabBars.buttons["Read"].tap()
         app.buttons["readerOptions"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         app.buttons["Auto-save pasted passages"].tap()
+        let before = pasteState(app)
         app.buttons["pastePassage"].tap()
+        let after = "Passage after: " + String((app.textViews["selectablePassage"].value as? String ?? "?").prefix(40))
         app.tabBars.buttons["Library"].tap()
-        XCTAssertTrue(app.buttons["Auto-saved passage"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["Auto-saved passage"].waitForExistence(timeout: 5), before + " || " + after)
         app.buttons["Auto-saved passage"].tap()
         XCTAssertEqual(app.textViews["selectablePassage"].value as? String, "Auto-saved passage")
         XCTAssertFalse(app.keyboards.firstMatch.exists)
@@ -266,8 +286,10 @@ final class ReaderUITests: XCTestCase {
         XCTAssertEqual(reader.value as? String, "Clipboard passage")
         app.buttons["readerOptions"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         app.buttons["Copy learning prompt"].tap()
+        let before = pasteState(app)
         app.buttons["pastePassage"].tap()
-        XCTAssertTrue((reader.value as? String ?? "").contains("Help me study this Japanese passage."))
+        XCTAssertTrue((reader.value as? String ?? "").contains("Help me study this Japanese passage."),
+                      before + " || Passage after: " + String((reader.value as? String ?? "?").prefix(40)))
         XCTAssertFalse(app.keyboards.firstMatch.exists)
         app.buttons["readerOptions"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         app.buttons["Save"].tap()

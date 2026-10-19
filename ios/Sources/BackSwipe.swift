@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import UIKit.UIGestureRecognizerSubclass
+import WebKit
 
 // Swiping back: definitions and results on Search, 文法 lessons, Appearance.
 //
@@ -279,6 +280,8 @@ final class BackSwipeRecognizer: UIGestureRecognizer {
 
     /// A finger is down and being watched.
     var watching: Bool { finger != nil }
+    /// The watched touch.
+    var touch: UITouch? { finger }
     /// Where the finger is now, in the recognizer's view.
     var point: CGPoint { samples.last?.point ?? origin }
     /// Points per second over the last tenth of a second, in the recognizer's view.
@@ -347,7 +350,7 @@ final class BackSwipeRecognizer: UIGestureRecognizer {
     private func othersActive(_ touch: UITouch) -> String {
         guard BackSwipeTrace.on else { return "" }
         let active = (touch.gestureRecognizers ?? []).filter { $0 !== self && $0.state != .possible && $0.state != .failed }
-        return active.isEmpty ? "" : "; active: " + active.map { "\(type(of: $0))(\($0.state.rawValue))" }.joined(separator: ",")
+        return active.isEmpty ? "" : "; active: " + active.map { "\(type(of: $0))(\($0.state.rawValue)) on \($0.view.map { "\(type(of: $0))" } ?? "?")" }.joined(separator: ",")
     }
 
     override func reset() {
@@ -460,6 +463,14 @@ final class BackSwipeRecognizer: UIGestureRecognizer {
         }
         BackSwipeTrace.note("\(BackSwipe.curls ? "turning" : "sliding")\(under == nil ? " over plain paper" : "")")
         self.style = style
+        // The button or row under the finger was pressed: the touch is the swipe's now, so
+        // its press ends without a tap.
+        for other in recognizer.touch?.gestureRecognizers ?? []
+        where (other.state == .began || other.state == .changed) && givesWay(other) {
+            BackSwipeTrace.note("cancelled \(type(of: other))")
+            other.isEnabled = false
+            other.isEnabled = true
+        }
         if toTarget { target?.began() }
         style.move(to: finger(in: window))
     }
@@ -530,6 +541,28 @@ final class BackSwipeRecognizer: UIGestureRecognizer {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
         if let scroll = other.view as? UIScrollView, other === scroll.panGestureRecognizer { return true }
         return other === stack?.interactivePopGestureRecognizer
+    }
+
+    /// SwiftUI takes a touch on a button or a row the moment it lands (its recognizer starts at
+    /// once), which would end every swipe that starts on one, and on a results list or a page
+    /// of settings that is nearly everywhere. Those recognizers run alongside this one instead,
+    /// and are cancelled when the swipe starts (see `begin`). A web page keeps its own say:
+    /// a long press that selects text there still ends the watch.
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        gestureRecognizer === recognizer && givesWay(other)
+    }
+
+    /// A recognizer of the page's own content (not of a web page, not scrolling, not UIKit's
+    /// own swipe back), which gives way to a swipe back.
+    private func givesWay(_ other: UIGestureRecognizer) -> Bool {
+        guard other !== recognizer, let view = other.view, other !== stack?.interactivePopGestureRecognizer else { return false }
+        if let scroll = view as? UIScrollView, other === scroll.panGestureRecognizer || other === scroll.pinchGestureRecognizer { return false }
+        var node: UIView? = view
+        while let current = node {
+            if current is WKWebView { return false }
+            node = current.superview
+        }
+        return true
     }
 }
 
