@@ -223,18 +223,14 @@ enum BackSwipeRules {
     }
 
     /// Areas around the handles of the text selected on the dictionary or lesson page
-    /// (window coordinates): empty when nothing is selected, nil when the page does not say.
+    /// (window coordinates): empty when nothing is selected there, nil when the page does not say.
     static func selectionHandles(in window: UIWindow) -> [CGRect]? {
         guard let page = SelectionBridge.shared.dictionaryView, page.window === window, !page.isHidden else { return [] }
-        guard let content = page.scrollView.subviews.first(where: { $0 is UITextInput }) as? (UIView & UITextInput) else {
-            return selectionPresent() ? nil : []
-        }
+        guard let content = page.scrollView.subviews.first(where: { $0 is UITextInput }) as? (UIView & UITextInput) else { return nil }
         guard let range = content.selectedTextRange, !range.isEmpty else { return [] }
         let start = content.convert(content.caretRect(for: range.start), to: window)
         let end = content.convert(content.caretRect(for: range.end), to: window)
-        guard !start.isNull, !end.isNull, start.minX.isFinite, end.maxX.isFinite, start.height > 0 || end.height > 0 else {
-            return selectionPresent() ? nil : []
-        }
+        guard !start.isNull, !end.isNull, start.minX.isFinite, end.maxX.isFinite, start.height > 0 || end.height > 0 else { return nil }
         // A handle is a line along the caret with a knob above (start) or below (end) it.
         let reach: CGFloat = 36
         return [CGRect(x: start.minX - reach, y: start.minY - reach - 10, width: reach * 2, height: start.height + reach * 2 + 10),
@@ -450,12 +446,15 @@ final class BackSwipeRecognizer: UIGestureRecognizer {
         // strip it answers to (a little narrower than this edge, which takes the rest).
         if pops, start == .left, point.x <= BackSwipe.systemEdge, !BackSwipe.curls, BackSwipe.systemSwipeWorks(in: stack) { return false }
         if BackSwipe.ownsSidewaysDrags(touch, in: window) { return false }
-        let spot = touch.location(in: window)
-        if let handles = BackSwipe.selectionHandles(in: window) {
-            if handles.contains(where: { $0.contains(spot) }) { return false }
-        } else if start == .page {
-            // Text is selected and the page does not say where: leave the page to the selection.
-            return false
+        // Text selected on the page: not on its handles (the page is only asked while there is a
+        // selection), and not away from the edge if the page does not say where they are.
+        if BackSwipe.selectionPresent() {
+            let spot = touch.location(in: window)
+            if let handles = BackSwipe.selectionHandles(in: window) {
+                if handles.contains(where: { $0.contains(spot) }) { return false }
+            } else if start == .page {
+                return false
+            }
         }
         if BackSwipe.curls && start != .page { PageTurn.shared.prepare(window) }
         recognizer.start = start
