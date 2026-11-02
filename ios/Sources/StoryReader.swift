@@ -46,6 +46,14 @@ enum StoryLink {
     #endif
 }
 
+/// The story page's selection colour. The theme's tint (which iOS uses for a selection and its
+/// handles) can all but vanish on the page's own paper, so the page gets a blue of its own. The page
+/// is told (`window.__storyAppTint`) and then leaves the selection to the app instead of drawing it.
+enum StoryLook {
+    static let tint = UIColor(red: 47.0 / 255, green: 111.0 / 255, blue: 214.0 / 255, alpha: 1)
+    static let announce = "window.__storyAppTint = true;"
+}
+
 /// Voices play with the ring/silent switch on, as a video or a podcast would.
 enum StoryAudio {
     static func prepare() {
@@ -264,7 +272,9 @@ struct StoryPage: UIViewRepresentable {
         scripts.add(coordinator, contentWorld: .page, name: "storyApp")
         scripts.addUserScript(WKUserScript(source: "window.__jpLimit = \(SelectionLimit.current);", injectionTime: .atDocumentStart, forMainFrameOnly: true, in: DictionaryPage.selectionWorld))
         scripts.addUserScript(WKUserScript(source: DictionaryPage.selectionScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: DictionaryPage.selectionWorld))
+        scripts.addUserScript(WKUserScript(source: StoryLook.announce, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         let view = ReaderWebView(frame: .zero, configuration: configuration)
+        view.tintColor = StoryLook.tint
         view.quietMenu = quietMenu
         view.navigationDelegate = coordinator
         view.uiDelegate = coordinator
@@ -292,6 +302,7 @@ struct StoryPage: UIViewRepresentable {
         coordinator.changeLink = changeLink
         (view as? ReaderWebView)?.quietMenu = quietMenu
         coordinator.reopenTap.enabled = quietMenu
+        if view.tintColor != StoryLook.tint { view.tintColor = StoryLook.tint }
         // Selections here drive the dictionary card while this page is on screen.
         if view.window != nil { SelectionBridge.shared.dictionaryView = view }
         if view.scrollView.contentInset.bottom != bottomInset {

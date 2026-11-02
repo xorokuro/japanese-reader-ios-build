@@ -4,7 +4,11 @@ Source-only snapshot for a user-authorized public iOS build. No personal passage
 
 Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuses to run build jobs when this repository is private.
 
-Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 3.11.0, build 67).
+Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 3.11.1, build 68).
+
+## 3.11.1 — a selection you can see in 物語
+
+- **Selecting a word in a story is clearly visible.** The selection and its handles took the theme's tint, which on the story's cream paper could hardly be seen. The story page now has a blue of its own for both.
 
 ## 3.11.0 — 物語 · Stories: read a story with its voices, and look words up in it
 
