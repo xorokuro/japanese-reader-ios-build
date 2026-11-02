@@ -4,7 +4,15 @@ Source-only snapshot for a user-authorized public iOS build. No personal passage
 
 Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuses to run build jobs when this repository is private.
 
-Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 3.11.1, build 68).
+Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 3.12.0, build 69).
+
+## 3.12.0 — 物語 saved on the phone: read with no network
+
+- **Save · 存 (存到手機) keeps the whole story in the app.** The first time, the 物語 tab offers it at the top (or the page's 設定 → 存到手機). The app fetches every file once (a few hundred MB, best on Wi-Fi), unlocks it with the page's key and keeps it on the phone, out of iCloud backups. From then on the tab opens the story from the phone: no network and no website, with voices, pictures and the dictionary card as before.
+- While it saves, a bar shows how far it is; **Pause · 暫停** and **Continue · 繼續** pick up where it stopped, also after the app was closed. Leaving the app pauses it after a short while, and it goes on by itself when you come back.
+- **Where you are reading comes along**: the place, the chapters read and the page's settings move to the saved copy (and back to the page on the web if the copy is removed). The app also keeps a copy of them, so they come back if iOS clears the page's storage.
+- In the saved story's 設定: **檢查更新** fetches only the files that changed on the site; **刪除** removes the copy and frees the space.
+- If the page on the web doesn't open (no network), the tab says so, with **Try again** and **Change link**.
 
 ## 3.11.1 — a selection you can see in 物語
 

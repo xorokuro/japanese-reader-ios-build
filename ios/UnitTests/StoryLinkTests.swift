@@ -26,4 +26,15 @@ final class StoryLinkTests: XCTestCase {
         XCTAssertFalse(StoryLink.sameSite(try XCTUnwrap(URL(string: "https://github.com/settings")), as: home))
         XCTAssertFalse(StoryLink.sameSite(try XCTUnwrap(URL(string: "http://example.github.io/reader/")), as: home))
     }
+
+    /// 存到手機 fetches the story's files from the page's folder.
+    func testThePagesFolderIsWhereItsFilesAre() throws {
+        func folder(_ text: String) throws -> String? { StoryLink.folder(of: try XCTUnwrap(URL(string: text)))?.absoluteString }
+        XCTAssertEqual(try folder("https://example.github.io/reader/"), "https://example.github.io/reader/")
+        XCTAssertEqual(try folder("https://example.github.io/reader/index.html?v=2#k=abc"), "https://example.github.io/reader/")
+        XCTAssertEqual(try folder("https://example.github.io/reader"), "https://example.github.io/reader/")
+        XCTAssertEqual(try folder("https://example.github.io"), "https://example.github.io/")
+        XCTAssertNil(try folder("http://example.github.io/reader/"))
+        XCTAssertNil(try folder("jpstory://story/index.html"))
+    }
 }

@@ -1,6 +1,6 @@
 # Japanese Reader (iOS) — notes for anyone working on this repo
 
-- **`main` is the app.** Start every change from the latest `main` (currently 3.11.1, build 68).
+- **`main` is the app.** Start every change from the latest `main` (currently 3.12.0, build 69).
   Do not start from older branches (`ruled-lines`, `grammar-tab`, `fix/…`, `claude/…`): they are
   snapshots of past versions, and building from one of them drops features such as the 文法 tab.
 - The app has five tabs: Read, Search, Library, **文法 (Grammar)** and **物語 (Stories)**. A build without the
@@ -11,6 +11,17 @@
   selected word opens the dictionary card as in 文法 lessons. The page asks for a new link through the
   `storyApp` message (`{action: "changeLink"}`). The page's selection is tinted `StoryLook.tint` (a theme's tint can
   vanish on the page's paper); `window.__storyAppTint` tells the page so, and it stops drawing a selection of its own.
+- 存到手機 (`StoryCopy.swift`): the app saves the whole story once and then reads it with no network. It takes the key
+  from the page (`window.__storyKey()`), fetches the encrypted `data/files.json` and every file it lists, unlocks them
+  with CryptoKit (`TOT1` + nonce + AES-GCM, as the page does) and keeps them in Application Support/Story (out of
+  backups; `copy.json` holds the hashes, the site and the key, for 檢查更新, which fetches only changed files).
+  `StoryFileHandler` serves them at `jpstory://story/…`; the page there gets `window.__storyLocal` (no key, no Cache
+  Storage: such a page is not a secure context, so it has no `crypto.subtle` anyway). The page asks the app through
+  `storyApp`: `save`, `update`, `remove`, `changeLink`; `window.__storyAppCopy` tells the page on the web that this
+  app can save. The page on the web and the copy are different origins: `StoryState` copies the page's storage into
+  the app whenever the page is left and gives it to a page that has an older one (numbered snapshots), so the place
+  read moves both ways and survives iOS clearing web storage. Scripts run through `JPReaderEvaluateInWorld`
+  (WebViewBridge.m), never the Swift WebKit overlay. Tests: `--ui-story-local-fixture` (a tiny saved story).
 - Bump `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` in `ios/project.yml` for every build the owner
   installs; the version shows at the bottom of Library.
 - Builds run on GitHub Actions (`.github/workflows/ios.yml`, manual dispatch). Run it on `main`.
