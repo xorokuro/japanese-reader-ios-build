@@ -549,7 +549,7 @@ struct YohakuHeader<Trailing: View>: View {
 // MARK: - Tab bar and icons
 
 enum YohakuIcons {
-    enum Kind: Int { case read = 0, search, library, grammar }
+    enum Kind: Int { case read = 0, search, library, grammar, story }
     private static var cache: [String: UIImage] = [:]
 
     private static func strokes(_ kind: Kind) -> [[CGPoint]] {
@@ -564,6 +564,8 @@ enum YohakuIcons {
             return [[p(5.5, 4.5), p(5.5, 19.5)], [p(10.5, 4.5), p(10.5, 19.5)], [p(14.5, 5.5), p(18.5, 19.5)], [p(3, 19.8), p(21, 19.5)]]
         case .grammar:  // 文法: a circle and a line
             return [Brush.circle(center: p(12, 12), radius: 7.5, seed: 8), [p(8.5, 12.2), p(15.5, 11.8)]]
+        case .story:  // 物語: a speech bubble
+            return [Brush.circle(center: p(12.5, 10.5), radius: 7.5, seed: 12), [p(8.4, 16.6), p(5.6, 21), p(11.4, 18.1)]]
         }
     }
 

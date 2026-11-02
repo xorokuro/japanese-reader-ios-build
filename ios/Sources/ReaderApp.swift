@@ -577,7 +577,7 @@ struct LookupSnapshot {
         }
         text = state.text
         readerOffset = state.readerOffset
-        restoredTab = (0...3).contains(state.tab) ? state.tab : 0
+        restoredTab = (0...4).contains(state.tab) ? state.tab : 0
         lookupHistory = state.history.map { step in
             LookupSnapshot(visit: step.page.flatMap { pages[$0] }, visits: step.stack.compactMap { pages[$0] },
                            query: step.query, hits: step.hits.map { $0.hit(roots) },
@@ -957,6 +957,9 @@ struct LookupSnapshot {
         if ProcessInfo.processInfo.arguments.contains("--ui-reset-search-keyboard") {
             UserDefaults.standard.removeObject(forKey: "automaticallyShowSearchKeyboard")
         }
+        if ProcessInfo.processInfo.arguments.contains("--ui-story-reset") {
+            UserDefaults.standard.removeObject(forKey: StoryLink.key)
+        }
         if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "--ui-clipboard"),
            ProcessInfo.processInfo.arguments.indices.contains(index + 1) {
             UIPasteboard.general.string = ProcessInfo.processInfo.arguments[index + 1]
@@ -1167,9 +1170,10 @@ struct ReaderHome: View {
             searchTab
             libraryTab
             grammarTab
+            storyTab
         }
         .sheet(isPresented: $showingHistory) { historySheet }
-        .background(SelectionTouchObserver(enabled: selectedTab == 0 || selectedTab == 3 || (selectedTab == 1 && model.showingEntry)) { down, cancelled in
+        .background(SelectionTouchObserver(enabled: selectedTab == 0 || selectedTab == 3 || selectedTab == 4 || (selectedTab == 1 && model.showingEntry)) { down, cancelled in
             model.selectionTouchChanged(down: down, cancelled: cancelled)
         })
         .background(KeyboardDismissArea(enabled: keyboardVisible && selectedTab != 2, dismiss: dismissKeyboard))
@@ -1307,6 +1311,15 @@ struct ReaderHome: View {
             .toolbarBackground(paper, for: .tabBar, .navigationBar)
             .toolbarBackground(.visible, for: .tabBar, .navigationBar)
             .tabItem { tabLabel("Grammar", system: "text.book.closed", yohaku: .grammar, tag: 3) }.tag(3)
+    }
+
+    // MARK: - Stories
+
+    private var storyTab: some View {
+        StoryTab(style: style, quietMenu: quietMenu, active: selectedTab == 4)
+            .toolbarBackground(paper, for: .tabBar, .navigationBar)
+            .toolbarBackground(.visible, for: .tabBar, .navigationBar)
+            .tabItem { tabLabel("Stories", system: "text.bubble", yohaku: .story, tag: 4) }.tag(4)
     }
 
     // MARK: - Read

@@ -4,7 +4,14 @@ Source-only snapshot for a user-authorized public iOS build. No personal passage
 
 Build locally on macOS with bash ios/build.sh. The manual GitHub workflow refuses to run build jobs when this repository is private.
 
-Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 3.10.0, build 66).
+Source snapshot: xorokuro/jp-game-reader commit 0473b05 (iOS 1.6, build 7), with later iOS-only updates (currently 3.11.0, build 67).
+
+## 3.11.0 — 物語 · Stories: read a story with its voices, and look words up in it
+
+- **A fifth tab, 物語 · Stories.** It opens your phone reader page for a visual novel (voices, pictures, choices, as in the browser) inside the app. Paste its link once (the whole link, with its `#k=…` part); the app keeps only the address, and the page itself remembers its key, where you are and the chapters you saved for reading offline.
+- **Select any word in the story** and the dictionary card opens, exactly as on the Read page and in 文法 lessons: step through the characters, open the full entry, and Back returns to the story.
+- Voices play one after another (▶ auto-play) and play with the silent switch on. Links that lead out of the story open in Safari.
+- To use another link, open the page's 設定 and tap 更換.
 
 ## 3.10.0 — a swipe back that follows your finger
 

@@ -763,6 +763,7 @@ enum FableNotes {
         case "reading": return "one sentence at a time"
         case "library": return "kept, for later"
         case "grammar": return "the shapes under words"
+        case "stories": return "told in many voices"
         default: return latin.lowercased()
         }
     }
